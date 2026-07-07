@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS users (
+  user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kakao_id TEXT UNIQUE NOT NULL,
+  nickname TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

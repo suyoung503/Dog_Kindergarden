@@ -1,0 +1,11 @@
+name = "matgyeomung-api"
+main = "src/index.ts"
+compatibility_date = "2026-05-20"
+
+[vars]
+APP_NAME = "맡겨멍 API"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dog_kindergarden_db"
+database_id = "02c8c308-32cb-4a5c-b785-a0d6ba01d236"

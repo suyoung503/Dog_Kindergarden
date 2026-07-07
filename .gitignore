@@ -1,0 +1,15 @@
+# iOS 앱은 별도 저장소 (github.com/suyoung503/kindergarden)
+/Dog_kindergarden/
+
+# 프로젝트 로컬 도구 설정
+/.claude/
+
+# OS
+.DS_Store
+
+# 백엔드 의존성/빌드 (backend-cloudflare/.gitignore + 전역 gitignore에서도 제외)
+node_modules/
+.wrangler/
+dist/
+.env
+.dev.vars
