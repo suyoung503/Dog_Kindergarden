@@ -8,14 +8,14 @@
 
 ### Task 5: 네이버 블로그 API 연동
 
-**소요 시간:** 10분  
-**코드는 완성됨 — API 키만 발급하면 됨**
+**소요 시간:** 10분
+**코드는 완성됨 — API 키만 발급하면 됨. 개인 계정으로 발급해야 하므로 사용자가 직접 진행**
 
 1. https://developers.naver.com 접속 → 로그인
 2. Applications → 애플리케이션 등록
 3. 사용 API: **검색 → 블로그** 체크
 4. iOS 번들 ID 입력 후 등록
-5. 발급된 Client ID, Secret을 `Secret.xcconfig`에 추가:
+5. 발급된 Client ID, Secret을 `Create.xcconfig`에 추가:
    ```
    NAVER_CLIENT_ID = 발급받은값
    NAVER_CLIENT_SECRET = 발급받은값
@@ -24,14 +24,11 @@
 
 ---
 
-### Task 7: README 작성
+### ✅ Task 7: README 작성 (완료 — 2026-07-08)
 
-**소요 시간:** 20분
-
-`Dog_kindergarden/README.md` 업데이트:
-- 프로젝트 소개
-- 빌드 방법 (pod install, Secret.xcconfig 설정)
-- API 키 발급 가이드 링크
+- 루트 `README.md` — 프로젝트 소개, 주요 기능, 모노레포 구조, 기술 스택
+- `Dog_kindergarden/README.md` — 빌드 가이드 (pod install, `Create.xcconfig` 작성 예시 + 키 발급처 표, 개발자 진입 안내)
+- `backend-cloudflare/README.md` — 구현된 API 목록을 현재 라우트로 최신화
 
 ---
 
@@ -70,6 +67,14 @@
 
 - `ProfileEditSheet` — 이름·연락처·주소 편집, 로그인 시 `PUT /api/users/:id` 서버 저장 + 세션 닉네임 동기화
 - 프로필 카드 실데이터 통계 (예약/강아지/채팅 수)
+
+---
+
+### ✅ 찜한 가게 (완료 — 2026-07-08)
+
+- D1 `favorites(user_id, store_id UNIQUE)` 신설, 기존 `store_key` upsert 패턴 재사용 — 채팅방과 동일한 설계
+- 가게 상세 하트 토글로 추가/해제, 마이페이지 '찜한 케어'→'찜한 가게' 이름 변경
+- `FavoritesView` 신규 — 프로필 아이콘·가게명·주소·호텔/유치원 태그·전화번호 목록, 탭 시 상세 이동
 
 ---
 
