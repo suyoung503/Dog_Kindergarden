@@ -10,6 +10,7 @@ struct StoreDetailView: View {
     @State private var blogService = NaverBlogService()
     @State private var showWriteSheet = false
     @State private var kakaoPlace: KakaoPlace? = nil   // 카카오로 보강한 전체 주소·전화
+    @State private var favoriteStoreId: Int? = nil     // nil이 아니면 찜한 가게 (해제용 store_id)
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
@@ -43,6 +44,12 @@ struct StoreDetailView: View {
             bottomBar
         }
         .task(id: storeKey) { await reviewService.load(storeKey: storeKey) }
+        .task(id: storeKey) {
+            // 찜 여부 확인 — 내 찜 목록에서 같은 store_key 찾기
+            guard let uid = authSession.userId else { return }
+            let list = (try? await APIClient.shared.fetchFavorites(userId: uid)) ?? []
+            favoriteStoreId = list.first(where: { ($0.storeKey ?? "") == storeKey })?.storeId
+        }
         .task(id: storeKey) {
             // 카카오 로컬 검색으로 마스킹된 주소(***)를 전체 주소로 보강
             if let p = pin {
@@ -163,7 +170,12 @@ struct StoreDetailView: View {
                 Spacer()
                 HStack(spacing: 8) {
                     heroButton(icon: "square.and.arrow.up")
-                    heroButton(icon: "heart.fill", tint: Color.brandOrange)
+                    Button(action: toggleFavorite) {
+                        heroButton(
+                            icon: favoriteStoreId != nil ? "heart.fill" : "heart",
+                            tint: favoriteStoreId != nil ? Color.brandOrange : Color.brandBrown
+                        )
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -177,6 +189,31 @@ struct StoreDetailView: View {
             .fill(.white.opacity(0.9))
             .frame(width: 40, height: 40)
             .overlay(Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint))
+    }
+
+    // 찜 토글 — 추가는 성공 후 채움, 해제는 낙관적으로 비우고 실패 시 되돌림
+    private func toggleFavorite() {
+        guard let uid = authSession.userId else { return }
+        Task {
+            if let sid = favoriteStoreId {
+                favoriteStoreId = nil
+                do { try await APIClient.shared.removeFavorite(userId: uid, storeId: sid) }
+                catch { favoriteStoreId = sid }
+            } else {
+                guard let p = pin else { return }
+                let response = try? await APIClient.shared.addFavorite(
+                    userId: uid,
+                    storeKey: storeKey,
+                    storeName: storeName,
+                    address: displayAddress,
+                    phone: displayPhone,
+                    storeType: p.type,
+                    latitude: p.latitude,
+                    longitude: p.longitude
+                )
+                favoriteStoreId = response?.storeId
+            }
+        }
     }
 
     // MARK: - Title card

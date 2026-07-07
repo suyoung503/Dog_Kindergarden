@@ -21,7 +21,7 @@ final class AuthSession {
         nickname = UserDefaults.standard.string(forKey: "auth_nickname") ?? ""
     }
 
-    func loginWithKakao() async {
+    func loginWithKakao(profile: UserProfile? = nil) async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -56,7 +56,7 @@ final class AuthSession {
             let kakaoId = "\(kakaoUser.id ?? 0)"
             let name    = kakaoUser.kakaoAccount?.profile?.nickname ?? "보호자"
 
-            try await registerWithBackend(kakaoId: kakaoId, nickname: name)
+            try await registerWithBackend(kakaoId: kakaoId, nickname: name, profile: profile)
         } catch {
             errorMessage = "로그인에 실패했어요. 다시 시도해주세요."
         }
@@ -70,7 +70,27 @@ final class AuthSession {
         UserDefaults.standard.removeObject(forKey: "auth_nickname")
     }
 
-    private func registerWithBackend(kakaoId: String, nickname: String) async throws {
+#if DEBUG
+    // 시뮬레이터 개발자 진입 — 고정 kakao_id로 실제 유저 행을 만들어
+    // 프로필 저장·예약 등 서버 연동이 실제로 동작하게 함
+    func loginAsDeveloper(profile: UserProfile? = nil) async {
+        do {
+            try await registerWithBackend(kakaoId: "dev-simulator", nickname: "테스트", profile: profile)
+        } catch {
+            // 오프라인 폴백 (서버 연동 기능은 동작하지 않음)
+            userId = 1
+            nickname = "테스트"
+        }
+    }
+#endif
+
+    // 프로필 수정 저장 후 세션 닉네임도 함께 갱신
+    func updateNickname(_ name: String) {
+        nickname = name
+        UserDefaults.standard.set(name, forKey: "auth_nickname")
+    }
+
+    private func registerWithBackend(kakaoId: String, nickname: String, profile: UserProfile?) async throws {
         guard let url = URL(string: "\(baseURL)/api/auth/kakao") else { return }
 
         var req = URLRequest(url: url)
@@ -89,6 +109,17 @@ final class AuthSession {
             self.nickname = json?["nickname"] as? String ?? nickname
             UserDefaults.standard.set(id, forKey: "auth_user_id")
             UserDefaults.standard.set(self.nickname, forKey: "auth_nickname")
+
+            // 서버에 저장된 프로필(닉네임·연락처·주소)을 로컬 UserProfile에도 반영
+            if let profile {
+                profile.name = self.nickname
+                if let phone = json?["phone"] as? String, !phone.isEmpty {
+                    profile.phone = phone
+                }
+                if let address = json?["address"] as? String, !address.isEmpty {
+                    profile.address = address
+                }
+            }
         }
     }
 }

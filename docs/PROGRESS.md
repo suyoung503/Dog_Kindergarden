@@ -1,6 +1,6 @@
 # 맡겨멍 — 현재 진행상황 및 다음 단계
 
-**마지막 업데이트:** 2026-07-03
+**마지막 업데이트:** 2026-07-08
 
 ---
 
@@ -38,6 +38,12 @@
 - [x] **예약 시 채팅방 자동 생성** — `(user_id, store_id)` 조합당 방 1개(`chat_rooms`), 공공 가게는 `store_key`로 `stores`에 upsert해 안정적 `store_id` 확보
 - [x] 예약 완료화면에 실제 예약 정보(가게/강아지/일정/금액) 반영
 - [x] 보호자 정보 자동 불러오기 + 영구 저장, 서비스 선택 시 총 결제금액 실시간 계산
+- [x] **채팅 클라이언트 연동** — `ChatService` 신설, `ChatRoomView` 실제 메시지 로드/전송(낙관적 추가+실패 롤백, 방 없으면 첫 전송 시 생성), `ChatListView` 실제 방 목록, 예약 완료화면·가게 상세 문의하기 → 채팅방(`room_id`) 직행
+- [x] **MyPage 프로필 편집** — `ProfileEditSheet`(이름·연락처·주소), 로그인 시 `PUT /api/users/:id` 서버 저장 + 세션 닉네임 동기화, 비로그인 시 로컬만. 프로필 카드 실데이터 통계(예약/강아지/채팅 수, `GET /api/users/:id/reservations` 라우트 추가)
+- [x] 카카오 로그인 시 서버 프로필(연락처·주소)을 로컬 `UserProfile`에 동기화
+- [x] 빌드 복구 — `APIClient`와 `ChatService`의 `ChatRoomSummary` 중복 선언 제거 (`ChatService` 쪽으로 일원화)
+- [x] 프로필 저장 실패 수정 — 원인: 개발자 진입이 DB에 없는 `userId=1`을 하드코딩 → `PUT /api/users/:id`가 null 반환·디코딩 실패. 개발자 진입을 고정 `kakao_id`(`dev-simulator`)로 실제 유저 등록하도록 변경, 백엔드는 없는 유저에 404 반환 (배포 완료)
+- [x] **찜한 가게** (2026-07-08) — 가게 상세 하트 토글로 서버 저장. D1 `favorites(user_id, store_id UNIQUE)` 테이블 신설(마이그레이션 0006, `stores.store_type` 컬럼 추가), 기존 `store_key` upsert 패턴 재사용. API 3개: `POST /api/favorites`, `DELETE /api/users/:id/favorites/:storeId`, `GET /api/users/:id/favorites`. 마이페이지 '찜한 케어'→'찜한 가게' 이름 변경 + 실제 찜 개수 뱃지 + `FavoritesView` 목록 화면(타입별 아이콘·가게명·주소·호텔/유치원 태그·전화번호, 행 탭 시 상세 이동, 하트로 즉시 해제). `MapPin.storeKeyOverride`로 보강 주소로 복원해도 원본 키 유지 (배포·curl 검증 완료)
 
 ---
 
@@ -58,8 +64,8 @@
 
 - [x] ~~로그인/회원가입~~ — 카카오 로그인 연동 완료
 - [x] ~~예약 API 실연동~~ — 완료 (2026-07 세션)
-- [ ] 채팅 API 클라이언트 연동 — `ChatRoomView`가 아직 하드코딩(`sampleMessages`), 예약 후 채팅방(`room_id`) 직행 연결 필요
-- [ ] MyPageView에서 `UserProfile` 편집 UI 연결
+- [x] ~~채팅 API 클라이언트 연동~~ — 완료 (2026-07-07, `ChatService` 기반 실연동)
+- [x] ~~MyPageView에서 `UserProfile` 편집 UI 연결~~ — 완료 (2026-07-07, `ProfileEditSheet`)
 
 ### 장기 (v2)
 
@@ -81,9 +87,9 @@
 | 네이버 블로그 API | ⏳ 키 발급 필요 |
 | 로그인/회원가입 | ✅ 카카오 로그인 |
 | 예약 백엔드 연동 | ✅ 연동 완료 |
-| 채팅 클라이언트 연동 | ❌ 하드코딩 (다음 작업) |
-| MyPage 프로필 편집 | ❌ 미구현 |
-| README | ⏳ 작성 필요 |
+| 채팅 클라이언트 연동 | ✅ 연동 완료 |
+| MyPage 프로필 편집 | ✅ 구현 완료 |
+| README | ⏳ 작성 필요 (다음 작업) |
 
 ---
 
