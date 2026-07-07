@@ -47,9 +47,28 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 ```
 
 ## 구현된 API
+
+전체 라우트는 `src/index.ts` 하나에 정의되어 있습니다.
+
 - `GET /api/stores`
 - `POST /api/reservations`
+- `GET /api/users/:id/reservations`
 - `GET /api/users/:id/pets`
+- `POST /api/users/:id/pets`
+- `DELETE /api/pets/:petId`
 - `GET /api/diaries/:reservationId`
 - `GET /api/chatrooms/:id/messages`
 - `POST /api/chatrooms/:id/messages`
+- `GET /api/chatrooms/lookup`
+- `POST /api/chatrooms`
+- `GET /api/users/:id/chatrooms`
+- `POST /api/reviews`
+- `GET /api/stores/:id/reviews`
+- `POST /api/pet-reviews`
+- `GET /api/pet-reviews`
+- `GET /api/pet-reviews/tags`
+- `POST /api/auth/kakao`
+- `PUT /api/users/:id`
+- `POST /api/favorites`
+- `DELETE /api/users/:userId/favorites/:storeId`
+- `GET /api/users/:id/favorites`

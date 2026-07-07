@@ -43,7 +43,7 @@
 - [x] 카카오 로그인 시 서버 프로필(연락처·주소)을 로컬 `UserProfile`에 동기화
 - [x] 빌드 복구 — `APIClient`와 `ChatService`의 `ChatRoomSummary` 중복 선언 제거 (`ChatService` 쪽으로 일원화)
 - [x] 프로필 저장 실패 수정 — 원인: 개발자 진입이 DB에 없는 `userId=1`을 하드코딩 → `PUT /api/users/:id`가 null 반환·디코딩 실패. 개발자 진입을 고정 `kakao_id`(`dev-simulator`)로 실제 유저 등록하도록 변경, 백엔드는 없는 유저에 404 반환 (배포 완료)
-- [x] **찜한 가게** (2026-07-08) — 가게 상세 하트 토글로 서버 저장. D1 `favorites(user_id, store_id UNIQUE)` 테이블 신설(마이그레이션 0006, `stores.store_type` 컬럼 추가), 기존 `store_key` upsert 패턴 재사용. API 3개: `POST /api/favorites`, `DELETE /api/users/:id/favorites/:storeId`, `GET /api/users/:id/favorites`. 마이페이지 '찜한 케어'→'찜한 가게' 이름 변경 + 실제 찜 개수 뱃지 + `FavoritesView` 목록 화면(타입별 아이콘·가게명·주소·호텔/유치원 태그·전화번호, 행 탭 시 상세 이동, 하트로 즉시 해제). `MapPin.storeKeyOverride`로 보강 주소로 복원해도 원본 키 유지 (배포·curl 검증 완료)
+- [x] **찜한 가게** (2026-07-08) — 가게 상세 하트 토글로 서버 저장. D1 `favorites(user_id, store_id UNIQUE)` 테이블 신설(마이그레이션 0006, `stores.store_type` 컬럼 추가), 기존 `store_key` upsert 패턴 재사용. API 3개: `POST /api/favorites`, `DELETE /api/users/:id/favorites/:storeId`, `GET /api/users/:id/favorites`. 마이페이지 '찜한 케어'→'찜한 가게' 이름 변경 + 실제 찜 개수 뱃지 + `FavoritesView` 목록 화면(타입별 아이콘·가게명·주소·호텔/유치원 태그·전화번호, 행 탭 시 상세 이동, 하트로 즉시 해제). `MapPin.storeKeyOverride`로 보강 주소로 복원해도 원본 키 유지 — 배포·curl 검증 + **시뮬레이터 실기기 확인 완료**, 커밋 `061dc02` push 완료
 
 ---
 
@@ -51,14 +51,12 @@
 
 ### 단기 (배포 전 필수)
 
-- [ ] **Task 5** — 네이버 블로그 API 키 발급
+- [ ] **Task 5** — 네이버 블로그 API 키 발급 (사용자가 직접 해야 함 — 개인 계정으로 앱 등록)
   - https://developers.naver.com 에서 앱 등록
-  - `Secret.xcconfig`에 `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` 추가
+  - `Create.xcconfig`에 `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` 추가
   - 완료 시 가게 상세 화면에서 블로그 후기 자동 표시
 
-- [ ] **Task 7** — README 정리
-  - `Dog_kindergarden/README.md` 빌드 가이드로 업데이트
-  - 루트 `README.md` 프로젝트 소개로 작성
+- [x] **Task 7** — README 정리 (2026-07-08) — 루트 `README.md`(프로젝트 소개), `Dog_kindergarden/README.md`(빌드 가이드: Create.xcconfig 작성법·키 발급처 표·개발자 진입 안내) 신규 작성. `backend-cloudflare/README.md`의 API 목록을 현재 라우트로 최신화. 부수적으로 **문서 오류 발견·수정**: 실제 Xcode 빌드 설정(`baseConfigurationReference`)이 가리키는 파일은 `Secret.xcconfig`가 아니라 `Base.lproj/Config/Create.xcconfig`였음 — CLAUDE.md 등 관련 문서를 실제 경로로 정정 (git에 커밋된 적 없어 키 유출은 없음)
 
 ### 중기 (기능 확장)
 
@@ -89,12 +87,13 @@
 | 예약 백엔드 연동 | ✅ 연동 완료 |
 | 채팅 클라이언트 연동 | ✅ 연동 완료 |
 | MyPage 프로필 편집 | ✅ 구현 완료 |
-| README | ⏳ 작성 필요 (다음 작업) |
+| 찜한 가게 | ✅ 구현 완료 |
+| README | ✅ 작성 완료 |
 
 ---
 
 ## Git 현황
 
-- **iOS repo:** `Dog_kindergarden/` — `main` 브랜치, origin 최신 상태
+- **저장소:** 모노레포 단일 repo, `main` 브랜치, origin 최신 상태 (최근 커밋 `061dc02`, push 완료)
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
