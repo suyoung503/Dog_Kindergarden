@@ -44,6 +44,7 @@
 - [x] 빌드 복구 — `APIClient`와 `ChatService`의 `ChatRoomSummary` 중복 선언 제거 (`ChatService` 쪽으로 일원화)
 - [x] 프로필 저장 실패 수정 — 원인: 개발자 진입이 DB에 없는 `userId=1`을 하드코딩 → `PUT /api/users/:id`가 null 반환·디코딩 실패. 개발자 진입을 고정 `kakao_id`(`dev-simulator`)로 실제 유저 등록하도록 변경, 백엔드는 없는 유저에 404 반환 (배포 완료)
 - [x] **찜한 가게** (2026-07-08) — 가게 상세 하트 토글로 서버 저장. D1 `favorites(user_id, store_id UNIQUE)` 테이블 신설(마이그레이션 0006, `stores.store_type` 컬럼 추가), 기존 `store_key` upsert 패턴 재사용. API 3개: `POST /api/favorites`, `DELETE /api/users/:id/favorites/:storeId`, `GET /api/users/:id/favorites`. 마이페이지 '찜한 케어'→'찜한 가게' 이름 변경 + 실제 찜 개수 뱃지 + `FavoritesView` 목록 화면(타입별 아이콘·가게명·주소·호텔/유치원 태그·전화번호, 행 탭 시 상세 이동, 하트로 즉시 해제). `MapPin.storeKeyOverride`로 보강 주소로 복원해도 원본 키 유지 — 배포·curl 검증 + **시뮬레이터 실기기 확인 완료**, 커밋 `061dc02` push 완료
+- [x] **미사용 파일 정리** (2026-07-08) — `Config/Untitled.swift`(빈 orphan 파일), SwiftUI 전환 이전 UIKit 프로토타입 잔재 `ViewController.swift`·`FeatureViewControllers.swift`·`DataManager.swift`·`All_data.csv`(총 2000줄+/367KB, 실행 경로에서 전혀 안 쓰임) 삭제. 삭제 과정에서 이 파일들이 정의하던 `DogCareStore`/`PetProfile`/`DiaryEntry`/`ChatMessageItem` 모델을 `APIClient.swift`가 참조 중이던 것을 발견 — 실제 호출처를 전수 조사해 `fetchStores`/`createReservation`/`fetchDiaries`/`fetchMessages`/`sendMessage`는 전부 호출처 0개(지도는 `AnimalBoardingService`, 예약은 `BookingView` 직접 URLSession, 채팅은 `ChatService`가 각각 담당)로 확인해 관련 타입까지 함께 제거. 유일하게 살아있던 `fetchPets`(`MyPageView` 강아지 수 뱃지용)가 의존하던 `PetProfile`만 `APIClient.swift`로 옮겨 보존. xcodebuild `BUILD SUCCEEDED` 재검증 완료, 커밋 `39f641a`·`5297fd5` push 완료
 
 ---
 
@@ -94,6 +95,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치, origin 최신 상태 (최근 커밋 `061dc02`, push 완료)
+- **저장소:** 모노레포 단일 repo, `main` 브랜치, origin 최신 상태 (최근 커밋 `5d293f0`, push 완료)
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
