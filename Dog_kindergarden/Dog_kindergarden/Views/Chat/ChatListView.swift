@@ -1,0 +1,150 @@
+import SwiftUI
+import Observation
+
+@Observable
+@MainActor
+final class ChatListViewModel {
+    var rooms: [ChatRoomSummary] = []
+    var isLoading = false
+
+    func load(userId: Int) async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            rooms = try await ChatService.rooms(userId: userId)
+        } catch {
+            rooms = []
+        }
+    }
+}
+
+struct ChatListView: View {
+    @Environment(AppRouter.self) private var router
+    @Environment(AuthSession.self) private var authSession
+    @State private var vm = ChatListViewModel()
+
+    private let tileColors: [Color] = [
+        Color(hex: "#FFE6CC"), .brandGreenLight, .brandBlueLight, Color(hex: "#FFF1A8"),
+    ]
+    private let tileEmojis = ["🐶", "🐕", "🏨", "🦴"]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            navBar
+            if !vm.isLoading && vm.rooms.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(vm.rooms.enumerated()), id: \.element.room_id) { index, room in
+                            chatRow(room, index: index)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 16)
+                }
+            }
+        }
+        .background(Color.brandCream.ignoresSafeArea())
+        .task { await vm.load(userId: authSession.userId ?? 1) }
+    }
+
+    // MARK: - Nav
+
+    private var navBar: some View {
+        HStack(spacing: 12) {
+            Button(action: router.back) {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 36, height: 36)
+                    .overlay(Circle().stroke(Color.brandBeigeBorder, lineWidth: 1))
+                    .overlay(Image(systemName: "chevron.left").font(.system(size: 15)).foregroundStyle(Color.brandBrown))
+            }
+            Text("채팅")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color.brandBrown)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, UIApplication.safeAreaTop + 12)
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - Empty
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Text("💬").font(.system(size: 40))
+            Text("아직 채팅방이 없어요")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.brandBrown)
+            Text("예약하거나 가게에 문의하면\n채팅방이 생겨요")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.brandBrownMid)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Row
+
+    private func chatRow(_ room: ChatRoomSummary, index: Int) -> some View {
+        Button(action: {
+            router.selectedChat = room.store_name ?? "채팅"
+            router.selectedRoomId = room.room_id
+            router.go(.chatRoom)
+        }) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(tileColors[index % tileColors.count])
+                        .frame(width: 48, height: 48)
+                    EmojiIcon(emoji: tileEmojis[index % tileEmojis.count], size: 22)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(room.store_name ?? "채팅")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.brandBrown)
+                        Spacer()
+                        Text(shortTime(room.last_time))
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.brandBrownMid)
+                    }
+                    Text(room.last_message ?? "새 채팅방")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: "#7a5635"))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Time
+
+    // 서버 시각(UTC "yyyy-MM-dd HH:mm:ss")을 로컬 "M/d HH:mm"으로
+    private static let inFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+    private static let outFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M/d HH:mm"
+        f.timeZone = .current
+        return f
+    }()
+
+    private func shortTime(_ s: String?) -> String {
+        guard let s, let d = Self.inFmt.date(from: s) else { return "" }
+        return Self.outFmt.string(from: d)
+    }
+}
