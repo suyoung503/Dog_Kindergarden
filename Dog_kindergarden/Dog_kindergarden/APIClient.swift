@@ -35,26 +35,6 @@ final class APIClient {
         }
     }
 
-    func fetchStores() async throws -> [DogCareStore] {
-        let responses: [StoreResponse] = try await request(path: "/stores", method: "GET")
-        return responses.map { $0.toDomain() }
-    }
-
-    @discardableResult
-    func createReservation(store: DogCareStore, startDate: Date, endDate: Date, type: ReservationKind, message: String) async throws -> ReservationResponse {
-        let requestBody = ReservationCreateRequest(
-            userId: 1,
-            petId: 1,
-            storeId: Int(store.id) ?? 1,
-            startDate: startDate,
-            endDate: endDate,
-            reservationType: type.rawValue,
-            requestMessage: message
-        )
-        return try await request(path: "/reservations", method: "POST", body: requestBody)
-    }
-
-
     @discardableResult
     func createReview(reservationId: Int, storeId: Int, rating: Double, revisit: Bool, content: String) async throws -> ReviewResponse {
         let body = ReviewCreateRequest(
@@ -111,22 +91,6 @@ final class APIClient {
         let _: FavoriteDeleteResponse = try await request(path: "/users/\(userId)/favorites/\(storeId)", method: "DELETE")
     }
 
-    func fetchDiaries(reservationId: Int = 1) async throws -> [DiaryEntry] {
-        let responses: [DiaryResponse] = try await request(path: "/diaries/\(reservationId)", method: "GET")
-        return responses.map { $0.toDomain() }
-    }
-
-    func fetchMessages(roomId: Int = 1) async throws -> [ChatMessageItem] {
-        let responses: [ChatMessageResponse] = try await request(path: "/chatrooms/\(roomId)/messages", method: "GET")
-        return responses.map { $0.toDomain() }
-    }
-
-    func sendMessage(roomId: Int = 1, content: String) async throws -> ChatMessageItem {
-        let requestBody = ChatMessageCreateRequest(senderId: 1, messageType: "TEXT", content: content)
-        let response: ChatMessageResponse = try await request(path: "/chatrooms/\(roomId)/messages", method: "POST", body: requestBody)
-        return response.toDomain()
-    }
-
     private func request<Response: Decodable>(path: String, method: String) async throws -> Response {
         var request = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
         request.httpMethod = method
@@ -154,58 +118,6 @@ final class APIClient {
 
 enum APIError: Error {
     case badStatus
-}
-
-enum ReservationKind: String {
-    case normal = "NORMAL"
-    case regular = "REGULAR"
-}
-
-struct StoreResponse: Decodable {
-    let storeId: Int?
-    let id: Int?
-    let name: String
-    let address: String?
-    let roadAddress: String?
-    let latitude: Double?
-    let longitude: Double?
-    let phone: String?
-    let status: String?
-    let openTime: String?
-    let pickup: Bool?
-    let playground: Bool?
-    let largeDog: Bool?
-    let priceInfo: String?
-
-    func toDomain() -> DogCareStore {
-        DogCareStore(
-            id: String(storeId ?? id ?? 0),
-            name: name,
-            status: status ?? "영업",
-            roadAddress: roadAddress ?? address ?? "",
-            lotAddress: "",
-            phone: phone ?? "",
-            x: longitude.map { String($0) } ?? "",
-            y: latitude.map { String($0) } ?? ""
-        )
-    }
-}
-
-struct ReservationCreateRequest: Encodable {
-    let userId: Int
-    let petId: Int
-    let storeId: Int
-    let startDate: Date
-    let endDate: Date
-    let reservationType: String
-    let requestMessage: String
-}
-
-struct ReservationResponse: Decodable {
-    let reservationId: Int?
-    let id: Int?
-    let status: String?
-    let storeId: Int?
 }
 
 struct ReviewResponse: Decodable {
@@ -245,6 +157,15 @@ struct ReviewItem {
     let createdAt: String
 }
 
+struct PetProfile {
+    let name: String
+    let breed: String
+    let age: Int
+    let weight: Double
+    let gender: String
+    let note: String
+}
+
 struct PetResponse: Decodable {
     let petId: Int?
     let name: String
@@ -265,48 +186,6 @@ struct PetResponse: Decodable {
             note: note ?? "특이사항 없음"
         )
     }
-}
-
-struct DiaryResponse: Decodable {
-    let diaryId: Int?
-    let content: String
-    let createdAt: String?
-    let mediaType: String?
-
-    func toDomain() -> DiaryEntry {
-        let icon: String
-        switch mediaType {
-        case "IMAGE": icon = "📷"
-        case "VIDEO": icon = "🎥"
-        default: icon = "📝"
-        }
-        return DiaryEntry(dateText: createdAt ?? "방금", content: content, mediaIcon: icon)
-    }
-}
-
-struct ChatMessageResponse: Decodable {
-    let messageId: Int?
-    let senderId: Int?
-    let senderName: String?
-    let messageType: String?
-    let content: String
-    let createdAt: String?
-
-    func toDomain() -> ChatMessageItem {
-        let mine = senderId == 1
-        return ChatMessageItem(
-            sender: senderName ?? (mine ? "나" : "업체"),
-            content: content,
-            isMine: mine,
-            isAuto: messageType == "AUTO"
-        )
-    }
-}
-
-struct ChatMessageCreateRequest: Encodable {
-    let senderId: Int
-    let messageType: String
-    let content: String
 }
 
 struct ReservationSummary: Decodable {
