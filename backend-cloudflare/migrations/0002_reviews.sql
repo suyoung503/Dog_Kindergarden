@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS reviews (
+  review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reservation_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  store_id INTEGER NOT NULL,
+  rating REAL NOT NULL,
+  revisit INTEGER DEFAULT 0,
+  content TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
