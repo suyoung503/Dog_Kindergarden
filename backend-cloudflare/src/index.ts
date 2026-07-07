@@ -296,6 +296,17 @@ app.get("/api/users/:id/reservations", async (c) => {
   return c.json(results);
 });
 
+// 예약 취소 — 상태만 CANCELED로 변경
+app.patch("/api/reservations/:id/cancel", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  await c.env.DB.prepare(
+    `UPDATE reservations SET status = 'CANCELED' WHERE reservation_id = ?`,
+  )
+    .bind(reservationId)
+    .run();
+  return c.json({ ok: true });
+});
+
 app.get("/api/users/:id/pets", async (c) => {
   const userId = Number(c.req.param("id"));
   const { results } = await c.env.DB.prepare(

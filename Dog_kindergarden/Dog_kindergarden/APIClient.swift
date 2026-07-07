@@ -62,6 +62,10 @@ final class APIClient {
         try await request(path: "/users/\(userId)/reservations", method: "GET")
     }
 
+    func cancelReservation(reservationId: Int) async throws {
+        let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/cancel", method: "PATCH")
+    }
+
     @discardableResult
     func updateUser(userId: Int, nickname: String, phone: String, address: String) async throws -> UserResponse {
         let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address)
@@ -197,6 +201,10 @@ struct ReservationSummary: Decodable {
     let endDate: String?
     let reservationType: String?
     let status: String?
+}
+
+struct ReservationCancelResponse: Decodable {
+    let ok: Bool?
 }
 
 struct UserUpdateRequest: Encodable {
