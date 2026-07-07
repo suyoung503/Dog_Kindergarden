@@ -1,0 +1,23 @@
+# CocoaPods
+Pods/
+
+# Xcode 빌드 산출물
+build/
+DerivedData/
+
+# Xcode 사용자 설정
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# xcconfig 시크릿
+Dog_kindergarden/Config/Secret.xcconfig
+Dog_kindergarden/Config/create.xcconfig
+Dog_kindergarden/Base.lproj/Config/Create.xcconfig
+Base.lproj/Config/

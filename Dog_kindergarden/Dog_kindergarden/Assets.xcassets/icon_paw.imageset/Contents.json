@@ -1,0 +1,6 @@
+{
+  "images" : [
+    { "idiom" : "universal", "filename" : "icon_paw.png" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
