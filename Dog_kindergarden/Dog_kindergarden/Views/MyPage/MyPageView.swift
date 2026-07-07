@@ -126,9 +126,9 @@ struct MyPageView: View {
 
     private var activitySection: some View {
         MyPageSection(title: "내 활동") {
-            MyPageItem(icon: "calendar",         label: "예약 내역",    badge: "2",   bg: Color(hex: "#FFE6CC")) { router.go(.booking) }
+            MyPageItem(icon: "calendar",         label: "예약 내역",    badge: reservationCount.map(String.init), bg: Color(hex: "#FFE6CC")) { router.go(.reservationList) }
             MyPageItem(icon: "heart",             label: "찜한 가게",    badge: favoriteCount.map(String.init), bg: Color(hex: "#FFC4C4")) { router.go(.favorites) }
-            MyPageItem(icon: "message",           label: "채팅",         badge: "3",   bg: Color.brandGreenLight) { router.go(.chatList) }
+            MyPageItem(icon: "message",           label: "채팅",         badge: chatCount.map(String.init), bg: Color.brandGreenLight) { router.go(.chatList) }
             MyPageItem(icon: "gift",              label: "쿠폰함",       badge: "5장", bg: Color(hex: "#FFF1A8"))
         }
     }

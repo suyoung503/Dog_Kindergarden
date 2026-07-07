@@ -322,7 +322,7 @@ private struct FABItem {
 private let fabItems: [FABItem] = [
     FABItem(icon: "person",          label: "강아지 프로필", bg: Color(hex: "#FFE6CC"), destination: .dogProfile),
     FABItem(icon: "message",         label: "채팅",         bg: Color.brandGreenLight, destination: .chatList),
-    FABItem(icon: "calendar",        label: "예약 내역",    bg: Color(hex: "#FFF1A8"), destination: .booking),
+    FABItem(icon: "calendar",        label: "예약 내역",    bg: Color(hex: "#FFF1A8"), destination: .reservationList),
     FABItem(icon: "gearshape",       label: "설정",         bg: Color.brandBlueLight,  destination: .myPage),
 ]
 

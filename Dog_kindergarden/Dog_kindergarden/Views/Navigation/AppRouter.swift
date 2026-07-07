@@ -14,6 +14,7 @@ enum AppScreen {
     case bookingDone
     case myPage
     case favorites
+    case reservationList
 }
 
 enum UserRole {

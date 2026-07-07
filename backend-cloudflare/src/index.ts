@@ -22,6 +22,8 @@ type ReservationBody = {
   reservationType?: string;
   request_message?: string;
   requestMessage?: string;
+  store_type?: string;
+  storeType?: string;
 };
 
 type ReviewBody = {
@@ -228,6 +230,16 @@ app.post("/api/reservations", async (c) => {
   });
   const roomId = await getOrCreateRoom(c.env.DB, userId, storeId);
 
+  // 가게 유형(호텔/유치원) — 비어 있는 경우에만 채움 (기존 값 보존)
+  const storeType = body.store_type ?? body.storeType ?? null;
+  if (storeType) {
+    await c.env.DB.prepare(
+      `UPDATE stores SET store_type = COALESCE(NULLIF(store_type, ''), ?) WHERE store_id = ?`,
+    )
+      .bind(storeType, storeId)
+      .run();
+  }
+
   // 3) 예약 INSERT
   const result = await c.env.DB.prepare(
     `
@@ -271,7 +283,7 @@ app.get("/api/users/:id/reservations", async (c) => {
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
-           COALESCE(r.store_name, s.name) AS store_name,
+           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
     LEFT JOIN stores s ON s.store_id = r.store_id
