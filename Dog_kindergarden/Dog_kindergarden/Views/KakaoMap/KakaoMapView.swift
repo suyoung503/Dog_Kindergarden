@@ -15,9 +15,14 @@ struct MapPin: Identifiable {
     var address: String = ""
     var phone: String = ""
     var status: String = ""
+    // 서버에 저장된 원본 키 — 찜 목록처럼 보강된 주소로 복원할 때 키가 달라지는 것 방지
+    var storeKeyOverride: String? = nil
 
     // 리뷰 식별 키 (백엔드 store_key)
-    var storeKey: String { address.isEmpty ? name : "\(name)|\(address)" }
+    var storeKey: String {
+        if let key = storeKeyOverride, !key.isEmpty { return key }
+        return address.isEmpty ? name : "\(name)|\(address)"
+    }
 }
 
 // 현재 지도 화면에 보이는 위경도 범위 (viewport)

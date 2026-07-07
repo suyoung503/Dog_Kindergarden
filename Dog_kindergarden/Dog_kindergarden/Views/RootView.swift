@@ -36,6 +36,7 @@ struct RootView: View {
         case .booking:     BookingView()
         case .bookingDone: BookingDoneView()
         case .myPage:      MyPageView()
+        case .favorites:   FavoritesView()
         }
     }
 }

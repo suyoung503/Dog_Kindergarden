@@ -78,6 +78,39 @@ final class APIClient {
         return responses.map { $0.toDomain() }
     }
 
+    func fetchReservations(userId: Int) async throws -> [ReservationSummary] {
+        try await request(path: "/users/\(userId)/reservations", method: "GET")
+    }
+
+    @discardableResult
+    func updateUser(userId: Int, nickname: String, phone: String, address: String) async throws -> UserResponse {
+        let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address)
+        return try await request(path: "/users/\(userId)", method: "PUT", body: body)
+    }
+
+    func fetchFavorites(userId: Int) async throws -> [FavoriteStoreResponse] {
+        try await request(path: "/users/\(userId)/favorites", method: "GET")
+    }
+
+    @discardableResult
+    func addFavorite(userId: Int, storeKey: String, storeName: String, address: String, phone: String, storeType: String, latitude: Double, longitude: Double) async throws -> FavoriteAddResponse {
+        let body = FavoriteCreateRequest(
+            userId: userId,
+            storeKey: storeKey,
+            storeName: storeName,
+            storeAddress: address,
+            phone: phone,
+            storeType: storeType,
+            latitude: latitude,
+            longitude: longitude
+        )
+        return try await request(path: "/favorites", method: "POST", body: body)
+    }
+
+    func removeFavorite(userId: Int, storeId: Int) async throws {
+        let _: FavoriteDeleteResponse = try await request(path: "/users/\(userId)/favorites/\(storeId)", method: "DELETE")
+    }
+
     func fetchDiaries(reservationId: Int = 1) async throws -> [DiaryEntry] {
         let responses: [DiaryResponse] = try await request(path: "/diaries/\(reservationId)", method: "GET")
         return responses.map { $0.toDomain() }
@@ -274,4 +307,58 @@ struct ChatMessageCreateRequest: Encodable {
     let senderId: Int
     let messageType: String
     let content: String
+}
+
+struct ReservationSummary: Decodable {
+    let reservationId: Int?
+    let storeId: Int?
+    let storeName: String?
+    let startDate: String?
+    let endDate: String?
+    let reservationType: String?
+    let status: String?
+}
+
+struct UserUpdateRequest: Encodable {
+    let nickname: String
+    let phone: String
+    let address: String
+}
+
+struct UserResponse: Decodable {
+    let userId: Int?
+    let nickname: String?
+    let phone: String?
+    let address: String?
+}
+
+struct FavoriteCreateRequest: Encodable {
+    let userId: Int
+    let storeKey: String
+    let storeName: String
+    let storeAddress: String
+    let phone: String
+    let storeType: String
+    let latitude: Double
+    let longitude: Double
+}
+
+struct FavoriteStoreResponse: Decodable {
+    let storeId: Int
+    let storeKey: String?
+    let name: String
+    let address: String?
+    let phone: String?
+    let storeType: String?
+    let latitude: Double?
+    let longitude: Double?
+}
+
+struct FavoriteAddResponse: Decodable {
+    let storeId: Int?
+    let favorited: Bool?
+}
+
+struct FavoriteDeleteResponse: Decodable {
+    let ok: Bool?
 }

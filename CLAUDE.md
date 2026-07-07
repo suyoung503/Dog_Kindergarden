@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 공공데이터 동물위탁관리업 API로 전국 업체를 표시하고, 리뷰·채팅·예약 기능을 통합 제공한다.
 
 **목표:** 포트폴리오 완성 → 이후 App Store 실제 출시까지 이어가는 로드맵.
-**현재 우선 작업:** 채팅 클라이언트 연동, MyPage 프로필 편집, README 작성 (상세는 `docs/PLAN.md`, `docs/PROGRESS.md`).
+**현재 우선 작업:** README 작성, 네이버 블로그 API 키 발급 (상세는 `docs/PLAN.md`, `docs/PROGRESS.md`).
 
 모노레포 구성:
 
@@ -61,7 +61,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 ### iOS — API 연결
 
-`APIClient.shared`가 유일한 REST 레이어. snake_case↔camelCase 변환은 JSONDecoder/Encoder 전략으로 자동 처리. baseURL은 UserDefaults `"API_BASE_URL"`로 덮어쓸 수 있다(기본값: 배포 Workers URL).
+`APIClient.shared`가 기본 REST 레이어. snake_case↔camelCase 변환은 JSONDecoder/Encoder 전략으로 자동 처리. baseURL은 UserDefaults `"API_BASE_URL"`로 덮어쓸 수 있다(기본값: 배포 Workers URL). 예외: 채팅은 `ChatService`(static enum)가 담당하며 snake_case DTO를 그대로 쓴다 — 같은 이름의 타입을 `APIClient`에 중복 정의하지 말 것.
 
 주의: 일부 호출에 `userId: 1` 하드코딩이 남아 있다. 카카오 로그인(`AuthSession.userId`)은 구현되어 있으므로, 새 API 호출을 추가할 때는 하드코딩 대신 `AuthSession`의 userId를 쓰는 방향으로 간다.
 
@@ -88,6 +88,5 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 ## 현재 미완성 영역 (작업 시 주의)
 
-- `ChatRoomView`는 아직 `sampleMessages` 하드코딩 — 백엔드 API는 완성되어 있고 클라이언트 연동이 다음 작업.
-- `MyPageView`는 UI만 있고 `UserProfile` 바인딩이 안 되어 저장이 동작하지 않음.
 - 네이버 블로그 후기: 코드 완성, API 키 미발급 (`NaverBlogService`).
+- README: 루트 소개 + iOS 빌드 가이드 작성 필요.

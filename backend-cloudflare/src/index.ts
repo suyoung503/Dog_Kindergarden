@@ -81,6 +81,22 @@ type KakaoAuthBody = {
   email?: string;
 };
 
+type FavoriteBody = {
+  user_id?: number;
+  userId?: number;
+  store_key?: string;
+  storeKey?: string;
+  store_name?: string;
+  storeName?: string;
+  store_address?: string;
+  storeAddress?: string;
+  phone?: string;
+  store_type?: string;
+  storeType?: string;
+  latitude?: number;
+  longitude?: number;
+};
+
 type UpdateUserBody = {
   nickname?: string;
   phone?: string;
@@ -247,6 +263,25 @@ app.post("/api/reservations", async (c) => {
     { reservation_id: reservationId, room_id: roomId, status: "REQUEST" },
     201,
   );
+});
+
+// 내 예약 목록 (최신순, 가게 이름 포함)
+app.get("/api/users/:id/reservations", async (c) => {
+  const userId = Number(c.req.param("id"));
+  const { results } = await c.env.DB.prepare(
+    `
+    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
+           COALESCE(r.store_name, s.name) AS store_name,
+           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
+    FROM reservations r
+    LEFT JOIN stores s ON s.store_id = r.store_id
+    WHERE r.user_id = ?
+    ORDER BY r.reservation_id DESC
+  `,
+  )
+    .bind(userId)
+    .all();
+  return c.json(results);
 });
 
 app.get("/api/users/:id/pets", async (c) => {
@@ -549,6 +584,8 @@ app.put("/api/users/:id", async (c) => {
     .bind(userId)
     .first();
 
+  // 존재하지 않는 유저면 null(200) 대신 404로 명확히 실패시킴
+  if (!updated) return c.json({ message: "user not found" }, 404);
   return c.json(updated);
 });
 
@@ -590,6 +627,81 @@ app.delete("/api/pets/:petId", async (c) => {
   const petId = Number(c.req.param("petId"));
   await c.env.DB.prepare(`DELETE FROM pets WHERE pet_id = ?`).bind(petId).run();
   return c.json({ ok: true });
+});
+
+// MARK: - 찜한 가게 (favorites)
+
+// 찜 추가: store_key로 stores upsert 후 (user_id, store_id) 등록.
+// 찜 시점에 알게 된 전화·유형·좌표는 비어 있는 컬럼만 채움 (기존 값 보존)
+app.post("/api/favorites", async (c) => {
+  const body = await c.req.json<FavoriteBody>();
+  const userId = body.user_id ?? body.userId;
+  const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
+  if (!userId) return c.json({ message: "user_id is required" }, 400);
+  if (!storeKey) return c.json({ message: "store_key is required" }, 400);
+
+  const storeId = await resolveStoreId(c.env.DB, {
+    storeKey,
+    storeName: body.store_name ?? body.storeName,
+    storeAddress: body.store_address ?? body.storeAddress,
+  });
+
+  await c.env.DB.prepare(
+    `
+    UPDATE stores SET
+      phone      = COALESCE(NULLIF(phone, ''), ?),
+      store_type = COALESCE(NULLIF(store_type, ''), ?),
+      latitude   = COALESCE(latitude, ?),
+      longitude  = COALESCE(longitude, ?)
+    WHERE store_id = ?
+  `,
+  )
+    .bind(
+      body.phone ?? null,
+      body.store_type ?? body.storeType ?? null,
+      body.latitude ?? null,
+      body.longitude ?? null,
+      storeId,
+    )
+    .run();
+
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO favorites (user_id, store_id) VALUES (?, ?)`,
+  )
+    .bind(userId, storeId)
+    .run();
+
+  return c.json({ store_id: storeId, favorited: true }, 201);
+});
+
+// 찜 해제
+app.delete("/api/users/:userId/favorites/:storeId", async (c) => {
+  const userId = Number(c.req.param("userId"));
+  const storeId = Number(c.req.param("storeId"));
+  await c.env.DB.prepare(
+    `DELETE FROM favorites WHERE user_id = ? AND store_id = ?`,
+  )
+    .bind(userId, storeId)
+    .run();
+  return c.json({ ok: true });
+});
+
+// 찜 목록 (최근 찜한 순)
+app.get("/api/users/:id/favorites", async (c) => {
+  const userId = Number(c.req.param("id"));
+  const { results } = await c.env.DB.prepare(
+    `
+    SELECT s.store_id, s.store_key, s.name, s.address, s.phone,
+           s.store_type, s.latitude, s.longitude
+    FROM favorites f
+    JOIN stores s ON s.store_id = f.store_id
+    WHERE f.user_id = ?
+    ORDER BY f.favorite_id DESC
+  `,
+  )
+    .bind(userId)
+    .all();
+  return c.json(results);
 });
 
 export default app;

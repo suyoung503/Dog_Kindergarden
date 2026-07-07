@@ -58,24 +58,18 @@
 
 ---
 
-### 채팅 API 클라이언트 연동 (다음 작업)
+### ✅ 채팅 API 클라이언트 연동 (완료 — 2026-07-07)
 
-현재 `ChatRoomView`는 `sampleMessages` 하드코딩. 백엔드 `GET/POST /api/chatrooms/:id/messages`는 구현됨.
-
-**해야 할 것:**
-1. `ChatRoomView`가 `room_id`를 받아 실제 메시지 로드/전송
-2. 예약 완료화면 → 해당 예약의 채팅방(`room_id`)으로 직행
-3. `ChatListView`를 실제 방 목록으로 교체
+- `ChatService` 네트워킹 레이어 (방 목록/조회/생성, 메시지 로드/전송)
+- `ChatRoomView` 실제 메시지 로드/전송 — 낙관적 추가 + 실패 시 롤백, 방 없으면 첫 전송에서 생성(작성 모드)
+- 예약 완료화면·가게 상세 문의하기 → 채팅방(`room_id`) 직행, `ChatListView` 실제 방 목록
 
 ---
 
-### MyPageView UserProfile 편집 연결
+### ✅ MyPageView UserProfile 편집 연결 (완료 — 2026-07-07)
 
-현재 MyPageView는 UI만 있고 실제 저장이 안 됨.
-
-**해야 할 것:**
-1. `MyPageView`에 `@Environment(UserProfile.self)` 추가
-2. 이름·연락처·주소 TextField 바인딩
+- `ProfileEditSheet` — 이름·연락처·주소 편집, 로그인 시 `PUT /api/users/:id` 서버 저장 + 세션 닉네임 동기화
+- 프로필 카드 실데이터 통계 (예약/강아지/채팅 수)
 
 ---
 

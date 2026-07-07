@@ -2,10 +2,14 @@ import SwiftUI
 
 struct MyPageView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(UserProfile.self) private var userProfile
+    @Environment(AuthSession.self) private var authSession
 
-    private let stats: [(label: String, value: String)] = [
-        ("예약", "12"), ("강아지", "3"), ("포인트", "2,400")
-    ]
+    @State private var showEditSheet = false
+    @State private var reservationCount: Int?
+    @State private var petCount: Int?
+    @State private var chatCount: Int?
+    @State private var favoriteCount: Int?
 
     var body: some View {
         ScrollView {
@@ -20,6 +24,16 @@ struct MyPageView: View {
             .padding(.bottom, 24)
         }
         .background(Color.brandCream.ignoresSafeArea())
+        .sheet(isPresented: $showEditSheet) {
+            ProfileEditSheet()
+        }
+        .task {
+            guard let uid = authSession.userId else { return }
+            reservationCount = (try? await APIClient.shared.fetchReservations(userId: uid))?.count
+            petCount = (try? await APIClient.shared.fetchPets(userId: uid))?.count
+            chatCount = (try? await ChatService.rooms(userId: uid))?.count
+            favoriteCount = (try? await APIClient.shared.fetchFavorites(userId: uid))?.count
+        }
     }
 
     // MARK: - Nav
@@ -44,6 +58,20 @@ struct MyPageView: View {
 
     // MARK: - Profile card
 
+    // 통계는 실데이터: 로딩 전에는 "-" 표시
+    private var stats: [(label: String, value: String)] {
+        [
+            ("예약",   reservationCount.map(String.init) ?? "-"),
+            ("강아지", petCount.map(String.init) ?? "-"),
+            ("채팅",   chatCount.map(String.init) ?? "-")
+        ]
+    }
+
+    private var profileSubtitle: String {
+        let phone = userProfile.phone.isEmpty ? "연락처를 등록해주세요" : userProfile.phone
+        return authSession.isLoggedIn ? "\(phone) · 카카오 로그인" : phone
+    }
+
     private var profileCard: some View {
         VStack(spacing: 16) {
             HStack(spacing: 12) {
@@ -52,13 +80,13 @@ struct MyPageView: View {
                     Image(router.userDogAvatar).resizable().scaledToFit().frame(width: 42, height: 42)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("상민님")
+                    Text("\(userProfile.name)님")
                         .font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
-                    Text("010-1234-5678 · 카카오 로그인")
+                    Text(profileSubtitle)
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.9))
                 }
                 Spacer()
-                Button(action: {}) {
+                Button(action: { showEditSheet = true }) {
                     Text("수정")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
@@ -67,16 +95,18 @@ struct MyPageView: View {
                         .clipShape(Capsule())
                 }
             }
-            HStack(spacing: 8) {
-                ForEach(stats, id: \.label) { s in
-                    VStack(spacing: 2) {
-                        Text(s.value).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-                        Text(s.label).font(.system(size: 10)).foregroundStyle(.white.opacity(0.9))
+            if authSession.isLoggedIn {
+                HStack(spacing: 8) {
+                    ForEach(stats, id: \.label) { s in
+                        VStack(spacing: 2) {
+                            Text(s.value).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                            Text(s.label).font(.system(size: 10)).foregroundStyle(.white.opacity(0.9))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(.white.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(.white.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
                 }
             }
         }
@@ -97,7 +127,7 @@ struct MyPageView: View {
     private var activitySection: some View {
         MyPageSection(title: "내 활동") {
             MyPageItem(icon: "calendar",         label: "예약 내역",    badge: "2",   bg: Color(hex: "#FFE6CC")) { router.go(.booking) }
-            MyPageItem(icon: "heart",             label: "찜한 케어",    badge: "8",   bg: Color(hex: "#FFC4C4"))
+            MyPageItem(icon: "heart",             label: "찜한 가게",    badge: favoriteCount.map(String.init), bg: Color(hex: "#FFC4C4")) { router.go(.favorites) }
             MyPageItem(icon: "message",           label: "채팅",         badge: "3",   bg: Color.brandGreenLight) { router.go(.chatList) }
             MyPageItem(icon: "gift",              label: "쿠폰함",       badge: "5장", bg: Color(hex: "#FFF1A8"))
         }
@@ -149,6 +179,115 @@ struct MyPageSection<Content: View>: View {
             .padding(.horizontal, 20)
         }
         .padding(.top, 20)
+    }
+}
+
+// MARK: - ProfileEditSheet
+
+struct ProfileEditSheet: View {
+    @Environment(UserProfile.self) private var userProfile
+    @Environment(AuthSession.self) private var authSession
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var phone = ""
+    @State private var address = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    sheetField("이름",   text: $name,    placeholder: "보호자 이름")
+                    sheetField("연락처", text: $phone,   placeholder: "010-0000-0000")
+                    sheetField("주소",   text: $address, placeholder: "서울시 강남구 …")
+
+                    Button(action: save) {
+                        HStack(spacing: 6) {
+                            if isLoading {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text("저장하기").font(.system(size: 15, weight: .bold))
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.brandOrange)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                        .shadow(color: Color.brandOrange.opacity(0.7), radius: 9, x: 0, y: 8)
+                    }
+                    .disabled(isLoading)
+
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color.brandCream.ignoresSafeArea())
+            .navigationTitle("프로필 수정")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.brandBrown)
+                    }
+                }
+            }
+            .onAppear {
+                name    = userProfile.name
+                phone   = userProfile.phone
+                address = userProfile.address
+            }
+        }
+    }
+
+    // 로그인 상태면 서버에도 저장, 아니면 로컬(UserDefaults)만
+    private func save() {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            errorMessage = "이름을 입력해주세요."
+            return
+        }
+        errorMessage = nil
+        Task {
+            if let uid = authSession.userId {
+                isLoading = true
+                defer { isLoading = false }
+                do {
+                    try await APIClient.shared.updateUser(userId: uid, nickname: trimmedName, phone: phone, address: address)
+                } catch {
+                    errorMessage = "저장에 실패했어요. 다시 시도해주세요."
+                    return
+                }
+                authSession.updateNickname(trimmedName)
+            }
+            userProfile.name    = trimmedName
+            userProfile.phone   = phone
+            userProfile.address = address
+            dismiss()
+        }
+    }
+
+    private func sheetField(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: "#7a5635"))
+            TextField(placeholder, text: text)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.brandBrown)
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        }
     }
 }
 

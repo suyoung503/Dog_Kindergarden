@@ -3,6 +3,7 @@ import SwiftUI
 struct StartView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
+    @Environment(UserProfile.self) private var userProfile
 
     var body: some View {
         ScrollView {
@@ -111,7 +112,7 @@ struct StartView: View {
         VStack(spacing: 10) {
             Button(action: {
                 Task {
-                    await authSession.loginWithKakao()
+                    await authSession.loginWithKakao(profile: userProfile)
                     if authSession.isLoggedIn {
                         router.go(.home)
                     }
@@ -156,9 +157,10 @@ struct StartView: View {
                 .lineSpacing(4)
 #if DEBUG
             Button("개발자 진입 (시뮬레이터용)") {
-                authSession.userId = 1
-                authSession.nickname = "테스트"
-                router.go(.home)
+                Task {
+                    await authSession.loginAsDeveloper(profile: userProfile)
+                    router.go(.home)
+                }
             }
             .font(.system(size: 11))
             .foregroundStyle(Color.brandBrownLight)
