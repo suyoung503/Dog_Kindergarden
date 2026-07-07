@@ -64,7 +64,7 @@ final class BookingViewModel {
     }
 
     // 예약 신청 — 성공 시 BookingResult 반환
-    func submit(userId: Int, storeName: String, storeKey: String, storeAddress: String) async -> BookingResult? {
+    func submit(userId: Int, storeName: String, storeKey: String, storeAddress: String, storeType: String) async -> BookingResult? {
         errorMessage = nil
         guard let petId = selectedPetId else { errorMessage = "강아지를 선택해주세요."; return nil }
         isLoading = true
@@ -77,6 +77,7 @@ final class BookingViewModel {
             "store_key": storeKey,
             "store_name": storeName,
             "store_address": storeAddress,
+            "store_type": storeType,
             "start_date": schedule,
             "end_date": schedule,
             "reservation_type": selectedService,
@@ -451,7 +452,8 @@ struct BookingView: View {
                 userId: uid,
                 storeName: storeName,
                 storeKey: pin?.storeKey ?? "",
-                storeAddress: pin?.address ?? ""
+                storeAddress: pin?.address ?? "",
+                storeType: pin?.type ?? ""
             ) {
                 router.lastBooking = result
                 router.go(.bookingDone)

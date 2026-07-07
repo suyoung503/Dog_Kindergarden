@@ -192,6 +192,7 @@ struct ReservationSummary: Decodable {
     let reservationId: Int?
     let storeId: Int?
     let storeName: String?
+    let storeType: String?
     let startDate: String?
     let endDate: String?
     let reservationType: String?
