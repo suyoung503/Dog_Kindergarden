@@ -7,6 +7,7 @@ struct ReservationListView: View {
 
     @State private var reservations: [ReservationSummary] = []
     @State private var isLoading = true
+    @State private var pendingCancel: ReservationSummary?
 
     var body: some View {
         ScrollView {
@@ -31,6 +32,14 @@ struct ReservationListView: View {
         }
         .background(Color.brandCream.ignoresSafeArea())
         .task { await load() }
+        .alert("예약을 취소할까요?", isPresented: Binding(get: { pendingCancel != nil }, set: { if !$0 { pendingCancel = nil } })) {
+            Button("닫기", role: .cancel) {}
+            Button("취소하기", role: .destructive) {
+                if let target = pendingCancel { cancel(target) }
+            }
+        } message: {
+            Text((pendingCancel?.storeName ?? "가게") + " 예약을 취소합니다. 되돌릴 수 없어요.")
+        }
     }
 
     // MARK: - Nav
@@ -72,38 +81,52 @@ struct ReservationListView: View {
 
     private func reservationCard(_ reservation: ReservationSummary) -> some View {
         let isHotel = (reservation.storeType ?? "") == "호텔"
-        return HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
-                    .frame(width: 56, height: 56)
-                EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 28)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(reservation.storeName ?? "가게 정보 없음")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.brandBrown)
-                if let schedule = reservation.startDate, !schedule.isEmpty {
-                    Text(schedule)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.brandBrownMid)
+        let isCancelable = reservation.status == "REQUEST" || reservation.status == "CONFIRMED"
+        return VStack(alignment: .trailing, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
+                        .frame(width: 56, height: 56)
+                    EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 28)
                 }
-                HStack(spacing: 6) {
-                    if let type = reservation.reservationType, !type.isEmpty {
-                        Text(type)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.brandBrown)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Color(hex: "#FFE6CC"))
-                            .clipShape(Capsule())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(reservation.storeName ?? "가게 정보 없음")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.brandBrown)
+                    if let schedule = reservation.startDate, !schedule.isEmpty {
+                        Text(schedule)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.brandBrownMid)
                     }
-                    Text(statusLabel(reservation.status))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.brandOrange)
+                    HStack(spacing: 6) {
+                        if let type = reservation.reservationType, !type.isEmpty {
+                            Text(type)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.brandBrown)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color(hex: "#FFE6CC"))
+                                .clipShape(Capsule())
+                        }
+                        Text(statusLabel(reservation.status))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.brandOrange)
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(.top, 2)
+                Spacer()
             }
-            Spacer()
+            if isCancelable {
+                Button(action: { pendingCancel = reservation }) {
+                    Text("예약 취소")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.brandOrange)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.brandOrange.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(14)
         .background(.white)
@@ -126,5 +149,26 @@ struct ReservationListView: View {
         defer { isLoading = false }
         guard let uid = authSession.userId else { return }
         reservations = (try? await APIClient.shared.fetchReservations(userId: uid)) ?? []
+    }
+
+    // 낙관적 취소 — 실패 시 원래 상태로 복원
+    private func cancel(_ reservation: ReservationSummary) {
+        guard let rid = reservation.reservationId,
+              let index = reservations.firstIndex(where: { $0.reservationId == rid }) else { return }
+        let previous = reservations[index]
+        reservations[index] = ReservationSummary(
+            reservationId: previous.reservationId,
+            storeId: previous.storeId,
+            storeName: previous.storeName,
+            storeType: previous.storeType,
+            startDate: previous.startDate,
+            endDate: previous.endDate,
+            reservationType: previous.reservationType,
+            status: "CANCELED"
+        )
+        Task {
+            do { try await APIClient.shared.cancelReservation(reservationId: rid) }
+            catch { reservations[index] = previous }
+        }
     }
 }
