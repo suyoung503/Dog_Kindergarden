@@ -38,6 +38,7 @@ struct RootView: View {
         case .myPage:      MyPageView()
         case .favorites:   FavoritesView()
         case .reservationList: ReservationListView()
+        case .ownerMode:   OwnerModeView()
         }
     }
 }

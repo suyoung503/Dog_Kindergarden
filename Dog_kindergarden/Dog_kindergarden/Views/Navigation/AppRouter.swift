@@ -15,6 +15,7 @@ enum AppScreen {
     case myPage
     case favorites
     case reservationList
+    case ownerMode
 }
 
 enum UserRole {
@@ -36,7 +37,6 @@ struct BookingResult {
 @Observable
 final class AppRouter {
     var stack: [AppScreen] = [.start]
-    var role: UserRole = .user
     var selectedProvince: String = "서울"          // 첫 화면 서울 기준
     var selectedCity: String = "성남시"
     var selectedStore: String = "멍멍이 호텔"

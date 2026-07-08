@@ -59,7 +59,7 @@ struct ReservationListView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
     }
 
     // MARK: - Empty
@@ -167,8 +167,12 @@ struct ReservationListView: View {
             status: "CANCELED"
         )
         Task {
-            do { try await APIClient.shared.cancelReservation(reservationId: rid) }
-            catch { reservations[index] = previous }
+            do {
+                try await APIClient.shared.cancelReservation(reservationId: rid)
+                CalendarService.removeReservationEvent(reservationId: rid)
+            } catch {
+                reservations[index] = previous
+            }
         }
     }
 }

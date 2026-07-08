@@ -9,6 +9,7 @@ import KakaoSDKUser
 final class AuthSession {
     var userId: Int?
     var nickname: String = ""
+    var isOwner: Bool = false      // 보호자 겸 사장님 여부 — 계정에 귀속되도록 영속 저장
     var isLoading = false
     var errorMessage: String?
 
@@ -19,6 +20,13 @@ final class AuthSession {
     init() {
         userId   = UserDefaults.standard.value(forKey: "auth_user_id") as? Int
         nickname = UserDefaults.standard.string(forKey: "auth_nickname") ?? ""
+        isOwner  = UserDefaults.standard.bool(forKey: "auth_is_owner")
+    }
+
+    // 시작 화면에서 고른 역할을 로그인 성공 시 계정에 귀속 — 뒤로가기·재실행에도 유지됨
+    func setOwnerRole(_ isOwner: Bool) {
+        self.isOwner = isOwner
+        UserDefaults.standard.set(isOwner, forKey: "auth_is_owner")
     }
 
     func loginWithKakao(profile: UserProfile? = nil) async {
@@ -66,8 +74,10 @@ final class AuthSession {
         UserApi.shared.logout { _ in }
         userId   = nil
         nickname = ""
+        isOwner  = false
         UserDefaults.standard.removeObject(forKey: "auth_user_id")
         UserDefaults.standard.removeObject(forKey: "auth_nickname")
+        UserDefaults.standard.removeObject(forKey: "auth_is_owner")
     }
 
 #if DEBUG

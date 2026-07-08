@@ -1,6 +1,6 @@
 # 맡겨멍 — 현재 진행상황 및 다음 단계
 
-**마지막 업데이트:** 2026-07-08
+**마지막 업데이트:** 2026-07-09
 
 ---
 
@@ -48,6 +48,9 @@
 - [x] **예약 내역 사이드바 이동 수정 + 가게 타입별 이모지 표시** (2026-07-08) — 홈 화면 발자국 메뉴의 '예약 내역'을 누르면 예약 신청 화면(`.booking`)이 열리던 버그를 `.reservationList`로 수정. 예약 카드에 호텔🏨/유치원🏠 이모지가 표시되지 않던 문제는 예약 시점의 실제 가게 타입(`MapPin.type`)을 `POST /api/reservations`로 함께 보내 `stores.store_type`에 채우도록(찜 기능과 동일한 fill-only-if-empty 패턴 재사용) 백엔드를 확장하고, `GET /api/users/:id/reservations`·`ReservationSummary.storeType`으로 내려받아 표시. 지금부터 새로 예약하는 건부터 적용되며, 찜도 예약도 한 적 없는 과거 가게는 계속 기본 🏠로 표시됨. 커밋 `f99e93a`
 - [x] **예약 취소 기능** (2026-07-08) — 예약 내역 카드마다 '예약 취소' 텍스트 버튼 추가(확인 알림 + 낙관적 업데이트, 실패 시 원상복구). 백엔드에 `PATCH /api/reservations/:id/cancel` 신설(상태를 CANCELED로 변경). 커밋 `5038347`
 - [x] **마이페이지 로그아웃 연결** (2026-07-08) — 액션이 연결되지 않아 눌러도 반응이 없던 '로그아웃' 항목에 확인 알림 + `AuthSession.logout()` 연결. `AppRouter`에 `reset(to:)` 메서드를 추가해 로그아웃 시 내비게이션 스택을 `[.start]`로 통째로 교체(뒤로가기로 로그아웃된 채 마이페이지 등 이전 화면에 재진입하는 문제 방지). 커밋 `88c071b`
+- [x] **사장님 모드(받은 예약 요청 확정) + 기기 캘린더 저장** (2026-07-09) — 예약 상태가 REQUEST에서 CONFIRMED로 전환될 경로가 아예 없던 것을 발견해 신설. 백엔드 `GET /api/reservations/pending`(REQUEST 전체, 가게·강아지 조인), `PATCH /api/reservations/:id/confirm` 추가(배포 완료). iOS `OwnerModeView` 신규 — 받은 예약 요청 목록 + 확정 버튼, 확정 시 EventKit(`CalendarService`)으로 기기 캘린더에 일정 추가(예약 취소 시 함께 삭제). Info.plist에 캘린더 권한 설명 추가. 업체-가게 소유 관계가 DB에 없어 전체 요청을 함께 보여주는 데모 범위
+- [x] **사장님 모드 사이드바 통합 재설계** (2026-07-09) — 로그인 후 역할에 따라 진입 화면을 분기하던 구조가 뒤로가기·앱 재실행 시 사장님 세션을 손님 홈으로 오라우팅하던 문제를 구조적으로 제거. 로그인 후 목적지를 모두 `.home`으로 통일하고, 역할은 `AuthSession.isOwner`(UserDefaults 영속)에 귀속. 시작 화면의 역할 선택은 "보호자 / 보호자·사장님"으로 명칭 정리, 보호자·사장님 계정에만 홈 사이드바(FAB)에 '받은 예약 요청' 항목 노출
+- [x] **첫 화면 프리즈 버그 수정 — SwiftUI AttributeGraph 순환** (2026-07-09) — 콜드 런치 직후 시작 화면에서 역할 카드를 탭해도 체크/테두리가 안 바뀌던(상태는 바뀌나 `body`가 재평가 안 되던) 버그. `simctl` 콘솔 캡처로 `AttributeGraph: cycle detected` 로그를 잡아 원인 특정 — `body` 평가 중 `UIApplication.safeAreaTop`(UIKit 윈도우 `safeAreaInsets`)을 읽어, 레이아웃 미확정 상태의 콜드 런치에서 레이아웃 피드백 순환이 생기고 SwiftUI가 갱신 전파를 끊어 화면이 얼어붙음. safe area를 `@State`에 캐시하고 `onAppear`에서 채우는 `.safeAreaTopPadding()` `ViewModifier`로 묶어 `body`가 UIKit 레이아웃을 읽지 않게 함. 같은 위험 패턴이 있던 화면 12곳 전부 이 모디파이어로 통일. 콘솔 캡처로 순환 1건→0건 검증 + **시뮬레이터 실동작 확인 완료**. 상세는 `docs/PORTFOLIO.md` §7
 
 ---
 
@@ -92,12 +95,13 @@
 | 채팅 클라이언트 연동 | ✅ 연동 완료 |
 | MyPage 프로필 편집 | ✅ 구현 완료 |
 | 찜한 가게 | ✅ 구현 완료 |
+| 사장님 모드(예약 확정) + 캘린더 | ✅ 구현 완료 (백엔드 배포 완료) |
 | README | ✅ 작성 완료 |
 
 ---
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치, origin 최신 상태 (최근 커밋 `88c071b`, push 완료)
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `5038347`(push 완료). **미커밋 변경 대기:** 사장님 모드(+캘린더)·사이드바 재설계·첫 화면 프리즈 수정 (커밋 예정)
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`

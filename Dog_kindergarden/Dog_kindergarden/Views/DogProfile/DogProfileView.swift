@@ -193,7 +193,7 @@ struct DogProfileView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
     }
 
     // MARK: - List

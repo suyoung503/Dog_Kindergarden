@@ -78,6 +78,22 @@
 
 ---
 
+### 강아지 사진 업로드 (보류)
+
+`AddDogSheet`의 카메라 버튼(장식만 있고 미연결)을 실제 업로드에 연결하려던 작업. 백엔드 `pets.image_url` 컬럼은 이미 있지만 채워주는 라우트가 없고, 파일 업로드 인프라도 전혀 없는 상태. 이미지 저장소로 Cloudflare R2를 쓰기로 했으나, R2는 무료 티어라도 활성화 시 결제 수단(카드) 등록이 필요해 사용자 판단이 필요해 보류. 재개 시 선택지: (A) R2 활성화 후 버킷 생성부터 이어서 진행, (B) 새 인프라 없이 `image_url`에 base64 data URI를 바로 저장(대신 DB 행이 무거워짐).
+
+---
+
+### ✅ 예약 확정(사장님 모드) + 캘린더 저장 (완료 — 2026-07-09)
+
+- 예약 상태가 REQUEST에서 한 번도 CONFIRMED로 전환될 방법이 없었던 것을 발견 — 시작 화면의 "사장님" 역할 선택은 로그인 후 아무 동작 없이 홈으로 가는 장식용 UI였음
+- 백엔드: `GET /api/reservations/pending`(REQUEST 상태 전체, 가게명·타입·강아지명 조인), `PATCH /api/reservations/:id/confirm`(cancel과 동일 패턴) 신설
+- iOS: `OwnerModeView` 신규 — 사장님 역할로 로그인 시 진입, 받은 예약 요청 목록 + 확정하기 버튼. 업체-가게 소유 관계가 DB에 없어 전체 가게의 요청을 함께 보여주는 데모 범위로 구현
+- 확정 성공 시 EventKit(`CalendarService`)으로 기기 캘린더에 일정 추가. 날짜 선택 UI(`BookingView.vm.dates`)가 연도 없는 문자열이라 오늘 이후 가장 가까운 도래 시점으로 추정해 파싱. 예약 취소 시 저장된 캘린더 일정도 함께 삭제(`removeReservationEvent`)
+- Info.plist에 `NSCalendarsUsageDescription`/`NSCalendarsWriteOnlyAccessUsageDescription` 추가
+
+---
+
 ## 장기 계획 (v2)
 
 | 기능 | 난이도 | 비고 |
