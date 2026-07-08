@@ -6,6 +6,7 @@ struct MyPageView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var showEditSheet = false
+    @State private var showLogoutConfirm = false
     @State private var reservationCount: Int?
     @State private var petCount: Int?
     @State private var chatCount: Int?
@@ -33,6 +34,15 @@ struct MyPageView: View {
             petCount = (try? await APIClient.shared.fetchPets(userId: uid))?.count
             chatCount = (try? await ChatService.rooms(userId: uid))?.count
             favoriteCount = (try? await APIClient.shared.fetchFavorites(userId: uid))?.count
+        }
+        .alert("로그아웃 하시겠어요?", isPresented: $showLogoutConfirm) {
+            Button("취소", role: .cancel) {}
+            Button("로그아웃", role: .destructive) {
+                authSession.logout()
+                router.reset(to: .start)
+            }
+        } message: {
+            Text("다시 로그인해야 이용할 수 있어요.")
         }
     }
 
@@ -145,7 +155,7 @@ struct MyPageView: View {
         MyPageSection(title: "고객지원") {
             MyPageItem(icon: "bubble.left",       label: "1:1 문의")
             MyPageItem(icon: "megaphone",         label: "공지사항")
-            MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃")
+            MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
         }
     }
 
