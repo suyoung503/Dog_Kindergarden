@@ -57,7 +57,9 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 - 화면 추가 = `AppScreen` enum에 case 추가 + `RootView`의 switch에 분기 추가 + `router.go(.화면)`으로 이동.
 - 화면 간 전달 데이터는 파라미터가 아니라 `AppRouter`의 프로퍼티(`selectedPin`, `selectedRoomId`, `lastBooking` 등)에 담는다.
-- 상태 모델은 전부 `@Observable` 클래스로 `RootView`에서 `.environment()`로 주입: `AppRouter`(내비게이션), `BoardingStore`(공공데이터 가게), `TagStore`(리뷰 태그), `UserProfile`(보호자 정보, UserDefaults 영속), `AuthSession`(카카오 로그인). 뷰에서는 `@Environment(타입.self)`로 읽는다.
+- 상태 모델은 전부 `@Observable` 클래스로 `RootView`에서 `.environment()`로 주입: `AppRouter`(내비게이션), `BoardingStore`(공공데이터 가게), `TagStore`(리뷰 태그), `UserProfile`(보호자 정보, UserDefaults 영속), `AuthSession`(카카오 로그인 + `isOwner` 보호자·사장님 역할, UserDefaults 영속). 뷰에서는 `@Environment(타입.self)`로 읽는다.
+- 역할(보호자/사장님)로 로그인 후 진입 화면을 분기하지 않는다. 목적지는 모두 `.home`이고, 사장님 여부는 `AuthSession.isOwner`에 귀속해 홈 사이드바(FAB)에 '받은 예약 요청'만 조건부 노출한다. (진입 분기 방식은 뒤로가기·재실행 시 오라우팅을 유발해 폐기했다.)
+- 화면 상단 여백은 `.safeAreaTopPadding()`(`SafeAreaKey.swift`)를 쓴다. `body`에서 `UIApplication.safeAreaTop`을 직접 읽으면(`.padding(.top, UIApplication.safeAreaTop + 12)`) 콜드 런치 때 레이아웃 피드백 순환(AttributeGraph cycle)이 생겨 그 화면이 얼어붙는다 — 특히 초기 화면. 상세는 `docs/PORTFOLIO.md` §7.
 
 ### iOS — API 연결
 
