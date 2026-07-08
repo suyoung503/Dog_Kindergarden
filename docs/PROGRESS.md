@@ -51,6 +51,8 @@
 - [x] **사장님 모드(받은 예약 요청 확정) + 기기 캘린더 저장** (2026-07-09) — 예약 상태가 REQUEST에서 CONFIRMED로 전환될 경로가 아예 없던 것을 발견해 신설. 백엔드 `GET /api/reservations/pending`(REQUEST 전체, 가게·강아지 조인), `PATCH /api/reservations/:id/confirm` 추가(배포 완료). iOS `OwnerModeView` 신규 — 받은 예약 요청 목록 + 확정 버튼, 확정 시 EventKit(`CalendarService`)으로 기기 캘린더에 일정 추가(예약 취소 시 함께 삭제). Info.plist에 캘린더 권한 설명 추가. 업체-가게 소유 관계가 DB에 없어 전체 요청을 함께 보여주는 데모 범위
 - [x] **사장님 모드 사이드바 통합 재설계** (2026-07-09) — 로그인 후 역할에 따라 진입 화면을 분기하던 구조가 뒤로가기·앱 재실행 시 사장님 세션을 손님 홈으로 오라우팅하던 문제를 구조적으로 제거. 로그인 후 목적지를 모두 `.home`으로 통일하고, 역할은 `AuthSession.isOwner`(UserDefaults 영속)에 귀속. 시작 화면의 역할 선택은 "보호자 / 보호자·사장님"으로 명칭 정리, 보호자·사장님 계정에만 홈 사이드바(FAB)에 '받은 예약 요청' 항목 노출
 - [x] **첫 화면 프리즈 버그 수정 — SwiftUI AttributeGraph 순환** (2026-07-09) — 콜드 런치 직후 시작 화면에서 역할 카드를 탭해도 체크/테두리가 안 바뀌던(상태는 바뀌나 `body`가 재평가 안 되던) 버그. `simctl` 콘솔 캡처로 `AttributeGraph: cycle detected` 로그를 잡아 원인 특정 — `body` 평가 중 `UIApplication.safeAreaTop`(UIKit 윈도우 `safeAreaInsets`)을 읽어, 레이아웃 미확정 상태의 콜드 런치에서 레이아웃 피드백 순환이 생기고 SwiftUI가 갱신 전파를 끊어 화면이 얼어붙음. safe area를 `@State`에 캐시하고 `onAppear`에서 채우는 `.safeAreaTopPadding()` `ViewModifier`로 묶어 `body`가 UIKit 레이아웃을 읽지 않게 함. 같은 위험 패턴이 있던 화면 12곳 전부 이 모디파이어로 통일. 콘솔 캡처로 순환 1건→0건 검증 + **시뮬레이터 실동작 확인 완료**. 상세는 `docs/PORTFOLIO.md` §7
+- [x] **예약 취소 시 캘린더 일정 삭제 수정** (2026-07-09) — 예약을 취소해도 확정 시 기기 캘린더에 추가된 일정이 그대로 남던 버그. 캘린더 권한을 쓰기 전용(`requestWriteOnlyAccessToEvents`)으로만 받아 이벤트 조회(`event(withIdentifier:)`)가 불가능해 삭제가 조용히 실패하던 것이 원인. iOS 17+ 권한을 전체 접근(`requestFullAccessToEvents`)으로 바꾸고 `removeReservationEvent`를 async화해 삭제 전 권한 요청, Info.plist에 `NSCalendarsFullAccessUsageDescription` 추가(미사용 write-only 키 제거). 시뮬레이터 실동작 확인 완료, 커밋 `0b2a5f8`
+- [x] **카카오 로그인 취소·에러 문구 잔류 수정** (2026-07-09) — (1) 로그인 창을 사용자가 직접 닫아도 빨간 '로그인에 실패했어요' 문구가 뜨던 것을, 취소(`SdkError.ClientFailed(.Cancelled)`) 감지 시 표시하지 않도록 수정. (2) `errorMessage`를 로그인 시도 시작 때만 초기화해, 취소로 뜬 문구가 개발자 진입→로그아웃→start 복귀 후에도 남던 문제를 `logout()`·`loginAsDeveloper()`에서 `errorMessage = nil`로 해결
 
 ---
 
@@ -102,6 +104,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `5038347`(push 완료). **미커밋 변경 대기:** 사장님 모드(+캘린더)·사이드바 재설계·첫 화면 프리즈 수정 (커밋 예정)
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `0b2a5f8`(push 완료). 미커밋: 카카오 로그인 취소·에러 문구 수정 (커밋 예정)
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`

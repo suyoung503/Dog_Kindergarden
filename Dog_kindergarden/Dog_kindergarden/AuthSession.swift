@@ -66,6 +66,8 @@ final class AuthSession {
 
             try await registerWithBackend(kakaoId: kakaoId, nickname: name, profile: profile)
         } catch {
+            // 사용자가 로그인 창을 직접 닫은 경우(취소)는 실패로 표시하지 않는다
+            if case let SdkError.ClientFailed(reason, _) = error, reason == .Cancelled { return }
             errorMessage = "로그인에 실패했어요. 다시 시도해주세요."
         }
     }
@@ -75,6 +77,7 @@ final class AuthSession {
         userId   = nil
         nickname = ""
         isOwner  = false
+        errorMessage = nil
         UserDefaults.standard.removeObject(forKey: "auth_user_id")
         UserDefaults.standard.removeObject(forKey: "auth_nickname")
         UserDefaults.standard.removeObject(forKey: "auth_is_owner")
@@ -84,6 +87,7 @@ final class AuthSession {
     // 시뮬레이터 개발자 진입 — 고정 kakao_id로 실제 유저 행을 만들어
     // 프로필 저장·예약 등 서버 연동이 실제로 동작하게 함
     func loginAsDeveloper(profile: UserProfile? = nil) async {
+        errorMessage = nil
         do {
             try await registerWithBackend(kakaoId: "dev-simulator", nickname: "테스트", profile: profile)
         } catch {
