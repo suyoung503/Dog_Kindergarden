@@ -169,7 +169,7 @@ struct ReservationListView: View {
         Task {
             do {
                 try await APIClient.shared.cancelReservation(reservationId: rid)
-                CalendarService.removeReservationEvent(reservationId: rid)
+                await CalendarService.removeReservationEvent(reservationId: rid)
             } catch {
                 reservations[index] = previous
             }

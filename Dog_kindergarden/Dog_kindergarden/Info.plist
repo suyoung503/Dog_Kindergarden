@@ -55,7 +55,7 @@
 	<string>주변 강아지 유치원·호텔을 지도에서 찾기 위해 위치 정보가 필요합니다.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>예약이 확정되면 캘린더에 일정을 추가하기 위해 접근 권한이 필요합니다.</string>
-	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
-	<string>예약이 확정되면 캘린더에 일정을 추가하기 위해 접근 권한이 필요합니다.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>예약이 확정되면 캘린더에 일정을 추가하고, 예약 취소 시 해당 일정을 삭제하기 위해 접근 권한이 필요합니다.</string>
 </dict>
 </plist>
