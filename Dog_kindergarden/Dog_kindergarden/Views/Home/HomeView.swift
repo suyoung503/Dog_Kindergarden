@@ -123,7 +123,7 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
         .padding(.bottom, 8)
     }
 
@@ -326,14 +326,22 @@ private let fabItems: [FABItem] = [
     FABItem(icon: "gearshape",       label: "설정",         bg: Color.brandBlueLight,  destination: .myPage),
 ]
 
+// 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정
+private let ownerFabItem = FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청", bg: Color(hex: "#FFD9A8"), destination: .ownerMode)
+
 struct FloatingActionButton: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AuthSession.self) private var authSession
     @Binding var isOpen: Bool
+
+    private var items: [FABItem] {
+        authSession.isOwner ? fabItems + [ownerFabItem] : fabItems
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 10) {
             if isOpen {
-                ForEach(fabItems, id: \.label) { item in
+                ForEach(items, id: \.label) { item in
                     Button(action: {
                         isOpen = false
                         router.go(item.destination)

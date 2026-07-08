@@ -63,7 +63,7 @@ struct MyPageView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
     }
 
     // MARK: - Profile card

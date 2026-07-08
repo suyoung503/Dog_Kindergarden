@@ -4,6 +4,7 @@ struct StartView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
     @Environment(UserProfile.self) private var userProfile
+    @State private var selectedRole: UserRole = .user
 
     var body: some View {
         ScrollView {
@@ -49,7 +50,7 @@ struct StartView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color.brandBrownMid)
         }
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
     }
 
     private var illustrationSection: some View {
@@ -87,22 +88,22 @@ struct StartView: View {
     private var roleCards: some View {
         VStack(spacing: 12) {
             RoleCardView(
-                title: "보호자 / 사용자",
+                title: "보호자",
                 subtitle: "우리 강아지를 맡길 곳을 찾아요",
                 emoji: "img:dog_c",
                 tint: Color(hex: "#FFE6CC"),
                 ring: Color.brandOrange,
-                isSelected: router.role != .owner,
-                action: { router.role = .user }
+                isSelected: selectedRole != .owner,
+                action: { selectedRole = .user }
             )
             RoleCardView(
-                title: "유치원·호텔 사장님",
-                subtitle: "우리 가게를 등록하고 관리해요",
+                title: "보호자 · 사장님",
+                subtitle: "받은 예약 요청도 확인하고 관리해요",
                 emoji: "🏠",
                 tint: Color.brandGreenLight,
                 ring: Color.brandGreen,
-                isSelected: router.role == .owner,
-                action: { router.role = .owner }
+                isSelected: selectedRole == .owner,
+                action: { selectedRole = .owner }
             )
         }
         .padding(.top, 20)
@@ -114,6 +115,7 @@ struct StartView: View {
                 Task {
                     await authSession.loginWithKakao(profile: userProfile)
                     if authSession.isLoggedIn {
+                        authSession.setOwnerRole(selectedRole == .owner)
                         router.go(.home)
                     }
                 }
@@ -159,6 +161,7 @@ struct StartView: View {
             Button("개발자 진입 (시뮬레이터용)") {
                 Task {
                     await authSession.loginAsDeveloper(profile: userProfile)
+                    authSession.setOwnerRole(selectedRole == .owner)
                     router.go(.home)
                 }
             }
@@ -225,5 +228,6 @@ struct RoleCardView: View {
             )
             .shadow(color: Color.brandBrown.opacity(0.12), radius: 9, x: 0, y: 8)
         }
+        .buttonStyle(.plain)
     }
 }

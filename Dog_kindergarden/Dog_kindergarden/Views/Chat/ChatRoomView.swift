@@ -145,7 +145,7 @@ struct ChatRoomView: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
         .padding(.bottom, 12)
         .background(.white)
     }

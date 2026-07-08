@@ -307,6 +307,35 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
   return c.json({ ok: true });
 });
 
+// 사장님 모드 — 확정 대기 중인(REQUEST) 예약 전체 조회
+app.get("/api/reservations/pending", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `
+    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
+           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
+           p.name AS pet_name,
+           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
+    FROM reservations r
+    LEFT JOIN stores s ON s.store_id = r.store_id
+    LEFT JOIN pets p ON p.pet_id = r.pet_id
+    WHERE r.status = 'REQUEST'
+    ORDER BY r.reservation_id DESC
+  `,
+  ).all();
+  return c.json(results);
+});
+
+// 예약 확정 — 상태만 CONFIRMED로 변경
+app.patch("/api/reservations/:id/confirm", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  await c.env.DB.prepare(
+    `UPDATE reservations SET status = 'CONFIRMED' WHERE reservation_id = ?`,
+  )
+    .bind(reservationId)
+    .run();
+  return c.json({ ok: true });
+});
+
 app.get("/api/users/:id/pets", async (c) => {
   const userId = Number(c.req.param("id"));
   const { results } = await c.env.DB.prepare(

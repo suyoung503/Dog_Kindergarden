@@ -167,7 +167,7 @@ struct KakaoMapView: View {
             .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 2)
         }
         .padding(.horizontal, 16)
-        .padding(.top, UIApplication.safeAreaTop + 12)
+        .safeAreaTopPadding()
     }
 
     // MARK: - Bottom card

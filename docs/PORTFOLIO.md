@@ -167,6 +167,85 @@ const roomId  = room     ? room.room_id     : (await insertRoom(userId, storeId)
 
 ---
 
+### 7. 첫 화면이 첫 탭에 반응하지 않던 버그 — SwiftUI AttributeGraph 순환
+
+가장 오래 붙잡았던 버그이자, SwiftUI 내부 동작을 깊이 이해하게 된 사례다.
+
+**문제 (증상)**
+앱을 새로 설치하고 **처음 켠 시작 화면**에서 역할 선택 카드(보호자 / 보호자·사장님)를 탭하면, 체크 표시도 테두리 색도 전혀 바뀌지 않았다. 그런데 한 번 로그인했다가 **로그아웃해서 다시 나타난 "똑같은" 시작 화면**에서는 멀쩡히 동작했다. 즉 **"콜드 런치 직후 첫 진입"에서만** 나타나는 비대칭 버그였다.
+
+**왜 어려웠나**
+탭 자체는 정상이었다. 로그를 심어 보니 탭할 때마다 상태값(`selectedRole`)은 `.owner`로 잘 바뀌었고, 그 상태로 로그인하면 실제로 사장님 계정으로 로그인까지 됐다. **상태는 바뀌는데 화면(`body`)만 그 변화를 다시 그리지 않는** 기묘한 상황이었다. 처음에는 표면적인 원인들 — 뷰 전환 애니메이션, 버튼 스타일, 상태를 저장하는 위치, 빌드 캐시 — 을 하나씩 의심하고 수정했지만 전부 빗나갔다.
+
+**체계적 진단**
+추측을 멈추고 사실을 좁혀 나갔다.
+
+1. `body` 진입점에 로그를 심어, 탭 후 **`body`가 재평가 자체를 안 한다**는 것을 확정했다. (렌더링만 얼어붙은 게 아니라 아예 다시 계산되지 않았다.)
+2. 시뮬레이터를 명령줄에서 직접 실행해(`xcrun simctl launch --console-pty`) 콘솔을 캡처했더니 결정적 로그가 나왔다:
+
+```
+=== AttributeGraph: cycle detected through attribute 5436 ===
+```
+
+**근본 원인**
+SwiftUI는 뷰의 의존 관계를 **AttributeGraph**라는 방향 그래프로 관리하고, 어떤 값이 바뀌면 그 그래프를 따라 영향받는 뷰를 다시 그린다. 이 그래프에 **순환(cycle)** 이 생기면 SwiftUI는 무한 루프를 막기 위해 **그 경로의 갱신 전파를 끊어버린다.** 그 결과가 바로 "처음 한 번만 그려지고 이후로는 어떤 상태 변화에도 얼어붙는" 화면이었다.
+
+순환의 근원은 시작 화면의 상단 여백 코드였다:
+
+```swift
+.padding(.top, UIApplication.safeAreaTop + 12)   // safeAreaTop이 UIKit 윈도우의 safeAreaInsets를 읽음
+```
+
+`safeAreaTop`은 UIKit 윈도우의 `safeAreaInsets`를 **`body` 평가 도중에** 읽는다. 그런데 콜드 런치 순간엔 윈도우 레이아웃(safe area)이 아직 확정되기 전이라, 다음과 같은 순환이 만들어진다:
+
+```
+화면 콘텐츠 크기  →(의존)  body 평가  →(읽음)  safe area  →(의존)  윈도우 레이아웃  →(의존)  콘텐츠 크기 …
+```
+
+로그아웃 후 재진입 때는 윈도우가 이미 자리를 잡아 safe area가 확정돼 있으므로 순환이 생기지 않는다 — 이것이 "콜드 런치에서만 실패하는" 비대칭의 정체였다.
+
+**해결 (가장 효과적이었던 방법)**
+핵심은 **`body` 평가 중에 UIKit 레이아웃 값을 읽지 않는 것**이다. safe area 값을 `@State`에 캐시하고, 레이아웃이 끝난 뒤 실행되는 `onAppear`에서 실제 값을 채워 넣도록 바꿨다. `body`는 이 `@State` 값만 읽으므로 UIKit 레이아웃과의 의존 고리가 끊어져 순환이 사라진다.
+
+```swift
+private struct SafeAreaTopPadding: ViewModifier {
+    @State private var topInset: CGFloat = 56          // 기본 safe area(44) + 12
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, topInset)                    // body는 캐시된 @State만 읽음 (순환 없음)
+            .onAppear { topInset = UIApplication.safeAreaTop + 12 }  // 레이아웃 확정 후 실제 값 주입
+    }
+}
+```
+
+처음에는 시작 화면에만 인라인으로 적용해 원인을 검증했고, **같은 위험 패턴이 다른 11개 화면에도 있었기 때문에** 재사용 `ViewModifier`(`.safeAreaTopPadding()`)로 묶어 `SafeAreaKey.swift` 한 곳에서 관리하도록 정리했다. 이제 `body`에서 safe area를 직접 읽는 곳은 0곳이다.
+
+**검증**
+수정 전/후를 콘솔 캡처로 비교했다.
+
+| | 순환 감지 | 탭 후 body 재평가 |
+|---|---|---|
+| 수정 전 | **1건** | ❌ 안 됨 (화면 얼어붙음) |
+| 수정 후 | **0건** | ✅ 됨 (`topInset` 56→59로 갱신되는 로그 확인) |
+
+**이 방법을 선택한 이유**
+다른 선택지도 검토했다.
+
+| 방법 | 문제점 |
+|---|---|
+| RootView의 `.ignoresSafeArea()`를 걷어내고 SwiftUI 기본 safe area 사용 | 12개 화면의 레이아웃을 전부 바꿔야 해 범위·위험이 큼 |
+| `GeometryReader`로 safe area 읽기 | RootView가 safe area를 무시하는 구조라 0을 반환 → 사용 불가 |
+| **`@State` 캐시 + `onAppear` (채택)** | 기존 레이아웃·아키텍처를 그대로 두고 "`body`에서 UIKit 읽기"만 제거하는 **최소·국소 수정** |
+
+`@State` 캐시 방식은 근본 원인("`body`에서 레이아웃을 읽어 순환이 생김")을 정확히 겨냥하면서 화면 배치나 앱 구조를 전혀 건드리지 않는다. 게다가 `ViewModifier`로 묶어 재발 방지와 코드 중복 제거(DRY)까지 함께 달성했다.
+
+**배운 점**
+- **"상태는 바뀌는데 화면이 안 바뀐다"** 는 SwiftUI 특유의 증상은 AttributeGraph 순환을 의심할 강한 신호다.
+- `body`는 순수해야 한다. 평가 도중 UIKit 레이아웃처럼 "그 결과가 다시 `body`에 영향을 주는" 값을 읽으면 순환이 생길 수 있다. safe area 같은 값은 캐시하거나 SwiftUI 네이티브 수단으로 받아야 한다.
+- UI 자동화 없이도, `body`에 심은 로그 + `simctl` 콘솔 캡처만으로 "추측"이 아닌 "관측"에 근거해 원인을 특정하고 수정을 검증할 수 있었다.
+
+---
+
 ## 아키텍처 결정
 
 ### iOS — SwiftUI + Observation
