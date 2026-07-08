@@ -47,7 +47,8 @@ enum CalendarService {
         return true
     }
 
-    static func removeReservationEvent(reservationId: Int) {
+    static func removeReservationEvent(reservationId: Int) async {
+        guard await requestAccess() else { return }
         guard let identifier = eventIdentifier(for: reservationId),
               let event = store.event(withIdentifier: identifier) else { return }
         try? store.remove(event, span: .thisEvent)
@@ -56,7 +57,8 @@ enum CalendarService {
 
     private static func requestAccess() async -> Bool {
         if #available(iOS 17.0, *) {
-            return (try? await store.requestWriteOnlyAccessToEvents()) ?? false
+            // 이벤트 삭제(취소 시)에는 조회가 필요하므로 쓰기 전용이 아닌 전체 접근을 받는다
+            return (try? await store.requestFullAccessToEvents()) ?? false
         } else {
             return await withCheckedContinuation { continuation in
                 store.requestAccess(to: .event) { granted, _ in
