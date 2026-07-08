@@ -59,4 +59,9 @@ final class AppRouter {
         guard stack.count > 1 else { return }
         stack.removeLast()
     }
+
+    // 스택을 통째로 교체 — 로그아웃처럼 이전 화면으로 되돌아가면 안 되는 경우에 사용
+    func reset(to screen: AppScreen) {
+        stack = [screen]
+    }
 }
