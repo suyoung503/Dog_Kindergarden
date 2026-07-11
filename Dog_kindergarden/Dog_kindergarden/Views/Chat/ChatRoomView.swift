@@ -44,11 +44,24 @@ final class ChatRoomViewModel {
         }
     }
 
+    // 상대(사장님/손님)가 보낸 새 메시지 반영 — 방이 열려 있는 동안 주기 호출
+    func refresh() async {
+        guard let roomId, !isSending else { return }
+        guard let dtos = try? await ChatService.messages(roomId: roomId) else { return }
+        if dtos.count != messages.count {
+            messages = dtos.map(map)
+        }
+    }
+
+    private var isSending = false
+
     func send() async {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         inputText = ""
         errorMessage = nil
+        isSending = true
+        defer { isSending = false }
 
         // 작성 모드 첫 전송: 방 생성 → 전송 → 전체 로드(이전/시스템 메시지 포함)
         if roomId == nil {
@@ -116,6 +129,13 @@ struct ChatRoomView: View {
                 storeAddress: pin?.address ?? ""
             )
             await vm.load()
+        }
+        .task {
+            // 3초 주기 폴링 — 상대가 보낸 메시지를 방에 머무는 동안 반영 (화면 이탈 시 자동 취소)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await vm.refresh()
+            }
         }
     }
 

@@ -61,7 +61,12 @@ final class AppRouter {
     }
 
     // 스택을 통째로 교체 — 로그아웃처럼 이전 화면으로 되돌아가면 안 되는 경우에 사용
+    // 계정 전환 시 이전 계정의 흔적(최근 본 가게·선택 상태)이 남지 않도록 세션 데이터도 함께 비운다
     func reset(to screen: AppScreen) {
         stack = [screen]
+        selectedPin = nil
+        selectedRoomId = nil
+        recentPins = []
+        lastBooking = nil
     }
 }

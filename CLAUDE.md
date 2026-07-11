@@ -59,6 +59,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 - 화면 간 전달 데이터는 파라미터가 아니라 `AppRouter`의 프로퍼티(`selectedPin`, `selectedRoomId`, `lastBooking` 등)에 담는다.
 - 상태 모델은 전부 `@Observable` 클래스로 `RootView`에서 `.environment()`로 주입: `AppRouter`(내비게이션), `BoardingStore`(공공데이터 가게), `TagStore`(리뷰 태그), `UserProfile`(보호자 정보, UserDefaults 영속), `AuthSession`(카카오 로그인 + `isOwner` 보호자·사장님 역할, UserDefaults 영속). 뷰에서는 `@Environment(타입.self)`로 읽는다.
 - 역할(보호자/사장님)로 로그인 후 진입 화면을 분기하지 않는다. 목적지는 모두 `.home`이고, 사장님 여부는 `AuthSession.isOwner`에 귀속해 홈 사이드바(FAB)에 '받은 예약 요청'만 조건부 노출한다. (진입 분기 방식은 뒤로가기·재실행 시 오라우팅을 유발해 폐기했다.)
+- 역할은 **최초 가입 시 계정(서버 `users.is_owner`)에 영구 귀속**된다. 같은 카카오 계정으로 반대 역할 가입은 서버가 409로 거절하고 iOS는 안내 문구를 띄운다(역할별 데이터 분리 목적 — 견주/사장님이 채팅·찜·예약을 공유하지 않게). 개발자 진입도 역할별 별개 계정: `dev-simulator`(견주) / `dev-simulator-owner`(사장님). 로그아웃 시 `AppRouter.reset(to:)`이 스택과 함께 `recentPins`·`selectedPin`·`selectedRoomId`·`lastBooking`을 비워 계정 간 잔존 데이터를 막는다 — reset에 세션 상태 초기화를 빼먹지 말 것.
 - 화면 상단 여백은 `.safeAreaTopPadding()`(`SafeAreaKey.swift`)를 쓴다. `body`에서 `UIApplication.safeAreaTop`을 직접 읽으면(`.padding(.top, UIApplication.safeAreaTop + 12)`) 콜드 런치 때 레이아웃 피드백 순환(AttributeGraph cycle)이 생겨 그 화면이 얼어붙는다 — 특히 초기 화면. 상세는 `docs/PORTFOLIO.md` §7.
 
 ### iOS — API 연결
@@ -79,6 +80,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 - `store_key` = `"이름|주소"` 문자열. 예약·리뷰·찜 시 이 키로 `stores` 테이블을 조회해 **있으면 재사용, 없으면 insert** (upsert) → 같은 가게는 항상 같은 `store_id`.
 - 채팅방은 `chat_rooms(user_id, store_id UNIQUE)`, 찜은 `favorites(user_id, store_id UNIQUE)` — 둘 다 **(사용자+가게) 조합당 1개**. 예약 API가 방을 자동 생성/조회하고 `{reservation_id, room_id}`를 함께 반환한다.
+- 사장님-가게 소유는 `stores.owner_id`. 마이페이지 '내 가게'(`MyStoreSheet`)에서 상호명 검색으로 등록(`POST /api/stores/claim`, `store_key` upsert 재사용, 남의 가게면 409)·해제(`DELETE /api/owners/:id/stores/:storeId`)하고, 등록된 가게는 가게 상세에 '내 가게' 뱃지로 표시된다. 받은 문의는 `GET /api/owners/:id/chatrooms`로 조회해 채팅 목록(`ChatListView`) 상단 '받은 문의' 섹션에 표시한다. 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.
 - 이 패턴을 깨는 변경(예약마다 방 생성, 이름만으로 가게 식별 등)은 하지 않는다.
 - iOS에서 서버가 보강한 `store_key`로 화면을 다시 그릴 때(`FavoritesView` 등)는 `MapPin.storeKeyOverride`에 원본 키를 담아 재계산으로 키가 어긋나지 않게 한다.
 

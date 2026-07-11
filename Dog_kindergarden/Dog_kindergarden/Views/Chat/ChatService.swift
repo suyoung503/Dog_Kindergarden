@@ -24,6 +24,18 @@ struct ChatRoomSummary: Decodable, Identifiable {
     var id: Int { room_id }
 }
 
+// 사장님 문의함 목록 행 — 손님 닉네임 포함
+struct OwnerChatRoomSummary: Decodable, Identifiable {
+    let room_id: Int
+    let store_id: Int?
+    let store_name: String?
+    let customer_name: String?
+    let last_message: String?
+    let last_time: String?
+
+    var id: Int { room_id }
+}
+
 enum ChatService {
     private static let base = apiBaseURL
 
@@ -49,6 +61,13 @@ enum ChatService {
         let url = URL(string: "\(base)/api/users/\(userId)/chatrooms")!
         let (data, _) = try await URLSession.shared.data(from: url)
         return try JSONDecoder().decode([ChatRoomSummary].self, from: data)
+    }
+
+    /// 사장님 문의함: 내 가게로 온 채팅방 목록 (메시지가 1개 이상 있는 방만)
+    static func ownerRooms(ownerId: Int) async throws -> [OwnerChatRoomSummary] {
+        let url = URL(string: "\(base)/api/owners/\(ownerId)/chatrooms")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try JSONDecoder().decode([OwnerChatRoomSummary].self, from: data)
     }
 
     /// 방의 메시지 목록

@@ -5,9 +5,10 @@ import Observation
 @MainActor
 final class ChatListViewModel {
     var rooms: [ChatRoomSummary] = []
+    var receivedRooms: [OwnerChatRoomSummary] = []   // 사장님: 내 가게로 온 손님 문의방
     var isLoading = false
 
-    func load(userId: Int) async {
+    func load(userId: Int, isOwner: Bool) async {
         isLoading = true
         defer { isLoading = false }
         do {
@@ -15,6 +16,13 @@ final class ChatListViewModel {
         } catch {
             rooms = []
         }
+        guard isOwner else {
+            receivedRooms = []
+            return
+        }
+        let received = (try? await ChatService.ownerRooms(ownerId: userId)) ?? []
+        // 내가 내 가게에 문의한 방은 '내 채팅'에만 표시
+        receivedRooms = received.filter { r in !rooms.contains { $0.room_id == r.room_id } }
     }
 }
 
@@ -31,11 +39,21 @@ struct ChatListView: View {
     var body: some View {
         VStack(spacing: 0) {
             navBar
-            if !vm.isLoading && vm.rooms.isEmpty {
+            if !vm.isLoading && vm.rooms.isEmpty && vm.receivedRooms.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
+                        // 사장님: 받은 문의 섹션을 위에 분리
+                        if !vm.receivedRooms.isEmpty {
+                            sectionHeader("받은 문의")
+                            ForEach(vm.receivedRooms) { room in
+                                receivedRow(room)
+                            }
+                            if !vm.rooms.isEmpty {
+                                sectionHeader("내 채팅")
+                            }
+                        }
                         ForEach(Array(vm.rooms.enumerated()), id: \.element.room_id) { index, room in
                             chatRow(room, index: index)
                         }
@@ -46,7 +64,7 @@ struct ChatListView: View {
             }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await vm.load(userId: authSession.userId ?? 1) }
+        .task { await vm.load(userId: authSession.userId ?? 1, isOwner: authSession.isOwner) }
     }
 
     // MARK: - Nav
@@ -85,6 +103,60 @@ struct ChatListView: View {
                 .lineSpacing(3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Section
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Color.brandBrownMid)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 4)
+    }
+
+    // 받은 문의 행 — 손님 닉네임 + 가게명. 탭하면 같은 ChatRoomView에서 답장
+    private func receivedRow(_ room: OwnerChatRoomSummary) -> some View {
+        Button(action: {
+            router.selectedChat = room.customer_name ?? "보호자"
+            router.selectedRoomId = room.room_id
+            router.go(.chatRoom)
+        }) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#FFD9A8"))
+                        .frame(width: 48, height: 48)
+                    EmojiIcon(emoji: "🙋", size: 22)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(room.customer_name ?? "보호자")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.brandBrown)
+                        Text(room.store_name ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.brandBrownMid)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(shortTime(room.last_time))
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.brandBrownMid)
+                    }
+                    Text(room.last_message ?? "새 문의")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: "#7a5635"))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Row

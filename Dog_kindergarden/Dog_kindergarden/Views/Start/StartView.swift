@@ -113,9 +113,8 @@ struct StartView: View {
         VStack(spacing: 10) {
             Button(action: {
                 Task {
-                    await authSession.loginWithKakao(profile: userProfile)
+                    await authSession.loginWithKakao(profile: userProfile, asOwner: selectedRole == .owner)
                     if authSession.isLoggedIn {
-                        authSession.setOwnerRole(selectedRole == .owner)
                         router.go(.home)
                     }
                 }
@@ -160,9 +159,8 @@ struct StartView: View {
 #if DEBUG
             Button("개발자 진입 (시뮬레이터용)") {
                 Task {
-                    await authSession.loginAsDeveloper(profile: userProfile)
-                    authSession.setOwnerRole(selectedRole == .owner)
-                    router.go(.home)
+                    await authSession.loginAsDeveloper(profile: userProfile, asOwner: selectedRole == .owner)
+                    if authSession.isLoggedIn { router.go(.home) }
                 }
             }
             .font(.system(size: 11))

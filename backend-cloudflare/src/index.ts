@@ -81,6 +81,8 @@ type KakaoAuthBody = {
   kakao_id: string;
   nickname: string;
   email?: string;
+  is_owner?: boolean;
+  isOwner?: boolean;
 };
 
 type FavoriteBody = {
@@ -103,6 +105,17 @@ type UpdateUserBody = {
   nickname?: string;
   phone?: string;
   address?: string;
+};
+
+type StoreClaimBody = {
+  user_id?: number;
+  userId?: number;
+  store_key?: string;
+  storeKey?: string;
+  store_name?: string;
+  storeName?: string;
+  store_address?: string;
+  storeAddress?: string;
 };
 
 type CreatePetBody = {
@@ -202,6 +215,80 @@ app.get("/api/stores", async (c) => {
     ORDER BY store_id DESC
   `,
   ).all();
+  return c.json(results);
+});
+
+// 사장님-가게 연결: 가게 상세의 "내 가게로 등록" — store_key 업서트 후 owner_id 지정
+app.post("/api/stores/claim", async (c) => {
+  const body = await c.req.json<StoreClaimBody>();
+  const userId = body.user_id ?? body.userId;
+  const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
+  if (!userId || !storeKey)
+    return c.json({ message: "user_id/store_key is required" }, 400);
+
+  const storeId = await resolveStoreId(c.env.DB, {
+    storeKey,
+    storeName: body.store_name ?? body.storeName ?? "",
+    storeAddress: body.store_address ?? body.storeAddress ?? "",
+  });
+
+  const store = await c.env.DB.prepare(
+    `SELECT owner_id FROM stores WHERE store_id = ?`,
+  )
+    .bind(storeId)
+    .first<{ owner_id: number | null }>();
+  if (store?.owner_id && store.owner_id !== userId)
+    return c.json({ message: "already claimed by another owner" }, 409);
+
+  await c.env.DB.prepare(`UPDATE stores SET owner_id = ? WHERE store_id = ?`)
+    .bind(userId, storeId)
+    .run();
+  return c.json({ store_id: storeId, owner_id: userId }, 201);
+});
+
+// 사장님이 등록한 내 가게 목록
+app.get("/api/owners/:id/stores", async (c) => {
+  const ownerId = Number(c.req.param("id"));
+  const { results } = await c.env.DB.prepare(
+    `SELECT store_id, store_key, name, address FROM stores WHERE owner_id = ? ORDER BY store_id DESC`,
+  )
+    .bind(ownerId)
+    .all();
+  return c.json(results);
+});
+
+// 내 가게 등록 해제 — 본인 소유일 때만 owner_id를 비운다 (잘못 등록 시 복구 경로)
+app.delete("/api/owners/:id/stores/:storeId", async (c) => {
+  const ownerId = Number(c.req.param("id"));
+  const storeId = Number(c.req.param("storeId"));
+  await c.env.DB.prepare(
+    `UPDATE stores SET owner_id = NULL WHERE store_id = ? AND owner_id = ?`,
+  )
+    .bind(storeId, ownerId)
+    .run();
+  return c.json({ ok: true });
+});
+
+// 사장님 문의함: 내 가게로 온 채팅방 목록 (메시지가 1개 이상 있는 방만, 손님 닉네임 포함)
+app.get("/api/owners/:id/chatrooms", async (c) => {
+  const ownerId = Number(c.req.param("id"));
+  const { results } = await c.env.DB.prepare(
+    `
+    SELECT r.room_id, r.store_id, s.name AS store_name,
+           u.nickname AS customer_name,
+           m.content AS last_message, m.created_at AS last_time
+    FROM chat_rooms r
+    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+    LEFT JOIN users u ON u.user_id = r.user_id
+    LEFT JOIN chat_messages m ON m.message_id = (
+      SELECT MAX(message_id) FROM chat_messages WHERE room_id = r.room_id
+    )
+    WHERE EXISTS (SELECT 1 FROM chat_messages m2 WHERE m2.room_id = r.room_id)
+    ORDER BY m.message_id DESC
+  `,
+  )
+    .bind(ownerId)
+    .all();
   return c.json(results);
 });
 
@@ -584,26 +671,46 @@ app.get("/api/pet-reviews/tags", async (c) => {
 app.post("/api/auth/kakao", async (c) => {
   const body = await c.req.json<KakaoAuthBody>();
   const { kakao_id, nickname, email } = body;
+  const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
 
   if (!kakao_id || !nickname)
     return c.json({ message: "kakao_id and nickname are required" }, 400);
 
   const existing = await c.env.DB.prepare(
-    `SELECT user_id, kakao_id, nickname, email, phone, address FROM users WHERE kakao_id = ?`,
+    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner FROM users WHERE kakao_id = ?`,
   )
     .bind(kakao_id)
-    .first();
+    .first<{
+      user_id: number;
+      kakao_id: string;
+      nickname: string;
+      email: string | null;
+      phone: string | null;
+      address: string | null;
+      is_owner: number | null;
+    }>();
 
-  if (existing) return c.json(existing);
+  if (existing) {
+    // 역할은 최초 가입 시 계정에 귀속 — 같은 카카오 계정으로 다른 역할 가입 불가 (탈퇴 전까지)
+    if ((existing.is_owner ?? 0) !== isOwner)
+      return c.json(
+        {
+          message: "already registered with a different role",
+          is_owner: existing.is_owner ?? 0,
+        },
+        409,
+      );
+    return c.json(existing);
+  }
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO users (kakao_id, nickname, email) VALUES (?, ?, ?)`,
+    `INSERT INTO users (kakao_id, nickname, email, is_owner) VALUES (?, ?, ?, ?)`,
   )
-    .bind(kakao_id, nickname, email ?? null)
+    .bind(kakao_id, nickname, email ?? null, isOwner)
     .run();
 
   const created = await c.env.DB.prepare(
-    `SELECT user_id, kakao_id, nickname, email, phone, address FROM users WHERE user_id = ?`,
+    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner FROM users WHERE user_id = ?`,
   )
     .bind(result.meta.last_row_id)
     .first();
