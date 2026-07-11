@@ -57,7 +57,9 @@
 - [x] **역할별 계정 분리 + 내 가게 등록을 마이페이지로** (2026-07-12) — 견주/사장님이 같은 계정 플래그를 공유해 채팅·최근 본 가게가 섞이고, 사장님이 보낸 메시지도 견주가 보낸 것처럼(같은 sender_id) 보이던 구조 문제를 해결. **역할 귀속:** 마이그레이션 0008로 `users.is_owner` 신설 — 역할은 최초 가입 시 카카오 계정에 영구 귀속, 같은 계정으로 반대 역할 가입 시 서버 409 + iOS 안내 문구(탈퇴 기능은 미구현, v2). 개발자 진입도 `dev-simulator`(견주)/`dev-simulator-owner`(사장님) 별개 계정으로 분리해 시뮬레이터 한 대에서 양쪽 테스트 가능. 로그아웃 시 `AppRouter.reset`이 `recentPins` 등 세션 데이터도 초기화. **내 가게 등록 이동:** 가게 상세의 등록 버튼을 제거하고 마이페이지 '내 정보' 최상단 '내 가게' 항목(사장님 전용) → `MyStoreSheet`에서 공공데이터 상호명 부분일치 검색(2글자+, 최대 30건) → 확인 알림 후 등록, 등록된 가게 목록·해제 버튼(`DELETE /api/owners/:id/stores/:storeId` 신설 — 잘못 등록 복구 경로) 제공. 등록된 가게는 가게 상세에 '내 가게' 뱃지 유지. 배포 + curl 검증(보호자 가입→사장님 로그인 409→재로그인 200→사장님 계정 is_owner 1→등록→해제) 완료, 어제 테스트로 남은 가게 19 소유 잔재 정리. xcodebuild BUILD SUCCEEDED. 커밋 `3fd8df1` (양방향 채팅과 합본, push 완료). **시뮬레이터 실동작 확인 완료**
 - [x] **받은 예약 요청 내 가게 스코프 + 최근 본 가게 계정별 영속** (2026-07-12) — (1) 받은 예약 요청이 전체 가게의 REQUEST를 보여주던 데모 방식을 owner 스코프로 교체: `GET /api/reservations/pending` 제거 → `GET /api/owners/:id/reservations/pending` 신설(`stores.owner_id` JOIN 필터), `OwnerModeView`가 로그인 사장님 id로 조회하고 빈 화면에 '내 가게 등록' 안내 추가. 배포 + curl 검증(내 가게 요청만 1건 / 남의 가게 요청 미노출) 완료. (2) '최근 본 가게'가 메모리 값이라 재로그인 때마다 사라지던 것을 계정별 UserDefaults 영속으로 변경: `MapPin`을 Codable화(id는 제외)하고 `AppRouter.addRecentPin()`(중복 제거 + 최신순 + **최대 6개, 오래된 것부터 삭제** + 저장)·`setActiveUser()`(계정별 `recent_pins_<userId>` 키 복원) 신설, `RootView`의 `.task(id: userId)`로 로그인·로그아웃·콜드 런치 세션 복원 시 자동 전환. 견주/사장님 계정이 각자의 최근 목록을 유지한다. xcodebuild BUILD SUCCEEDED. **시뮬레이터 실동작 확인 완료**. 부수 문서 갱신: `PORTFOLIO.md` §8(양방향 채팅·역할 계정 분리 설계), 백엔드 README API 목록 최신화, iOS README 개발자 진입(역할별 2계정) 안내. 커밋 `b35e4c8` push 완료
 - [x] **사장님 시점 채팅·예약 다듬기 4건** (2026-07-12) — (1) 자동메시지("예약 요청이 완료되었습니다", sender 0)가 사장님 채팅화면에서 고객 말풍선(왼쪽)으로 보이던 것을 수정: `AppRouter.chatRoomAsOwner` 플래그 신설(받은 문의 진입만 true, 나머지 4개 진입점 false), `ChatRoomView.map`이 사장님 시점에서 sender 0을 내(오른쪽) 말풍선으로 처리. (2) 사장님 시점 채팅방 상단의 '응답중' 표시 숨김(가게 상태 표시라 상대가 손님일 땐 무의미). (3) 캘린더 일정이 사장님 기기에 저장되던 문제 수정 — 코드 확인 결과 `OwnerModeView.confirm`이 확정 기기(사장님 폰)의 EventKit에 추가하고 있었음. **고객이 예약 요청을 넣는 순간**(`BookingView` 성공 직후) 고객 기기 캘린더에 일정을 추가하는 방식으로 전환하고 사장님 기기 추가 코드는 제거. 삭제는 본인 취소 시 즉시, 사장님 취소는 고객이 예약 내역을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 삭제(서버 푸시 없음). (4) 받은 예약 요청에 '예약 취소' 버튼 추가(확인 알림 + 기존 `PATCH /api/reservations/:id/cancel` 재사용) — 고객 예약 내역에 '예약 취소됨'으로 표시되고 (3)의 동기화가 고객 캘린더 일정도 삭제. (5) 테스트 중 "캘린더에 저장 안 됨" 제보의 진짜 원인 발견 — 예약 날짜 칩이 `"금 6/12"…` 6월 하드코딩이라 이미 지난 날짜가 됐고, `parseSchedule`의 '지난 날짜면 +1년' 규칙에 걸려 일정이 **2027년 6월**에 저장되고 있었음(저장은 됐지만 안 보임). 날짜 칩을 오늘부터 6일 동적 생성(`ko_KR` "E M/d")으로 교체. (6) 그래도 저장 안 되던 2차 원인은 시뮬레이터 TCC 캘린더 권한이 이미 거부(0) 상태였던 것 — iOS는 한 번 거부하면 재요청 알림을 안 띄워 조용히 실패. `xcrun simctl privacy booted grant calendar net.suyoung.Dog-kindergarden`으로 허용 처리. 백엔드 변경 없음. xcodebuild BUILD SUCCEEDED. 커밋 `9f7a9e0` push 완료
-- [x] **캘린더 권한 거부 시 설정 이동 안내** (2026-07-12) — 캘린더 권한을 한 번 거부하면 iOS가 시스템 알림을 다시 띄우지 않아 예약 일정 저장이 조용히 실패하던 것을 보완. 기기 불문 자동 허용은 iOS 정책상 불가(실기기는 사용자 직접 허용 필수, 시뮬레이터만 `simctl privacy`로 사전 허용 가능)하므로, 예약 성공 후 일정 저장이 권한 거부(`CalendarService.isAccessDenied` 신설, `EKEventStore.authorizationStatus == .denied`)로 실패하면 `BookingView`가 알림("캘린더 권한이 꺼져 있어요")을 띄워 '설정에서 허용'(설정 앱 딥링크) / '건너뛰기'를 제공 — 어느 쪽이든 예약 완료 화면으로 이동, 예약 자체는 정상 처리. xcodebuild BUILD SUCCEEDED
+- [x] **캘린더 권한 거부 시 설정 이동 안내** (2026-07-12) — 캘린더 권한을 한 번 거부하면 iOS가 시스템 알림을 다시 띄우지 않아 예약 일정 저장이 조용히 실패하던 것을 보완. 기기 불문 자동 허용은 iOS 정책상 불가(실기기는 사용자 직접 허용 필수, 시뮬레이터만 `simctl privacy`로 사전 허용 가능)하므로, 예약 성공 후 일정 저장이 권한 거부(`CalendarService.isAccessDenied` 신설, `EKEventStore.authorizationStatus == .denied`)로 실패하면 `BookingView`가 알림("캘린더 권한이 꺼져 있어요")을 띄워 '설정에서 허용'(설정 앱 딥링크) / '건너뛰기'를 제공 — 어느 쪽이든 예약 완료 화면으로 이동, 예약 자체는 정상 처리. xcodebuild BUILD SUCCEEDED. 커밋 `382f2c0` push 완료
+- [x] **기능 명세 문서 신설** (2026-07-12) — `docs/FEATURES.md` 작성: 문서만 읽어도 앱 전체 기능을 파악할 수 있도록 화면 지도 + 도메인별 기능(계정/지도/가게 상세/예약/채팅/리뷰/찜/강아지 프로필/마이페이지/사장님 기능) + 백엔드 API 요약 표 + 설계 불변식 + 미완성 범위를 정리. 조사 과정에서 `POST /api/reviews`·`GET /api/stores/:id/reviews`·`GET /api/diaries/:reservationId`가 iOS에서 호출처 없는 구버전 잔재임을 확인해 문서에 명시
+- [x] **구버전 잔재 라우트·클라이언트 코드 제거** (2026-07-12) — FEATURES.md 조사에서 확인된 미사용 코드 삭제. **백엔드:** `POST /api/reviews`·`GET /api/stores/:id/reviews`(pet-reviews로 대체된 구 리뷰 계열)·`GET /api/diaries/:reservationId`(다이어리 기능 미구현) 라우트 3개와 전용 타입 `ReviewBody` 제거 — 배포 + curl 검증(삭제 라우트 404 / `pet-reviews/tags` 200) 완료. **iOS:** 호출처 0개였던 `APIClient.createReview`·`fetchStoreReviews`와 전용 타입 `ReviewResponse`·`ReviewCreateRequest`·`ReviewItem` 제거. DB의 `reviews`·`diaries` 테이블은 마이그레이션 이력이라 그대로 둠(reviews 0행, diaries는 0001 시드 데모 1행뿐 — 라우트만 제거). 백엔드 README API 목록·FEATURES.md 표에서도 해당 라우트 삭제. xcodebuild BUILD SUCCEEDED
 
 ---
 
@@ -78,10 +80,18 @@
 - [x] ~~예약 API 실연동~~ — 완료 (2026-07 세션)
 - [x] ~~채팅 API 클라이언트 연동~~ — 완료 (2026-07-07, `ChatService` 기반 실연동)
 - [x] ~~MyPageView에서 `UserProfile` 편집 UI 연결~~ — 완료 (2026-07-07, `ProfileEditSheet`)
+- [ ] **알림장(diary)** — 맡긴 날 가게(사장님)가 "초코가 친구들과 잘 놀았어요" 같은 일지·사진을 남기고, 보호자가 예약 단위로 열람하는 기능. DB `diaries` 테이블은 0001 마이그레이션부터 준비돼 있음(시드 데모 1행). 미사용이던 구버전 조회 라우트는 2026-07-12 정리에서 제거했으므로, 구현 시 작성/조회 API와 iOS 화면(사장님 작성 · 보호자 열람)을 새로 설계한다
+- [ ] **`reviews` 테이블 삭제** — 새 마이그레이션 `0009_drop_reviews.sql`에 `DROP TABLE reviews;` 추가(과거 마이그레이션 파일은 수정 금지 원칙). 배포 DB 0행 확인 완료(2026-07-12), 접근 라우트는 이미 제거됨. `diaries`는 알림장 구현 예정이라 유지
+- [ ] **이용일 다음날 리뷰 요청 시스템 메시지** — 예약의 이용일(start_date) 다음날, 해당 (손님+가게) 채팅방에 자동 메시지(sender 0)로 리뷰 작성을 요청. 서버 푸시·스케줄러가 없으므로 구현 방식 결정 필요: Cloudflare Cron Triggers(매일 배치) vs 앱 진입 시 관찰 방식(기존 캘린더 동기화와 같은 패턴)
+- [ ] **사장님 예약 취소 시 고객에게 시스템 메시지** — 사장님이 받은 예약 요청을 취소하면 해당 채팅방에 자동 메시지("예약 상태가 변경되었어요. 예약 내역을 확인해주세요") 전송. + **예약 신청 화면(`BookingView`)에 "가게 사정으로 예약이 취소될 수 있어요" 경고 문구** 표시
+- [ ] **홈 종모양 안 읽은 채팅 알림** — 안 읽은 채팅이 1개 이상이면 홈 화면 종 아이콘 옆에 빨간 점 표시, 모두 읽으면 제거. 현재 `chat_messages`에 읽음 개념이 없어 읽음 상태 추적(마지막 읽은 message_id 또는 read 플래그) 스키마 확장 필요
+- [ ] **리뷰 태그로 지도 필터링** — 리뷰 태그(CCTV·픽업·대형견 등)로 지도 핀을 거르는 기능이 현재 동작하지 않음. `pet_reviews` 태그 집계와 지도 핀(`store_key`)을 연결해 필터 구현
+- [ ] **사용자별 데이터 분리 전수 검증** — 서로 다른 계정(견주/사장님/타 유저) 간 채팅·찜·예약·최근 본 가게가 섞이지 않는지 점검. 특히 코드에 남은 `userId: 1` 하드코딩 잔재를 전수 조사해 `AuthSession.userId`로 교체
+- [ ] **채팅 메시지와 시스템 메시지 분리 검토** — 자동(시스템) 메시지가 일반 말풍선과 섞여 있는 현 구조를 유지할지, 별도 스타일(중앙 정렬 안내문 등)로 분리할지 설계 고민
 
 ### 장기 (v2)
 
-- [ ] 업체 측 앱 (알림장 작성, 예약 승인)
+- [x] ~~업체 측 앱 (예약 승인)~~ — 별도 앱 대신 사장님 모드(받은 예약 요청 확정/취소 · 받은 문의)로 본 앱에 통합 구현. 알림장 작성은 중기 항목으로 이동
 - [ ] 푸시 알림 (FCM)
 - [ ] CCTV 실시간 보기
 - [ ] 결제 시스템
@@ -97,6 +107,7 @@
 | .gitignore | ✅ 완성 |
 | 하드코딩 사용자 정보 | ✅ 해결 |
 | 네이버 블로그 API | ⏳ 키 발급 필요 |
+| 알림장(diary) | 📋 미구현 — 구현 예정 (DB 테이블만 준비됨) |
 | 로그인/회원가입 | ✅ 카카오 로그인 |
 | 예약 백엔드 연동 | ✅ 연동 완료 |
 | 채팅 클라이언트 연동 | ✅ 연동 완료 |
@@ -112,6 +123,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `9f7a9e0`(push 완료) — 사장님 시점 채팅 + 예약 시 고객 캘린더 저장(날짜 칩 동적 생성) + 사장님 예약 취소. 로컬에 캘린더 권한 거부 안내 알림 커밋 대기
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `382f2c0`(push 완료) — 캘린더 권한 거부 시 설정 이동 안내 알림. 로컬에 기능 명세 문서(`docs/FEATURES.md`) + 구버전 잔재 코드 제거 커밋 대기
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
