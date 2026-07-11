@@ -410,6 +410,7 @@ struct StoreDetailView: View {
             let rid = await ChatService.lookup(userId: authSession.userId ?? 1, storeKey: key)
             router.selectedChat = name
             router.selectedRoomId = rid
+            router.chatRoomAsOwner = false
             router.go(.chatRoom)
         }
     }

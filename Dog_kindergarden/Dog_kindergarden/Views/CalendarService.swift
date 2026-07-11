@@ -47,6 +47,18 @@ enum CalendarService {
         return true
     }
 
+    // 고객 기기 캘린더 동기화 — 예약 내역을 불러올 때 호출.
+    // 일정 추가는 예약 요청 시점(BookingView)에 이미 했으므로, 여기서는 사장님이 취소한 경우처럼
+    // 이 기기 밖에서 CANCELED가 된 예약의 일정만 삭제한다 (서버 푸시가 없어 관찰 방식).
+    static func syncReservationEvents(_ reservations: [ReservationSummary]) async {
+        for reservation in reservations {
+            guard let rid = reservation.reservationId,
+                  reservation.status == "CANCELED",
+                  eventIdentifier(for: rid) != nil else { continue }
+            await removeReservationEvent(reservationId: rid)
+        }
+    }
+
     static func removeReservationEvent(reservationId: Int) async {
         guard await requestAccess() else { return }
         guard let identifier = eventIdentifier(for: reservationId),

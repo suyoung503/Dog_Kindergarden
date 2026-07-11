@@ -122,6 +122,7 @@ struct ChatListView: View {
         Button(action: {
             router.selectedChat = room.customer_name ?? "보호자"
             router.selectedRoomId = room.room_id
+            router.chatRoomAsOwner = true
             router.go(.chatRoom)
         }) {
             HStack(spacing: 12) {
@@ -165,6 +166,7 @@ struct ChatListView: View {
         Button(action: {
             router.selectedChat = room.store_name ?? "채팅"
             router.selectedRoomId = room.room_id
+            router.chatRoomAsOwner = false
             router.go(.chatRoom)
         }) {
             HStack(spacing: 12) {

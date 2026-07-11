@@ -8,6 +8,7 @@ struct OwnerModeView: View {
     @State private var reservations: [PendingReservation] = []
     @State private var isLoading = true
     @State private var confirmingId: Int?
+    @State private var pendingCancel: PendingReservation?
 
     var body: some View {
         ScrollView {
@@ -32,6 +33,14 @@ struct OwnerModeView: View {
         }
         .background(Color.brandCream.ignoresSafeArea())
         .task { await load() }
+        .alert("예약 요청을 취소할까요?", isPresented: Binding(get: { pendingCancel != nil }, set: { if !$0 { pendingCancel = nil } })) {
+            Button("닫기", role: .cancel) {}
+            Button("예약 취소", role: .destructive) {
+                if let target = pendingCancel { cancel(target) }
+            }
+        } message: {
+            Text("\(pendingCancel?.petName ?? "강아지") 보호자에게 '예약 취소됨'으로 표시됩니다.")
+        }
     }
 
     // MARK: - Nav
@@ -101,21 +110,33 @@ struct OwnerModeView: View {
                 }
                 Spacer()
             }
-            Button(action: { confirm(reservation) }) {
-                if confirmingId == reservation.reservationId {
-                    ProgressView().tint(.white)
-                        .frame(height: 16)
-                } else {
-                    Text("확정하기")
+            HStack(spacing: 8) {
+                Button(action: { pendingCancel = reservation }) {
+                    Text("예약 취소")
                         .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.brandOrange)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(Color.brandOrange.opacity(0.12))
+                        .clipShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .disabled(confirmingId != nil)
+                Button(action: { confirm(reservation) }) {
+                    if confirmingId == reservation.reservationId {
+                        ProgressView().tint(.white)
+                            .frame(height: 16)
+                    } else {
+                        Text("확정하기")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(Color.brandOrange)
+                .clipShape(Capsule())
+                .buttonStyle(.plain)
+                .disabled(confirmingId != nil)
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(Color.brandOrange)
-            .clipShape(Capsule())
-            .buttonStyle(.plain)
-            .disabled(confirmingId != nil)
         }
         .padding(14)
         .background(.white)
@@ -131,6 +152,8 @@ struct OwnerModeView: View {
         reservations = (try? await APIClient.shared.fetchPendingReservations(ownerId: uid)) ?? []
     }
 
+    // 확정 — 캘린더 일정은 여기(사장님 기기)가 아니라 고객 기기가 예약 내역을 열 때
+    // CalendarService.syncReservationEvents가 CONFIRMED를 감지해 추가한다
     private func confirm(_ reservation: PendingReservation) {
         guard let rid = reservation.reservationId else { return }
         confirmingId = rid
@@ -141,13 +164,20 @@ struct OwnerModeView: View {
             } catch {
                 return
             }
-            if let schedule = reservation.startDate, let date = CalendarService.parseSchedule(schedule) {
-                await CalendarService.addReservationEvent(
-                    reservationId: rid,
-                    title: "\(reservation.storeName ?? "예약") · \(reservation.petName ?? "")",
-                    notes: reservation.requestMessage,
-                    date: date
-                )
+            reservations.removeAll { $0.reservationId == rid }
+        }
+    }
+
+    // 예약 취소 — 고객에게는 '예약 취소됨' 상태로 표시된다
+    private func cancel(_ reservation: PendingReservation) {
+        guard let rid = reservation.reservationId else { return }
+        confirmingId = rid
+        Task {
+            defer { confirmingId = nil }
+            do {
+                try await APIClient.shared.cancelReservation(reservationId: rid)
+            } catch {
+                return
             }
             reservations.removeAll { $0.reservationId == rid }
         }
