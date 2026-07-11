@@ -802,4 +802,74 @@ app.get("/api/users/:id/favorites", async (c) => {
   return c.json(results);
 });
 
-export default app;
+// MARK: - 리뷰 요청 자동 메시지 (이용일 다음날, Cron Trigger)
+
+// KST 기준 어제의 "월/일" — start_date("토 7/12 14:00")에 연도가 없어 월/일 문자열로 대조한다
+function kstYesterdayMonthDay(): string {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000);
+  return `${kst.getUTCMonth() + 1}/${kst.getUTCDate()}`;
+}
+
+type ReviewRequestTarget = {
+  reservation_id: number;
+  room_id: number;
+  store_name: string;
+};
+
+// 어제가 이용일이었던 확정(CONFIRMED) 예약의 채팅방에 리뷰 요청 자동 메시지를 1회 보낸다
+async function sendReviewRequests(db: D1Database): Promise<number> {
+  const monthDay = kstYesterdayMonthDay();
+  const { results } = await db
+    .prepare(
+      `
+    SELECT r.reservation_id, c.room_id, s.name AS store_name
+    FROM reservations r
+    JOIN stores s ON s.store_id = r.store_id
+    JOIN chat_rooms c ON c.user_id = r.user_id AND c.store_id = r.store_id
+    WHERE r.status = 'CONFIRMED'
+      AND r.review_requested = 0
+      AND r.start_date LIKE ?
+  `,
+    )
+    .bind(`% ${monthDay} %`)
+    .all<ReviewRequestTarget>();
+
+  for (const target of results) {
+    await db
+      .prepare(
+        `
+      INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
+      VALUES (?, 0, '맡겨멍', 'AUTO', ?)
+    `,
+      )
+      .bind(
+        target.room_id,
+        `어제 ${target.store_name} 이용은 어떠셨나요? 가게 상세에서 리뷰를 남겨주시면 다른 보호자들에게 큰 도움이 돼요 🐾`,
+      )
+      .run();
+    await db
+      .prepare(
+        `UPDATE reservations SET review_requested = 1 WHERE reservation_id = ?`,
+      )
+      .bind(target.reservation_id)
+      .run();
+  }
+  return results.length;
+}
+
+// 데모·테스트용 수동 트리거 — 실서비스에선 매일 KST 01시 Cron이 자동 실행
+app.post("/api/internal/review-requests", async (c) => {
+  const sent = await sendReviewRequests(c.env.DB);
+  return c.json({ sent });
+});
+
+export default {
+  fetch: app.fetch,
+  scheduled: async (
+    _event: ScheduledEvent,
+    env: Bindings,
+    _ctx: ExecutionContext,
+  ) => {
+    await sendReviewRequests(env.DB);
+  },
+};
