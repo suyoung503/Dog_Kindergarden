@@ -67,6 +67,12 @@ enum CalendarService {
         setEventIdentifier(nil, for: reservationId)
     }
 
+    // 사용자가 캘린더 권한을 거부해 둔 상태인지 — iOS는 한 번 거부하면 시스템 알림을 다시 띄우지 않으므로
+    // 이때는 앱이 직접 '설정 열기'로 안내해야 한다
+    static var isAccessDenied: Bool {
+        EKEventStore.authorizationStatus(for: .event) == .denied
+    }
+
     private static func requestAccess() async -> Bool {
         if #available(iOS 17.0, *) {
             // 이벤트 삭제(취소 시)에는 조회가 필요하므로 쓰기 전용이 아닌 전체 접근을 받는다
