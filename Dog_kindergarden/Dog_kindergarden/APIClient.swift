@@ -66,8 +66,9 @@ final class APIClient {
         let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/cancel", method: "PATCH")
     }
 
-    func fetchPendingReservations() async throws -> [PendingReservation] {
-        try await request(path: "/reservations/pending", method: "GET")
+    // 사장님이 받은 예약 요청 — 내 가게(owner_id)로 온 REQUEST만
+    func fetchPendingReservations(ownerId: Int) async throws -> [PendingReservation] {
+        try await request(path: "/owners/\(ownerId)/reservations/pending", method: "GET")
     }
 
     func confirmReservation(reservationId: Int) async throws {

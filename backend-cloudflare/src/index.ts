@@ -395,7 +395,9 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
 });
 
 // 사장님 모드 — 확정 대기 중인(REQUEST) 예약 전체 조회
-app.get("/api/reservations/pending", async (c) => {
+// 사장님이 받은 예약 요청 — 내 가게(owner_id)로 온 REQUEST만
+app.get("/api/owners/:id/reservations/pending", async (c) => {
+  const ownerId = Number(c.req.param("id"));
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
@@ -403,12 +405,14 @@ app.get("/api/reservations/pending", async (c) => {
            p.name AS pet_name,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
-    LEFT JOIN stores s ON s.store_id = r.store_id
+    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
     LEFT JOIN pets p ON p.pet_id = r.pet_id
     WHERE r.status = 'REQUEST'
     ORDER BY r.reservation_id DESC
   `,
-  ).all();
+  )
+    .bind(ownerId)
+    .all();
   return c.json(results);
 });
 

@@ -194,10 +194,7 @@ struct HomeView: View {
                 onPinTapped: { pin in
                     router.selectedStore = pin.name
                     router.selectedPin = pin
-                    // 최근 본 목록 갱신 — 중복 제거 후 맨 앞 삽입, 최대 5개
-                    router.recentPins.removeAll { $0.storeKey == pin.storeKey }
-                    router.recentPins.insert(pin, at: 0)
-                    if router.recentPins.count > 5 { router.recentPins.removeLast() }
+                    router.addRecentPin(pin)   // 계정별 영속, 최대 6개
                     router.go(.storeDetail)
                 },
                 onCameraStopped: { bounds in mapBounds = bounds }

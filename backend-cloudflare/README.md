@@ -50,25 +50,41 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 
 전체 라우트는 `src/index.ts` 하나에 정의되어 있습니다.
 
+가게
 - `GET /api/stores`
+- `POST /api/stores/claim` — 사장님 '내 가게' 등록 (다른 사장님 가게면 409)
+- `GET /api/owners/:id/stores` — 사장님이 등록한 가게 목록
+- `DELETE /api/owners/:id/stores/:storeId` — 등록 해제
+
+예약
 - `POST /api/reservations`
 - `GET /api/users/:id/reservations`
-- `GET /api/users/:id/pets`
-- `POST /api/users/:id/pets`
-- `DELETE /api/pets/:petId`
-- `GET /api/diaries/:reservationId`
+- `PATCH /api/reservations/:id/cancel`
+- `PATCH /api/reservations/:id/confirm`
+- `GET /api/owners/:id/reservations/pending` — 사장님이 받은 예약 요청 (내 가게만)
+
+채팅
 - `GET /api/chatrooms/:id/messages`
 - `POST /api/chatrooms/:id/messages`
 - `GET /api/chatrooms/lookup`
 - `POST /api/chatrooms`
 - `GET /api/users/:id/chatrooms`
+- `GET /api/owners/:id/chatrooms` — 사장님이 받은 문의방 목록 (내 가게만)
+
+리뷰
 - `POST /api/reviews`
 - `GET /api/stores/:id/reviews`
 - `POST /api/pet-reviews`
 - `GET /api/pet-reviews`
 - `GET /api/pet-reviews/tags`
-- `POST /api/auth/kakao`
+
+사용자·강아지·찜·기타
+- `POST /api/auth/kakao` — 역할(보호자/사장님)은 최초 가입 시 계정에 귀속, 반대 역할 로그인은 409
 - `PUT /api/users/:id`
+- `GET /api/users/:id/pets`
+- `POST /api/users/:id/pets`
+- `DELETE /api/pets/:petId`
 - `POST /api/favorites`
 - `DELETE /api/users/:userId/favorites/:storeId`
 - `GET /api/users/:id/favorites`
+- `GET /api/diaries/:reservationId`
