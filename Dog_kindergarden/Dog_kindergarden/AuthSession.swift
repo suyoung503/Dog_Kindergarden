@@ -23,13 +23,7 @@ final class AuthSession {
         isOwner  = UserDefaults.standard.bool(forKey: "auth_is_owner")
     }
 
-    // 시작 화면에서 고른 역할을 로그인 성공 시 계정에 귀속 — 뒤로가기·재실행에도 유지됨
-    func setOwnerRole(_ isOwner: Bool) {
-        self.isOwner = isOwner
-        UserDefaults.standard.set(isOwner, forKey: "auth_is_owner")
-    }
-
-    func loginWithKakao(profile: UserProfile? = nil) async {
+    func loginWithKakao(profile: UserProfile? = nil, asOwner: Bool) async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -64,7 +58,7 @@ final class AuthSession {
             let kakaoId = "\(kakaoUser.id ?? 0)"
             let name    = kakaoUser.kakaoAccount?.profile?.nickname ?? "보호자"
 
-            try await registerWithBackend(kakaoId: kakaoId, nickname: name, profile: profile)
+            try await registerWithBackend(kakaoId: kakaoId, nickname: name, asOwner: asOwner, profile: profile)
         } catch {
             // 사용자가 로그인 창을 직접 닫은 경우(취소)는 실패로 표시하지 않는다
             if case let SdkError.ClientFailed(reason, _) = error, reason == .Cancelled { return }
@@ -84,16 +78,22 @@ final class AuthSession {
     }
 
 #if DEBUG
-    // 시뮬레이터 개발자 진입 — 고정 kakao_id로 실제 유저 행을 만들어
-    // 프로필 저장·예약 등 서버 연동이 실제로 동작하게 함
-    func loginAsDeveloper(profile: UserProfile? = nil) async {
+    // 시뮬레이터 개발자 진입 — 역할별 고정 kakao_id로 실제 유저 행을 만들어
+    // 견주/사장님을 별개 계정으로 테스트할 수 있게 함
+    func loginAsDeveloper(profile: UserProfile? = nil, asOwner: Bool) async {
         errorMessage = nil
         do {
-            try await registerWithBackend(kakaoId: "dev-simulator", nickname: "테스트", profile: profile)
+            try await registerWithBackend(
+                kakaoId: asOwner ? "dev-simulator-owner" : "dev-simulator",
+                nickname: asOwner ? "테스트사장님" : "테스트",
+                asOwner: asOwner,
+                profile: profile
+            )
         } catch {
             // 오프라인 폴백 (서버 연동 기능은 동작하지 않음)
             userId = 1
             nickname = "테스트"
+            isOwner = asOwner
         }
     }
 #endif
@@ -104,7 +104,7 @@ final class AuthSession {
         UserDefaults.standard.set(name, forKey: "auth_nickname")
     }
 
-    private func registerWithBackend(kakaoId: String, nickname: String, profile: UserProfile?) async throws {
+    private func registerWithBackend(kakaoId: String, nickname: String, asOwner: Bool, profile: UserProfile?) async throws {
         guard let url = URL(string: "\(baseURL)/api/auth/kakao") else { return }
 
         var req = URLRequest(url: url)
@@ -112,17 +112,27 @@ final class AuthSession {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "kakao_id": kakaoId,
-            "nickname": nickname
+            "nickname": nickname,
+            "is_owner": asOwner
         ])
 
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        // 역할은 최초 가입 시 계정에 귀속 — 같은 카카오 계정으로 다른 역할 로그인 불가 (409)
+        if (response as? HTTPURLResponse)?.statusCode == 409 {
+            let registeredAsOwner = (json?["is_owner"] as? Int) == 1
+            errorMessage = "이미 \(registeredAsOwner ? "보호자 · 사장님" : "보호자") 계정으로 가입된 카카오 계정이에요.\n해당 역할을 선택해 로그인해주세요."
+            return
+        }
 
         if let id = json?["user_id"] as? Int {
             self.userId   = id
             self.nickname = json?["nickname"] as? String ?? nickname
+            self.isOwner  = (json?["is_owner"] as? Int) == 1
             UserDefaults.standard.set(id, forKey: "auth_user_id")
             UserDefaults.standard.set(self.nickname, forKey: "auth_nickname")
+            UserDefaults.standard.set(self.isOwner, forKey: "auth_is_owner")
 
             // 서버에 저장된 프로필(닉네임·연락처·주소)을 로컬 UserProfile에도 반영
             if let profile {

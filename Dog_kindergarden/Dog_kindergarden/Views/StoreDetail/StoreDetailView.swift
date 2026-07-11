@@ -11,6 +11,7 @@ struct StoreDetailView: View {
     @State private var showWriteSheet = false
     @State private var kakaoPlace: KakaoPlace? = nil   // 카카오로 보강한 전체 주소·전화
     @State private var favoriteStoreId: Int? = nil     // nil이 아니면 찜한 가게 (해제용 store_id)
+    @State private var isMyStore = false                // 사장님 계정: 이 가게가 내 가게로 등록됨
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
@@ -49,6 +50,12 @@ struct StoreDetailView: View {
             guard let uid = authSession.userId else { return }
             let list = (try? await APIClient.shared.fetchFavorites(userId: uid)) ?? []
             favoriteStoreId = list.first(where: { ($0.storeKey ?? "") == storeKey })?.storeId
+        }
+        .task(id: storeKey) {
+            // 사장님 계정: 이 가게가 내 가게로 등록되어 있는지 확인
+            guard authSession.isOwner, let uid = authSession.userId else { return }
+            let mine = (try? await APIClient.shared.fetchOwnerStores(userId: uid)) ?? []
+            isMyStore = mine.contains { ($0.storeKey ?? "") == storeKey }
         }
         .task(id: storeKey) {
             // 카카오 로컬 검색으로 마스킹된 주소(***)를 전체 주소로 보강
@@ -270,6 +277,13 @@ struct StoreDetailView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(Color.brandBrown)
                         .labelStyle(IconAndText(iconColor: Color.brandOrange))
+                        .padding(.top, 4)
+                }
+                // 사장님 계정: 마이페이지 '내 가게'에서 등록한 가게면 뱃지 표시
+                if authSession.isOwner && isMyStore {
+                    Label("내 가게", systemImage: "checkmark.seal.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: "#2c6b4a"))
                         .padding(.top, 4)
                 }
             }

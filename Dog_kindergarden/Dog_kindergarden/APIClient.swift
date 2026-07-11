@@ -103,6 +103,22 @@ final class APIClient {
         let _: FavoriteDeleteResponse = try await request(path: "/users/\(userId)/favorites/\(storeId)", method: "DELETE")
     }
 
+    // 사장님-가게 연결: 마이페이지 '내 가게'에서 상호명 검색으로 등록
+    @discardableResult
+    func claimStore(userId: Int, storeKey: String, storeName: String, storeAddress: String) async throws -> StoreClaimResponse {
+        let body = StoreClaimRequest(userId: userId, storeKey: storeKey, storeName: storeName, storeAddress: storeAddress)
+        return try await request(path: "/stores/claim", method: "POST", body: body)
+    }
+
+    func fetchOwnerStores(userId: Int) async throws -> [OwnerStoreResponse] {
+        try await request(path: "/owners/\(userId)/stores", method: "GET")
+    }
+
+    // 내 가게 등록 해제 (잘못 등록 시 복구 경로)
+    func unclaimStore(userId: Int, storeId: Int) async throws {
+        let _: StoreUnclaimResponse = try await request(path: "/owners/\(userId)/stores/\(storeId)", method: "DELETE")
+    }
+
     private func request<Response: Decodable>(path: String, method: String) async throws -> Response {
         var request = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
         request.httpMethod = method
@@ -223,6 +239,29 @@ struct PendingReservation: Decodable {
     let startDate: String?
     let reservationType: String?
     let requestMessage: String?
+}
+
+struct StoreClaimRequest: Encodable {
+    let userId: Int
+    let storeKey: String
+    let storeName: String
+    let storeAddress: String
+}
+
+struct StoreClaimResponse: Decodable {
+    let storeId: Int?
+    let ownerId: Int?
+}
+
+struct StoreUnclaimResponse: Decodable {
+    let ok: Bool?
+}
+
+struct OwnerStoreResponse: Decodable {
+    let storeId: Int?
+    let storeKey: String?
+    let name: String?
+    let address: String?
 }
 
 struct UserUpdateRequest: Encodable {

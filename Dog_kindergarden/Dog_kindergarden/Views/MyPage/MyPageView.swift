@@ -7,10 +7,12 @@ struct MyPageView: View {
 
     @State private var showEditSheet = false
     @State private var showLogoutConfirm = false
+    @State private var showMyStoreSheet = false
     @State private var reservationCount: Int?
     @State private var petCount: Int?
     @State private var chatCount: Int?
     @State private var favoriteCount: Int?
+    @State private var myStores: [OwnerStoreResponse] = []   // 사장님: 등록한 내 가게
 
     var body: some View {
         ScrollView {
@@ -28,12 +30,16 @@ struct MyPageView: View {
         .sheet(isPresented: $showEditSheet) {
             ProfileEditSheet()
         }
+        .sheet(isPresented: $showMyStoreSheet, onDismiss: { Task { await reloadMyStores() } }) {
+            MyStoreSheet()
+        }
         .task {
             guard let uid = authSession.userId else { return }
             reservationCount = (try? await APIClient.shared.fetchReservations(userId: uid))?.count
             petCount = (try? await APIClient.shared.fetchPets(userId: uid))?.count
             chatCount = (try? await ChatService.rooms(userId: uid))?.count
             favoriteCount = (try? await APIClient.shared.fetchFavorites(userId: uid))?.count
+            await reloadMyStores()
         }
         .alert("로그아웃 하시겠어요?", isPresented: $showLogoutConfirm) {
             Button("취소", role: .cancel) {}
@@ -143,12 +149,26 @@ struct MyPageView: View {
         }
     }
 
+    // 사장님: 등록 가게 표시 (1곳이면 상호명, 여러 곳이면 개수)
+    private var myStoreBadge: String? {
+        guard !myStores.isEmpty else { return nil }
+        return myStores.count == 1 ? (myStores[0].name ?? "1곳") : "\(myStores.count)곳"
+    }
+
     private var infoSection: some View {
         MyPageSection(title: "내 정보") {
+            if authSession.isOwner {
+                MyPageItem(icon: "building.2",    label: "내 가게",      badge: myStoreBadge, bg: Color(hex: "#FFD9A8")) { showMyStoreSheet = true }
+            }
             MyPageItem(icon: "pawprint",          label: "우리 아이 프로필", bg: Color(hex: "#FFE6CC")) { router.go(.dogProfile) }
             MyPageItem(icon: "bell",              label: "알림 설정",    bg: Color.brandBlueLight)
             MyPageItem(icon: "gearshape",         label: "앱 설정",      bg: Color(hex: "#E8E0F0"))
         }
+    }
+
+    private func reloadMyStores() async {
+        guard authSession.isOwner, let uid = authSession.userId else { return }
+        myStores = (try? await APIClient.shared.fetchOwnerStores(userId: uid)) ?? []
     }
 
     private var supportSection: some View {
