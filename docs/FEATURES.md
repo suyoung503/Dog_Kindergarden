@@ -128,6 +128,7 @@
 ### 채팅방 (ChatRoomView)
 - 실제 메시지 로드/전송. 전송은 낙관적 추가(실패 시 롤백), 방을 열어두는 동안 **3초 간격 폴링**으로 상대 메시지 자동 반영.
 - 예약 시 "예약 요청이 완료되었습니다" 등 **자동 메시지**가 방에 남는다 — 손님 시점에선 가게(왼쪽), 사장님 시점에선 내(오른쪽) 말풍선으로 표시.
+- **리뷰 요청 자동 메시지** — 확정된 예약의 이용일 다음날 새벽 1시(KST), 서버 Cron이 그 채팅방에 "어제 ○○ 이용은 어떠셨나요? 리뷰를 남겨주세요" 메시지를 자동 발송(예약당 1회).
 - 상단 '응답중' 상태 표시는 손님 시점에서만 노출(사장님 시점에선 숨김).
 
 ---
@@ -194,6 +195,7 @@
 | 채팅 | `GET·POST /api/chatrooms(/:id/messages)`, `GET /api/chatrooms/lookup`, `GET /api/users/:id/chatrooms`, `GET /api/owners/:id/chatrooms` | 방 생성/조회·메시지·내 방 목록·받은 문의 |
 | 리뷰 | `GET·POST /api/pet-reviews`, `GET /api/pet-reviews/tags` | 펫 리뷰·태그 목록 |
 | 찜 | `POST /api/favorites`, `GET /api/users/:id/favorites`, `DELETE /api/users/:userId/favorites/:storeId` | 찜 토글·목록 |
+| 스케줄러 | Cron `0 16 * * *`(KST 01시), `POST /api/internal/review-requests`(수동 트리거) | 이용일 다음날 리뷰 요청 자동 메시지 |
 
 ---
 
