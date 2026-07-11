@@ -121,6 +121,7 @@ struct BookingDoneView: View {
                     router.selectedChat = b.storeName
                     router.selectedRoomId = b.roomId
                 }
+                router.chatRoomAsOwner = false
                 router.go(.chatRoom)
             }) {
                 Text("가게와 채팅하기")

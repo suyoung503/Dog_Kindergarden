@@ -149,6 +149,8 @@ struct ReservationListView: View {
         defer { isLoading = false }
         guard let uid = authSession.userId else { return }
         reservations = (try? await APIClient.shared.fetchReservations(userId: uid)) ?? []
+        // 사장님이 취소한 예약의 일정을 내 기기 캘린더에서 제거
+        await CalendarService.syncReservationEvents(reservations)
     }
 
     // 낙관적 취소 — 실패 시 원래 상태로 복원

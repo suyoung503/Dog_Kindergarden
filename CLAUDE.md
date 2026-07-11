@@ -80,7 +80,9 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 - `store_key` = `"이름|주소"` 문자열. 예약·리뷰·찜 시 이 키로 `stores` 테이블을 조회해 **있으면 재사용, 없으면 insert** (upsert) → 같은 가게는 항상 같은 `store_id`.
 - 채팅방은 `chat_rooms(user_id, store_id UNIQUE)`, 찜은 `favorites(user_id, store_id UNIQUE)` — 둘 다 **(사용자+가게) 조합당 1개**. 예약 API가 방을 자동 생성/조회하고 `{reservation_id, room_id}`를 함께 반환한다.
-- 사장님-가게 소유는 `stores.owner_id`. 마이페이지 '내 가게'(`MyStoreSheet`)에서 상호명 검색으로 등록(`POST /api/stores/claim`, `store_key` upsert 재사용, 남의 가게면 409)·해제(`DELETE /api/owners/:id/stores/:storeId`)하고, 등록된 가게는 가게 상세에 '내 가게' 뱃지로 표시된다. 받은 문의는 `GET /api/owners/:id/chatrooms`로 조회해 채팅 목록(`ChatListView`) 상단 '받은 문의' 섹션에 표시하고, 받은 예약 요청(`OwnerModeView`)도 `GET /api/owners/:id/reservations/pending`으로 내 가게 것만 조회한다. 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.
+- 사장님-가게 소유는 `stores.owner_id`. 마이페이지 '내 가게'(`MyStoreSheet`)에서 상호명 검색으로 등록(`POST /api/stores/claim`, `store_key` upsert 재사용, 남의 가게면 409)·해제(`DELETE /api/owners/:id/stores/:storeId`)하고, 등록된 가게는 가게 상세에 '내 가게' 뱃지로 표시된다. 받은 문의는 `GET /api/owners/:id/chatrooms`로 조회해 채팅 목록(`ChatListView`) 상단 '받은 문의' 섹션에 표시하고, 받은 예약 요청(`OwnerModeView`)도 `GET /api/owners/:id/reservations/pending`으로 내 가게 것만 조회한다(확정/취소 가능).
+- 예약 캘린더 일정은 **고객 기기**에만 쓴다(사장님 기기 금지) — 추가는 예약 요청 시점(`BookingView` 성공 직후), 삭제는 본인 취소 시 즉시 + 사장님 취소는 고객이 예약 내역(`ReservationListView`)을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 삭제(서버 푸시 없음).
+- 채팅방 진입 시 `router.chatRoomAsOwner`를 반드시 설정할 것(받은 문의에서만 true) — 자동메시지(sender 0) 말풍선 방향과 '응답중' 표시가 이 플래그를 따른다. 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.
 - 이 패턴을 깨는 변경(예약마다 방 생성, 이름만으로 가게 식별 등)은 하지 않는다.
 - iOS에서 서버가 보강한 `store_key`로 화면을 다시 그릴 때(`FavoritesView` 등)는 `MapPin.storeKeyOverride`에 원본 키를 담아 재계산으로 키가 어긋나지 않게 한다.
 

@@ -19,14 +19,16 @@ final class ChatRoomViewModel {
 
     private(set) var roomId: Int?
     private var myUserId = 1
+    private var viewingAsOwner = false   // 사장님 시점: 자동메시지(sender 0)는 가게(=나) 쪽 말풍선
     // 작성 모드용 store 컨텍스트 (roomId 없을 때 첫 전송에서 방 생성)
     private var storeKey = ""
     private var storeName = ""
     private var storeAddress = ""
 
-    func configure(roomId: Int?, userId: Int, storeKey: String, storeName: String, storeAddress: String) {
+    func configure(roomId: Int?, userId: Int, asOwner: Bool, storeKey: String, storeName: String, storeAddress: String) {
         self.roomId = roomId
         self.myUserId = userId
+        self.viewingAsOwner = asOwner
         self.storeKey = storeKey
         self.storeName = storeName
         self.storeAddress = storeAddress
@@ -94,7 +96,9 @@ final class ChatRoomViewModel {
     }
 
     private func map(_ dto: ChatMessageDTO) -> ChatMessage {
-        ChatMessage(from: dto.sender_id == myUserId ? .me : .store, text: dto.content)
+        // 자동메시지(sender 0)는 가게가 보낸 것 — 사장님 시점에서는 내(오른쪽) 말풍선
+        let isMine = dto.sender_id == myUserId || (viewingAsOwner && dto.sender_id == 0)
+        return ChatMessage(from: isMine ? .me : .store, text: dto.content)
     }
 }
 
@@ -124,6 +128,7 @@ struct ChatRoomView: View {
             vm.configure(
                 roomId: router.selectedRoomId,
                 userId: authSession.userId ?? 1,
+                asOwner: router.chatRoomAsOwner,
                 storeKey: pin?.storeKey ?? "",
                 storeName: router.selectedChat,
                 storeAddress: pin?.address ?? ""
@@ -157,9 +162,12 @@ struct ChatRoomView: View {
                 Text(router.selectedChat)
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color.brandBrown)
-                HStack(spacing: 4) {
-                    Circle().fill(Color.brandGreen).frame(width: 6, height: 6)
-                    Text("응답중").font(.system(size: 10)).foregroundStyle(Color.brandGreen)
+                // '응답중'은 가게 쪽 상태 표시 — 상대가 손님인 사장님 시점에서는 숨김
+                if !router.chatRoomAsOwner {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.brandGreen).frame(width: 6, height: 6)
+                        Text("응답중").font(.system(size: 10)).foregroundStyle(Color.brandGreen)
+                    }
                 }
             }
             Spacer()

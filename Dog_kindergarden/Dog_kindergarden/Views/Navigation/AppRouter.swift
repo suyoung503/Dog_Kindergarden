@@ -43,6 +43,7 @@ final class AppRouter {
     var selectedPin: MapPin? = nil                 // 핀 탭으로 선택된 실제 가게
     var selectedChat: String = "멍멍이 호텔"
     var selectedRoomId: Int? = nil                 // 현재 채팅방 room_id (nil이면 작성 모드)
+    var chatRoomAsOwner: Bool = false              // 사장님 시점('받은 문의')으로 연 방인지 — 자동메시지 말풍선 방향 결정
     var recentPins: [MapPin] = []                  // 최근 본 가게 — 계정별 UserDefaults 영속, 최대 6개
     private var activeUserId: Int? = nil           // recentPins 저장 키에 쓰는 현재 계정
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
@@ -67,6 +68,7 @@ final class AppRouter {
         stack = [screen]
         selectedPin = nil
         selectedRoomId = nil
+        chatRoomAsOwner = false
         recentPins = []
         lastBooking = nil
     }

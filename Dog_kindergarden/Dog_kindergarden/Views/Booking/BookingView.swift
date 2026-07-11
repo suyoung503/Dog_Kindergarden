@@ -9,7 +9,7 @@ private let dogBgColors: [Color] = [Color(hex: "#FFE6CC"), Color.brandGreenLight
 final class BookingViewModel {
     var selectedPetId: Int?
     var selectedService = "호텔 1박"
-    var selectedDate = "토 6/13"
+    var selectedDate: String
     var selectedTime = "14:00"
     var request = ""
 
@@ -23,8 +23,20 @@ final class BookingViewModel {
         ("호텔 1박",      "₩50,000"),
         ("장기 이용",     "₩40,000~"),
     ]
-    let dates = ["금 6/12","토 6/13","일 6/14","월 6/15","화 6/16","수 6/17"]
+    // 오늘부터 6일 — 하드코딩하면 지난 날짜가 되어 CalendarService.parseSchedule이 내년으로 해석한다
+    let dates: [String]
     let times = ["10:00","12:00","14:00","16:00","18:00","20:00"]
+
+    init() {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "E M/d"
+        dates = (0..<6).compactMap { offset in
+            Calendar.current.date(byAdding: .day, value: offset, to: Date())
+                .map { formatter.string(from: $0) }
+        }
+        selectedDate = dates.first ?? ""
+    }
 
     private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
 
@@ -456,6 +468,16 @@ struct BookingView: View {
                 storeType: pin?.type ?? ""
             ) {
                 router.lastBooking = result
+                // 예약 요청과 동시에 내 기기 캘린더에 일정 추가
+                // (취소 시 삭제: 내가 취소하면 즉시, 사장님이 취소하면 예약 내역 열 때 동기화)
+                if let date = CalendarService.parseSchedule(result.schedule) {
+                    await CalendarService.addReservationEvent(
+                        reservationId: result.reservationId,
+                        title: "\(result.storeName) 예약",
+                        notes: result.dogName.isEmpty ? nil : "\(result.dogName) 맡김",
+                        date: date
+                    )
+                }
                 router.go(.bookingDone)
             }
         }
