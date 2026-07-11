@@ -1,9 +1,9 @@
 import SwiftUI
 
-// 보호자 겸 사장님 계정의 홈 사이드바에서 진입 — 받은 예약 요청(REQUEST) 목록을 확인하고 확정하는 최소 화면
-// 업체-가게 소유 관계가 DB에 없어 전체 가게의 요청을 함께 보여준다 (데모 범위)
+// 사장님 계정의 홈 사이드바에서 진입 — 내 가게(owner_id)로 받은 예약 요청(REQUEST)을 확인하고 확정하는 화면
 struct OwnerModeView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [PendingReservation] = []
     @State private var isLoading = true
@@ -62,6 +62,11 @@ struct OwnerModeView: View {
             Text("받은 예약 요청이 없어요")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color.brandBrown)
+            Text("마이페이지에서 내 가게를 등록하면\n그 가게로 온 예약 요청이 보여요")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.brandBrownMid)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
         }
         .padding(.top, 100)
     }
@@ -122,7 +127,8 @@ struct OwnerModeView: View {
 
     private func load() async {
         defer { isLoading = false }
-        reservations = (try? await APIClient.shared.fetchPendingReservations()) ?? []
+        guard let uid = authSession.userId else { return }
+        reservations = (try? await APIClient.shared.fetchPendingReservations(ownerId: uid)) ?? []
     }
 
     private func confirm(_ reservation: PendingReservation) {

@@ -43,7 +43,8 @@ final class AppRouter {
     var selectedPin: MapPin? = nil                 // 핀 탭으로 선택된 실제 가게
     var selectedChat: String = "멍멍이 호텔"
     var selectedRoomId: Int? = nil                 // 현재 채팅방 room_id (nil이면 작성 모드)
-    var recentPins: [MapPin] = []                  // 최근 본 가게 (뷰 이동 후에도 유지)
+    var recentPins: [MapPin] = []                  // 최근 본 가게 — 계정별 UserDefaults 영속, 최대 6개
+    private var activeUserId: Int? = nil           // recentPins 저장 키에 쓰는 현재 계정
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
 
     // 프로필 미설정 시 사용할 사용자 강아지 아바타 (dog_c 고정)
@@ -68,5 +69,28 @@ final class AppRouter {
         selectedRoomId = nil
         recentPins = []
         lastBooking = nil
+    }
+
+    // MARK: - 최근 본 가게 (계정별 영속)
+
+    // 로그인/로그아웃/세션 복원 시 호출 — 해당 계정의 최근 본 가게를 불러온다
+    func setActiveUser(_ userId: Int?) {
+        activeUserId = userId
+        guard let userId,
+              let data = UserDefaults.standard.data(forKey: "recent_pins_\(userId)"),
+              let pins = try? JSONDecoder().decode([MapPin].self, from: data) else {
+            recentPins = []
+            return
+        }
+        recentPins = pins
+    }
+
+    // 최신순 앞에 추가, 같은 가게는 중복 제거, 최대 6개(오래된 것부터 삭제) 후 저장
+    func addRecentPin(_ pin: MapPin) {
+        recentPins.removeAll { $0.storeKey == pin.storeKey }
+        recentPins.insert(pin, at: 0)
+        if recentPins.count > 6 { recentPins.removeLast() }
+        guard let activeUserId, let data = try? JSONEncoder().encode(recentPins) else { return }
+        UserDefaults.standard.set(data, forKey: "recent_pins_\(activeUserId)")
     }
 }

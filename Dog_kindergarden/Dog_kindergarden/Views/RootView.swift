@@ -20,6 +20,10 @@ struct RootView: View {
                 await boarding.loadIfNeeded()
                 await tagStore.load()
             }
+            // 로그인/로그아웃/콜드 런치 세션 복원 시 해당 계정의 최근 본 가게 복원
+            .task(id: authSession.userId) {
+                router.setActiveUser(authSession.userId)
+            }
     }
 
     @ViewBuilder
