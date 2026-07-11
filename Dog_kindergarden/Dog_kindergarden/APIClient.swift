@@ -35,24 +35,6 @@ final class APIClient {
         }
     }
 
-    @discardableResult
-    func createReview(reservationId: Int, storeId: Int, rating: Double, revisit: Bool, content: String) async throws -> ReviewResponse {
-        let body = ReviewCreateRequest(
-            reservationId: reservationId,
-            userId: 1,
-            storeId: storeId,
-            rating: rating,
-            revisit: revisit,
-            content: content
-        )
-        return try await request(path: "/reviews", method: "POST", body: body)
-    }
-
-    func fetchStoreReviews(storeId: Int) async throws -> [ReviewItem] {
-        let responses: [ReviewResponse] = try await request(path: "/stores/\(storeId)/reviews", method: "GET")
-        return responses.map { $0.toDomain() }
-    }
-
     func fetchPets(userId: Int = 1) async throws -> [PetProfile] {
         let responses: [PetResponse] = try await request(path: "/users/\(userId)/pets", method: "GET")
         return responses.map { $0.toDomain() }
@@ -147,43 +129,6 @@ final class APIClient {
 
 enum APIError: Error {
     case badStatus
-}
-
-struct ReviewResponse: Decodable {
-    let reviewId: Int?
-    let reservationId: Int?
-    let userId: Int?
-    let storeId: Int?
-    let rating: Double?
-    let revisit: Int?
-    let content: String?
-    let createdAt: String?
-
-    func toDomain() -> ReviewItem {
-        ReviewItem(
-            rating: rating ?? 0,
-            revisit: (revisit ?? 0) == 1,
-            content: content ?? "",
-            createdAt: createdAt ?? "방금"
-        )
-    }
-}
-
-
-struct ReviewCreateRequest: Encodable {
-    let reservationId: Int
-    let userId: Int
-    let storeId: Int
-    let rating: Double
-    let revisit: Bool
-    let content: String
-}
-
-struct ReviewItem {
-    let rating: Double
-    let revisit: Bool
-    let content: String
-    let createdAt: String
 }
 
 struct PetProfile {

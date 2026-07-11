@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `Dog_kindergarden/` — iOS 앱 (Swift 5.9, SwiftUI + Observation, iOS 16+, CocoaPods)
 - `backend-cloudflare/` — 백엔드 (TypeScript, Hono, Cloudflare Workers + D1)
-- `docs/` — 계획(`PLAN.md`), 진행상황(`PROGRESS.md`), 포트폴리오 기술 문서(`PORTFOLIO.md`)
+- `docs/` — 계획(`PLAN.md`), 진행상황(`PROGRESS.md`), 포트폴리오 기술 문서(`PORTFOLIO.md`), 기능 명세(`FEATURES.md`)
 
 커밋 메시지·문서·코드 주석은 한국어를 사용한다. 작업 세션이 끝나면 `docs/PROGRESS.md`를 갱신한다.
 

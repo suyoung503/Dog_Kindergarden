@@ -26,18 +26,6 @@ type ReservationBody = {
   storeType?: string;
 };
 
-type ReviewBody = {
-  reservation_id?: number;
-  reservationId?: number;
-  user_id?: number;
-  userId?: number;
-  store_id?: number;
-  storeId?: number;
-  rating?: number;
-  revisit?: boolean;
-  content?: string;
-};
-
 type PetReviewBody = {
   store_key?: string;
   storeKey?: string;
@@ -440,19 +428,6 @@ app.get("/api/users/:id/pets", async (c) => {
   return c.json(results);
 });
 
-app.get("/api/diaries/:reservationId", async (c) => {
-  const reservationId = Number(c.req.param("reservationId"));
-  const { results } = await c.env.DB.prepare(
-    `
-    SELECT diary_id, reservation_id, store_id, content, media_type, created_at
-    FROM diaries WHERE reservation_id = ? ORDER BY diary_id DESC
-  `,
-  )
-    .bind(reservationId)
-    .all();
-  return c.json(results);
-});
-
 app.get("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
   const { results } = await c.env.DB.prepare(
@@ -547,46 +522,6 @@ app.get("/api/users/:id/chatrooms", async (c) => {
   )
     .bind(userId)
     .all();
-  return c.json(results);
-});
-
-app.post("/api/reviews", async (c) => {
-  const body = await c.req.json<ReviewBody>();
-  const reservationId = body.reservation_id ?? body.reservationId;
-  const userId = body.user_id ?? body.userId ?? 1;
-  const storeId = body.store_id ?? body.storeId;
-  const rating = Number(body.rating ?? 5);
-  const revisit = (body.revisit ?? false) ? 1 : 0;
-  const content = body.content ?? "";
-
-  if (!reservationId || !storeId)
-    return c.json({ message: "reservation_id and store_id are required" }, 400);
-
-  const result = await c.env.DB.prepare(
-    `
-    INSERT INTO reviews (reservation_id, user_id, store_id, rating, revisit, content)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `,
-  )
-    .bind(reservationId, userId, storeId, rating, revisit, content)
-    .run();
-
-  return c.json({ review_id: result.meta.last_row_id }, 201);
-});
-
-app.get("/api/stores/:id/reviews", async (c) => {
-  const storeId = Number(c.req.param("id"));
-  const { results } = await c.env.DB.prepare(
-    `
-    SELECT review_id, reservation_id, user_id, store_id, rating, revisit, content, created_at
-    FROM reviews
-    WHERE store_id = ?
-    ORDER BY review_id DESC
-  `,
-  )
-    .bind(storeId)
-    .all();
-
   return c.json(results);
 });
 

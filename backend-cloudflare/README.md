@@ -72,8 +72,6 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 - `GET /api/owners/:id/chatrooms` — 사장님이 받은 문의방 목록 (내 가게만)
 
 리뷰
-- `POST /api/reviews`
-- `GET /api/stores/:id/reviews`
 - `POST /api/pet-reviews`
 - `GET /api/pet-reviews`
 - `GET /api/pet-reviews/tags`
@@ -87,4 +85,3 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 - `POST /api/favorites`
 - `DELETE /api/users/:userId/favorites/:storeId`
 - `GET /api/users/:id/favorites`
-- `GET /api/diaries/:reservationId`
