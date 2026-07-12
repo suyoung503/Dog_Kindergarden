@@ -130,6 +130,6 @@ docs/
 ├── PORTFOLIO.md      ← 포트폴리오용 기술 문서
 ├── PROGRESS.md       ← 현재 진행상황
 ├── PLAN.md           ← 이 파일 (개발 계획)
-├── deployment-readiness-report.md   ← 배포 체크리스트 원본
-└── security-improvements.md         ← 보안 개선 상세 기록
+├── FEATURES.md       ← 기능 명세
+└── deployment-readiness-report.md   ← 배포 준비 리포트 (2026-07-13 재점검)
 ```

@@ -1,6 +1,6 @@
 # 맡겨멍 — 현재 진행상황 및 다음 단계
 
-**마지막 업데이트:** 2026-07-12
+**마지막 업데이트:** 2026-07-13
 
 ---
 
@@ -13,6 +13,7 @@
 - [x] **Task 3** — 백엔드 `.gitignore` + TypeScript `any` 타입 제거
 - [x] **Task 4** — 하드코딩 사용자 정보 → `UserProfile` 모델로 교체
 - [x] **Task 6** — 미커밋 변경사항 정리 및 GitHub push
+- [x] **배포 준비 리포트 재점검** (2026-07-13, `b0eb3ac`) — 판정 ❌→⚠️ Conditional. 6/21의 블로커(공공 API 키 하드코딩)와 경고 대부분 해소 확인, 구 키 노출은 저장소 재생성(2026-07-07 초기화)으로 이력 자체가 없음을 확인해 재발급 불필요 처리. 신규 발견: npm audit high 5건(런타임은 hono 1건, 나머지 wrangler 개발 체인). 남은 수동 확인: Kakao 콘솔 번들 ID 제한 설정
 
 ### 기능 구현 (커밋 완료)
 
@@ -77,6 +78,8 @@
   - `Create.xcconfig`에 `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` 추가
   - 완료 시 가게 상세 화면에서 블로그 후기 자동 표시
 
+- [ ] **백엔드 의존성 취약점 해소** — `npm audit fix` 후 재배포 (2026-07-13 리포트: high 5·low 1, 런타임에 실리는 건 `hono` 1건). 로컬 `node_modules`가 root 소유라 실패 시 소유권 정리 또는 재설치 필요
+
 - [x] **Task 7** — README 정리 (2026-07-08) — 루트 `README.md`(프로젝트 소개), `Dog_kindergarden/README.md`(빌드 가이드: Create.xcconfig 작성법·키 발급처 표·개발자 진입 안내) 신규 작성. `backend-cloudflare/README.md`의 API 목록을 현재 라우트로 최신화. 부수적으로 **문서 오류 발견·수정**: 실제 Xcode 빌드 설정(`baseConfigurationReference`)이 가리키는 파일은 `Secret.xcconfig`가 아니라 `Base.lproj/Config/Create.xcconfig`였음 — CLAUDE.md 등 관련 문서를 실제 경로로 정정 (git에 커밋된 적 없어 키 유출은 없음)
 
 ### 중기 (기능 확장)
@@ -127,11 +130,12 @@
 | 홈 종 아이콘 안 읽은 채팅 빨간 점 | ✅ 구현 완료 (0010 마이그레이션 + 배포·curl 검증) |
 | 사용자별 데이터 분리 | ✅ 전수 점검 완료 (UserProfile 잔존 수정 + 폴백 제거, API 무인증은 데모 한계로 기록) |
 | README | ✅ 작성 완료 |
+| 백엔드 의존성 취약점 | ⚠️ npm audit high 5·low 1 — `npm audit fix` 필요 (2026-07-13 리포트) |
 
 ---
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `db36468`(push 완료) — 사용자별 데이터 분리 전수 검증
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `b0eb3ac`(push 완료) — 배포 준비 리포트 2026-07-13 재점검
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
