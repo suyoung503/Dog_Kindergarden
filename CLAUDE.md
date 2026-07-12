@@ -92,7 +92,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 - 요청 바디 타입은 iOS가 snake_case/camelCase를 혼용하므로 **두 형태 모두 optional로 받는 타입**을 정의한다 (`ReservationBody` 참고). `any` 사용 금지.
 - D1 바인딩 이름은 `DB` (`wrangler.toml`).
-- Cron Trigger(`wrangler.toml` crons, 매일 16:00 UTC = KST 01시)가 `scheduled` 핸들러로 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방에 리뷰 요청 자동 메시지를 보낸다 — 중복 방지는 `reservations.review_requested`, 데모용 수동 트리거는 `POST /api/internal/review-requests`. export가 `{ fetch: app.fetch, scheduled }` 형태이므로 `export default app`으로 되돌리지 말 것.
+- Cron Trigger(`wrangler.toml` crons, 매일 09:00 UTC = KST 18시)가 `scheduled` 핸들러로 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방에 리뷰 요청 자동 메시지를 보낸다 — 중복 방지는 `reservations.review_requested`, 데모용 수동 트리거는 `POST /api/internal/review-requests`. export가 `{ fetch: app.fetch, scheduled }` 형태이므로 `export default app`으로 되돌리지 말 것. `start_date`는 연도 포함 `"2026-07-12 (일) 14:00"` 형식(iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다.
 
 ## 현재 미완성 영역 (작업 시 주의)
 

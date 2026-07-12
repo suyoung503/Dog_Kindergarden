@@ -72,7 +72,7 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 - `GET /api/owners/:id/chatrooms` — 사장님이 받은 문의방 목록 (내 가게만)
 
 스케줄러
-- Cron `0 16 * * *`(매일 KST 01시) — 이용일 다음날 확정 예약의 채팅방에 리뷰 요청 자동 메시지
+- Cron `0 9 * * *`(매일 KST 18시) — 이용일 다음날 확정 예약의 채팅방에 리뷰 요청 자동 메시지
 - `POST /api/internal/review-requests` — 위 배치의 데모·테스트용 수동 트리거
 
 리뷰
