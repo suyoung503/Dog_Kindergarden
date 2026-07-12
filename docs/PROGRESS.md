@@ -61,7 +61,8 @@
 - [x] **기능 명세 문서 신설** (2026-07-12) — `docs/FEATURES.md` 작성: 문서만 읽어도 앱 전체 기능을 파악할 수 있도록 화면 지도 + 도메인별 기능(계정/지도/가게 상세/예약/채팅/리뷰/찜/강아지 프로필/마이페이지/사장님 기능) + 백엔드 API 요약 표 + 설계 불변식 + 미완성 범위를 정리. 조사 과정에서 `POST /api/reviews`·`GET /api/stores/:id/reviews`·`GET /api/diaries/:reservationId`가 iOS에서 호출처 없는 구버전 잔재임을 확인해 문서에 명시
 - [x] **구버전 잔재 라우트·클라이언트 코드 제거** (2026-07-12) — FEATURES.md 조사에서 확인된 미사용 코드 삭제. **백엔드:** `POST /api/reviews`·`GET /api/stores/:id/reviews`(pet-reviews로 대체된 구 리뷰 계열)·`GET /api/diaries/:reservationId`(다이어리 기능 미구현) 라우트 3개와 전용 타입 `ReviewBody` 제거 — 배포 + curl 검증(삭제 라우트 404 / `pet-reviews/tags` 200) 완료. **iOS:** 호출처 0개였던 `APIClient.createReview`·`fetchStoreReviews`와 전용 타입 `ReviewResponse`·`ReviewCreateRequest`·`ReviewItem` 제거. DB의 `reviews`·`diaries` 테이블은 마이그레이션 이력이라 그대로 둠(reviews 0행, diaries는 0001 시드 데모 1행뿐 — 라우트만 제거). 백엔드 README API 목록·FEATURES.md 표에서도 해당 라우트 삭제. xcodebuild BUILD SUCCEEDED
 - [x] **이용일 다음날 리뷰 요청 자동 메시지** (2026-07-12) — 확정(CONFIRMED) 예약의 이용일 다음날, 그 (손님+가게) 채팅방에 자동 메시지(sender 0, '맡겨멍')로 리뷰 작성 요청을 보내는 기능. Cloudflare **Cron Triggers**(`wrangler.toml` crons `0 16 * * *` = 매일 KST 01시)가 `scheduled` 핸들러로 `sendReviewRequests` 실행 — `start_date`("토 7/11 14:00")에 연도가 없어 KST 기준 어제의 "월/일" 문자열 LIKE 대조로 대상 선별, 마이그레이션 0009(`reservations.review_requested` 플래그)로 중복 발송 방지. 데모·테스트용 수동 트리거 `POST /api/internal/review-requests` 추가. 마이그레이션 원격 적용 + 배포 + curl 종단 검증(가입→어제 날짜 예약→확정→트리거 sent:1·방에 메시지 확인→재트리거 sent:0) 후 일회용 데이터 정리 완료. iOS 변경 없음(기존 채팅 로드/3초 폴링으로 자동 표시)
-- [x] **리뷰 요청 발송 시각 18시 변경 + 예약 날짜 캘린더형·연도 포함** (2026-07-12) — (1) 리뷰 요청 Cron을 KST 01시→**18시**(`0 9 * * *`)로 변경. (2) 예약 날짜 선택을 6일 칩에서 **캘린더(그래픽 DatePicker)** 로 교체 — 오늘 이후 원하는 날짜 자유 선택(`in: Date()...`). (3) 예약 문자열을 연도 포함 `"2026-07-12 (일) 14:00"` 형식(`BookingViewModel.dateLabel`)으로 저장, `CalendarService.parseSchedule`도 추정('지난 날짜면 +1년') 없이 정확한 연·월·일 해석으로 재작성. (4) 리뷰 요청 대조를 신형은 `YYYY-MM-DD` 정확 매칭, 연도 없는 구형 데이터는 기존 월/일 매칭으로 병행 처리. 배포 + curl 검증(신형·구형 예약 각 1건 → 트리거 sent:2·방 메시지 2건 → 재트리거 sent:0) 후 일회용 데이터 정리, xcodebuild BUILD SUCCEEDED
+- [x] **리뷰 요청 발송 시각 18시 변경 + 예약 날짜 캘린더형·연도 포함** (2026-07-12) — (1) 리뷰 요청 Cron을 KST 01시→**18시**(`0 9 * * *`)로 변경. (2) 예약 날짜 선택을 6일 칩에서 **캘린더(그래픽 DatePicker)** 로 교체 — 오늘 이후 원하는 날짜 자유 선택(`in: Date()...`). (3) 예약 문자열을 연도 포함 `"2026-07-12 (일) 14:00"` 형식(`BookingViewModel.dateLabel`)으로 저장, `CalendarService.parseSchedule`도 추정('지난 날짜면 +1년') 없이 정확한 연·월·일 해석으로 재작성. (4) 리뷰 요청 대조를 신형은 `YYYY-MM-DD` 정확 매칭, 연도 없는 구형 데이터는 기존 월/일 매칭으로 병행 처리. 배포 + curl 검증(신형·구형 예약 각 1건 → 트리거 sent:2·방 메시지 2건 → 재트리거 sent:0) 후 일회용 데이터 정리, xcodebuild BUILD SUCCEEDED. 커밋 `a413292` push 완료
+- [x] **사장님 예약 취소 시 고객 채팅방 자동 메시지 + 예약 신청 화면 취소 가능 경고 문구** (2026-07-12) — 사장님이 받은 예약 요청을 취소하면 고객이 상태 변경을 알 수 있게 해당 (손님+가게) 채팅방에 자동 메시지(sender 0, '맡겨멍', AUTO: "가게 사정으로 {가게명} 예약({일시})이 취소되었어요. 예약 내역에서 확인해주세요 🙏") 전송. 기존 `PATCH /api/reservations/:id/cancel`에 optional 바디 `by_owner`를 추가해 구분 — 고객 본인 취소(바디 없음)는 기존대로 메시지 없이 상태만 변경. iOS는 `APIClient.cancelReservation(byOwner:)` 파라미터 신설, `OwnerModeView`에서만 true 전달. 함께 `BookingView` 신청 버튼 위에 "가게 사정으로 예약이 취소될 수 있어요. 취소되면 채팅으로 알려드려요." 경고 문구 추가. 배포 + curl 검증(고객 취소 → 메시지 0건 / 사장님 취소 → 취소 안내 1건) 후 일회용 데이터 정리(잔존 0), xcodebuild BUILD SUCCEEDED
 
 ---
 
@@ -85,7 +86,7 @@
 - [ ] **알림장(diary)** — 맡긴 날 가게(사장님)가 "초코가 친구들과 잘 놀았어요" 같은 일지·사진을 남기고, 보호자가 예약 단위로 열람하는 기능. DB `diaries` 테이블은 0001 마이그레이션부터 준비돼 있음(시드 데모 1행). 미사용이던 구버전 조회 라우트는 2026-07-12 정리에서 제거했으므로, 구현 시 작성/조회 API와 iOS 화면(사장님 작성 · 보호자 열람)을 새로 설계한다
 - [ ] **`reviews` 테이블 삭제** — 새 마이그레이션 `0010_drop_reviews.sql`에 `DROP TABLE reviews;` 추가(과거 마이그레이션 파일은 수정 금지 원칙, 0009는 리뷰 요청 플래그가 사용). 배포 DB 0행 확인 완료(2026-07-12), 접근 라우트는 이미 제거됨. `diaries`는 알림장 구현 예정이라 유지
 - [x] ~~이용일 다음날 리뷰 요청 시스템 메시지~~ — 완료 (2026-07-12, Cloudflare Cron Triggers 방식)
-- [ ] **사장님 예약 취소 시 고객에게 시스템 메시지** — 사장님이 받은 예약 요청을 취소하면 해당 채팅방에 자동 메시지("예약 상태가 변경되었어요. 예약 내역을 확인해주세요") 전송. + **예약 신청 화면(`BookingView`)에 "가게 사정으로 예약이 취소될 수 있어요" 경고 문구** 표시
+- [x] ~~사장님 예약 취소 시 고객에게 시스템 메시지 + 예약 신청 화면 취소 가능 경고 문구~~ — 완료 (2026-07-12, `by_owner` 플래그 방식)
 - [ ] **홈 종모양 안 읽은 채팅 알림** — 안 읽은 채팅이 1개 이상이면 홈 화면 종 아이콘 옆에 빨간 점 표시, 모두 읽으면 제거. 현재 `chat_messages`에 읽음 개념이 없어 읽음 상태 추적(마지막 읽은 message_id 또는 read 플래그) 스키마 확장 필요
 - [ ] **리뷰 태그로 지도 필터링** — 리뷰 태그(CCTV·픽업·대형견 등)로 지도 핀을 거르는 기능이 현재 동작하지 않음. `pet_reviews` 태그 집계와 지도 핀(`store_key`)을 연결해 필터 구현
 - [ ] **사용자별 데이터 분리 전수 검증** — 서로 다른 계정(견주/사장님/타 유저) 간 채팅·찜·예약·최근 본 가게가 섞이지 않는지 점검. 특히 코드에 남은 `userId: 1` 하드코딩 잔재를 전수 조사해 `AuthSession.userId`로 교체
@@ -120,12 +121,13 @@
 | 역할별 계정 분리 + 마이페이지 내 가게 등록 | ✅ 구현 완료 (배포·curl·시뮬레이터 확인 완료) |
 | 받은 예약 요청 내 가게 스코프 + 최근 본 가게 영속 | ✅ 구현 완료 (배포·curl·시뮬레이터 확인 완료) |
 | 이용일 다음날 리뷰 요청 자동 메시지 | ✅ 구현 완료 (Cron + 배포·curl 검증) |
+| 사장님 취소 시 고객 채팅방 자동 메시지 | ✅ 구현 완료 (배포·curl 검증) |
 | README | ✅ 작성 완료 |
 
 ---
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `1b47ff0`(push 완료) — 이용일 다음날 리뷰 요청 자동 메시지(Cron). 로컬에 발송 시각 18시 + 예약 날짜 캘린더형·연도 포함 커밋 대기
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `a413292`(push 완료) — 리뷰 요청 18시 발송 + 예약 날짜 캘린더형·연도 포함. 로컬에 사장님 취소 시 고객 자동 메시지 커밋 대기
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`

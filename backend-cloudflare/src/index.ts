@@ -371,14 +371,53 @@ app.get("/api/users/:id/reservations", async (c) => {
   return c.json(results);
 });
 
-// 예약 취소 — 상태만 CANCELED로 변경
+// 예약 취소 — 상태를 CANCELED로 변경.
+// 사장님 취소(by_owner)면 고객이 상태 변경을 알 수 있게 채팅방에 자동 메시지를 남긴다
+// (고객 본인 취소는 바디 없이 호출되므로 메시지를 보내지 않는다)
+type ReservationCancelBody = {
+  by_owner?: boolean;
+  byOwner?: boolean;
+};
+
 app.patch("/api/reservations/:id/cancel", async (c) => {
   const reservationId = Number(c.req.param("id"));
+  const body = await c.req
+    .json<ReservationCancelBody>()
+    .catch(() => ({}) as ReservationCancelBody);
+  const byOwner = body.by_owner ?? body.byOwner ?? false;
+
   await c.env.DB.prepare(
     `UPDATE reservations SET status = 'CANCELED' WHERE reservation_id = ?`,
   )
     .bind(reservationId)
     .run();
+
+  if (byOwner) {
+    const target = await c.env.DB.prepare(
+      `
+      SELECT cr.room_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
+      FROM reservations r
+      LEFT JOIN stores s ON s.store_id = r.store_id
+      JOIN chat_rooms cr ON cr.user_id = r.user_id AND cr.store_id = r.store_id
+      WHERE r.reservation_id = ?
+    `,
+    )
+      .bind(reservationId)
+      .first<{ room_id: number; store_name: string; start_date: string }>();
+    if (target) {
+      await c.env.DB.prepare(
+        `
+        INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
+        VALUES (?, 0, '맡겨멍', 'AUTO', ?)
+      `,
+      )
+        .bind(
+          target.room_id,
+          `가게 사정으로 ${target.store_name} 예약(${target.start_date})이 취소되었어요. 예약 내역에서 확인해주세요 🙏`,
+        )
+        .run();
+    }
+  }
   return c.json({ ok: true });
 });
 

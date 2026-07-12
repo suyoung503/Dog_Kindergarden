@@ -96,6 +96,7 @@
 - **날짜·시간** — 캘린더(그래픽 DatePicker)에서 오늘 이후 원하는 날짜를 자유롭게 선택 + 6개 시간대. 예약 문자열은 연도 포함 형식("2026-07-12 (일) 14:00")으로 저장된다.
 - **서비스 선택** — 유치원 반일권/종일권, 호텔 1박, 장기 이용(픽업 서비스 포함 **총 결제 금액 실시간 계산**).
 - **요청사항** — 알레르기·사료·산책 등 자유 입력.
+- 신청 버튼 위에 **"가게 사정으로 예약이 취소될 수 있어요. 취소되면 채팅으로 알려드려요."** 경고 문구 표시.
 - 신청 시 `POST /api/reservations` → 예약(REQUEST 상태)과 **채팅방이 자동 생성**되고, 완료 화면에 가게/강아지/일정/금액이 표시되며 바로 채팅방으로 이동할 수 있다.
 
 ### 기기 캘린더 자동 저장
@@ -110,7 +111,7 @@
 ### 예약 확정/취소 (사장님, OwnerModeView)
 - '받은 예약 요청' 화면에 **내가 등록한 가게로 온 REQUEST만** 표시(가게명·강아지·일정·서비스).
 - **확정하기** → 고객 예약 내역에 '예약 확정'으로 표시.
-- **예약 취소** → 확인 알림 후 취소, 고객에겐 '예약 취소됨'으로 표시되고 고객 캘린더 일정도 동기화 삭제된다.
+- **예약 취소** → 확인 알림 후 취소(`by_owner` 플래그), 고객에겐 '예약 취소됨'으로 표시되고 고객 캘린더 일정도 동기화 삭제된다. 고객 채팅방에는 **"가게 사정으로 ○○ 예약(일시)이 취소되었어요" 자동 메시지**가 발송된다(고객 본인 취소 시에는 미발송).
 - 내 가게를 아직 등록 안 했으면 빈 화면에 등록 안내 문구.
 
 ---
@@ -129,6 +130,7 @@
 - 실제 메시지 로드/전송. 전송은 낙관적 추가(실패 시 롤백), 방을 열어두는 동안 **3초 간격 폴링**으로 상대 메시지 자동 반영.
 - 예약 시 "예약 요청이 완료되었습니다" 등 **자동 메시지**가 방에 남는다 — 손님 시점에선 가게(왼쪽), 사장님 시점에선 내(오른쪽) 말풍선으로 표시.
 - **리뷰 요청 자동 메시지** — 확정된 예약의 이용일 다음날 오후 6시(KST), 서버 Cron이 그 채팅방에 "어제 ○○ 이용은 어떠셨나요? 리뷰를 남겨주세요" 메시지를 자동 발송(예약당 1회, 연·월·일 정확 대조).
+- **예약 취소 자동 메시지** — 사장님이 예약을 취소하면 그 즉시 고객 채팅방에 "가게 사정으로 ○○ 예약(일시)이 취소되었어요" 메시지를 자동 발송(고객 본인 취소는 미발송).
 - 상단 '응답중' 상태 표시는 손님 시점에서만 노출(사장님 시점에선 숨김).
 
 ---
@@ -191,7 +193,7 @@
 | 강아지 | `GET·POST /api/users/:id/pets`, `DELETE /api/pets/:petId` | 프로필 CRUD |
 | 가게 | `GET /api/stores` | 저장된 가게 조회 |
 | 내 가게 | `POST /api/stores/claim`, `GET·DELETE /api/owners/:id/stores(/:storeId)` | 등록(409 충돌)·목록·해제 |
-| 예약 | `POST /api/reservations`, `GET /api/users/:id/reservations`, `PATCH /api/reservations/:id/cancel·confirm`, `GET /api/owners/:id/reservations/pending` | 신청(채팅방 자동 생성)·내역·취소·확정·사장님 수신함 |
+| 예약 | `POST /api/reservations`, `GET /api/users/:id/reservations`, `PATCH /api/reservations/:id/cancel·confirm`, `GET /api/owners/:id/reservations/pending` | 신청(채팅방 자동 생성)·내역·취소·확정·사장님 수신함. cancel에 `by_owner` 바디를 주면 고객 채팅방에 취소 안내 자동 메시지 발송 |
 | 채팅 | `GET·POST /api/chatrooms(/:id/messages)`, `GET /api/chatrooms/lookup`, `GET /api/users/:id/chatrooms`, `GET /api/owners/:id/chatrooms` | 방 생성/조회·메시지·내 방 목록·받은 문의 |
 | 리뷰 | `GET·POST /api/pet-reviews`, `GET /api/pet-reviews/tags` | 펫 리뷰·태그 목록 |
 | 찜 | `POST /api/favorites`, `GET /api/users/:id/favorites`, `DELETE /api/users/:userId/favorites/:storeId` | 찜 토글·목록 |

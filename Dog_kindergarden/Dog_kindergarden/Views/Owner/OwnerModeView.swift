@@ -175,7 +175,7 @@ struct OwnerModeView: View {
         Task {
             defer { confirmingId = nil }
             do {
-                try await APIClient.shared.cancelReservation(reservationId: rid)
+                try await APIClient.shared.cancelReservation(reservationId: rid, byOwner: true)
             } catch {
                 return
             }

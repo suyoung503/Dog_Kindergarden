@@ -44,8 +44,13 @@ final class APIClient {
         try await request(path: "/users/\(userId)/reservations", method: "GET")
     }
 
-    func cancelReservation(reservationId: Int) async throws {
-        let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/cancel", method: "PATCH")
+    // byOwner: 사장님 취소면 서버가 고객 채팅방에 취소 안내 자동 메시지를 남긴다
+    func cancelReservation(reservationId: Int, byOwner: Bool = false) async throws {
+        if byOwner {
+            let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/cancel", method: "PATCH", body: ReservationCancelRequest(byOwner: true))
+        } else {
+            let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/cancel", method: "PATCH")
+        }
     }
 
     // 사장님이 받은 예약 요청 — 내 가게(owner_id)로 온 REQUEST만
@@ -175,6 +180,11 @@ struct ReservationSummary: Decodable {
 
 struct ReservationCancelResponse: Decodable {
     let ok: Bool?
+}
+
+// 사장님 취소 표시 — 인코더가 snake_case(by_owner)로 변환해 서버에 전달
+struct ReservationCancelRequest: Encodable {
+    let byOwner: Bool
 }
 
 struct PendingReservation: Decodable {

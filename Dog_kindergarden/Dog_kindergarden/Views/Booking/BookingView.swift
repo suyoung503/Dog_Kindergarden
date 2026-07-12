@@ -420,6 +420,9 @@ struct BookingView: View {
             if let error = vm.errorMessage {
                 Text(error).font(.system(size: 12)).foregroundStyle(.red)
             }
+            Text("가게 사정으로 예약이 취소될 수 있어요. 취소되면 채팅으로 알려드려요.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.brandBrown.opacity(0.6))
             Button(action: submitBooking) {
                 HStack(spacing: 6) {
                     if vm.isLoading {
