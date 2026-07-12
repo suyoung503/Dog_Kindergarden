@@ -127,10 +127,12 @@ struct ChatRoomView: View {
         }
         .background(Color.brandCream.ignoresSafeArea())
         .task {
+            // 미로그인 폴백(?? 1)은 user 1 데이터 혼입 위험이 있어 두지 않는다 — 이 화면은 로그인 후에만 진입
+            guard let uid = authSession.userId else { return }
             let pin = router.selectedPin
             vm.configure(
                 roomId: router.selectedRoomId,
-                userId: authSession.userId ?? 1,
+                userId: uid,
                 asOwner: router.chatRoomAsOwner,
                 storeKey: pin?.storeKey ?? "",
                 storeName: router.selectedChat,

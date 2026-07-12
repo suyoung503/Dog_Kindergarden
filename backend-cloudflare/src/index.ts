@@ -282,8 +282,11 @@ app.get("/api/owners/:id/chatrooms", async (c) => {
 
 app.post("/api/reservations", async (c) => {
   const body = await c.req.json<ReservationBody>();
-  const userId = body.user_id ?? body.userId ?? 1;
-  const petId = body.pet_id ?? body.petId ?? 1;
+  // 값 누락 시 user 1로 조용히 귀속되던 폴백 제거 — 사용자별 데이터 분리
+  const userId = body.user_id ?? body.userId;
+  const petId = body.pet_id ?? body.petId;
+  if (!userId || !petId)
+    return c.json({ message: "user_id/pet_id is required" }, 400);
   const startDate = body.start_date ?? body.startDate;
   const endDate = body.end_date ?? body.endDate;
   const reservationType =
@@ -484,7 +487,9 @@ app.post("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
   const body = await c.req.json<ChatMessageBody>();
 
-  const senderId = body.sender_id ?? body.senderId ?? 1;
+  const senderId = body.sender_id ?? body.senderId;
+  if (senderId === undefined)
+    return c.json({ message: "sender_id is required" }, 400);
   const senderName = body.sender_name ?? body.senderName ?? "나";
   const messageType = body.message_type ?? body.messageType ?? "TEXT";
   const content = body.content?.trim();
@@ -514,7 +519,9 @@ app.post("/api/chatrooms/:id/messages", async (c) => {
 
 // 문의 방 조회 전용 (쓰기 없음): 있으면 room_id, 없으면 null
 app.get("/api/chatrooms/lookup", async (c) => {
-  const userId = Number(c.req.query("user_id") ?? "1");
+  const rawUserId = c.req.query("user_id");
+  if (!rawUserId) return c.json({ message: "user_id is required" }, 400);
+  const userId = Number(rawUserId);
   const storeKey = c.req.query("store_key") ?? "";
   const roomId = await findRoomId(c.env.DB, userId, storeKey);
   return c.json({ room_id: roomId });
@@ -523,7 +530,8 @@ app.get("/api/chatrooms/lookup", async (c) => {
 // 문의 방 get-or-create (첫 메시지 전송 시 호출) — 자동 메시지 없음
 app.post("/api/chatrooms", async (c) => {
   const body = await c.req.json<ChatRoomBody>();
-  const userId = body.user_id ?? body.userId ?? 1;
+  const userId = body.user_id ?? body.userId;
+  if (!userId) return c.json({ message: "user_id is required" }, 400);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   const storeName = body.store_name ?? body.storeName ?? "";
   const storeAddress = body.store_address ?? body.storeAddress ?? "";

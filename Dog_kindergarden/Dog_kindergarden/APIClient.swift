@@ -35,7 +35,7 @@ final class APIClient {
         }
     }
 
-    func fetchPets(userId: Int = 1) async throws -> [PetProfile] {
+    func fetchPets(userId: Int) async throws -> [PetProfile] {
         let responses: [PetResponse] = try await request(path: "/users/\(userId)/pets", method: "GET")
         return responses.map { $0.toDomain() }
     }
