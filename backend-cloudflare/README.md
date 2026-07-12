@@ -59,7 +59,7 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 예약
 - `POST /api/reservations`
 - `GET /api/users/:id/reservations`
-- `PATCH /api/reservations/:id/cancel`
+- `PATCH /api/reservations/:id/cancel` — 바디 `{"by_owner": true}`면 사장님 취소로 간주해 고객 채팅방에 취소 안내 자동 메시지 발송
 - `PATCH /api/reservations/:id/confirm`
 - `GET /api/owners/:id/reservations/pending` — 사장님이 받은 예약 요청 (내 가게만)
 
