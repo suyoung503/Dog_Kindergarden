@@ -6,8 +6,10 @@ struct HomeView: View {
     @Environment(BoardingStore.self) private var boarding
     @Environment(TagStore.self) private var tagStore
     @Environment(UserProfile.self) private var userProfile
+    @Environment(AuthSession.self) private var authSession
     @State private var searchText = ""
     @State private var showFAB = false
+    @State private var hasUnreadChats = false    // 종 아이콘 빨간 점 — 안 읽은 채팅 존재 여부
     @State private var activeFilter: ReviewTag? = nil    // 리뷰 태그 필터
     @State private var activeType: String? = nil         // "호텔" | "유치원" 필터
     // 현재 지도에 보이는 범위 — 카메라 이동/줌이 멈출 때 갱신
@@ -73,6 +75,11 @@ struct HomeView: View {
                 .padding(.trailing, 20)
                 .padding(.bottom, 28)
         }
+        .task {
+            // 홈에 돌아올 때마다 갱신 — 채팅방에서 읽고 나오면 점이 사라진다
+            guard let uid = authSession.userId else { return }
+            hasUnreadChats = await ChatService.unreadCount(userId: uid) > 0
+        }
     }
 
     // MARK: - Header
@@ -102,7 +109,7 @@ struct HomeView: View {
                 }
             }
             Spacer()
-            Button(action: {}) {
+            Button(action: { router.go(.chatList) }) {
                 ZStack {
                     Circle()
                         .fill(.white)
@@ -113,11 +120,13 @@ struct HomeView: View {
                         .foregroundStyle(Color.brandBrown)
                 }
                 .overlay(alignment: .topTrailing) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 7)
-                        .padding(.trailing, 7)
+                    if hasUnreadChats {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 8, height: 8)
+                            .padding(.top, 7)
+                            .padding(.trailing, 7)
+                    }
                 }
                 .frame(width: 40, height: 40)
             }

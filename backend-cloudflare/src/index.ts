@@ -564,6 +564,77 @@ app.get("/api/users/:id/chatrooms", async (c) => {
   return c.json(results);
 });
 
+// MARK: - 안 읽은 채팅 (홈 종 아이콘 빨간 점)
+
+// 읽음 처리 — 방을 열람한 시점의 마지막 메시지까지 읽음으로 기록
+type ChatReadBody = {
+  user_id?: number;
+  userId?: number;
+};
+
+app.post("/api/chatrooms/:id/read", async (c) => {
+  const roomId = Number(c.req.param("id"));
+  const body = await c.req.json<ChatReadBody>();
+  const userId = body.user_id ?? body.userId;
+  if (!userId) return c.json({ message: "user_id is required" }, 400);
+
+  await c.env.DB.prepare(
+    `
+    INSERT INTO chat_room_reads (room_id, user_id, last_read_message_id)
+    VALUES (?, ?, (SELECT COALESCE(MAX(message_id), 0) FROM chat_messages WHERE room_id = ?))
+    ON CONFLICT(room_id, user_id) DO UPDATE SET last_read_message_id = excluded.last_read_message_id
+  `,
+  )
+    .bind(roomId, userId, roomId)
+    .run();
+  return c.json({ ok: true });
+});
+
+// 안 읽은 메시지 수 — 손님 시점(내가 손님인 방들의 상대·자동 메시지)은 모든 계정 공통.
+// 사장님 계정은 손님 역할도 겸하므로(다른 가게에 예약·문의 가능) 내 가게로 온 손님 메시지를
+// 합산한다(자동 메시지 sender 0은 사장님 화면에선 내 말풍선이라 사장님 몫에선 제외)
+app.get("/api/users/:id/unread-count", async (c) => {
+  const userId = Number(c.req.param("id"));
+  const user = await c.env.DB.prepare(
+    `SELECT is_owner FROM users WHERE user_id = ?`,
+  )
+    .bind(userId)
+    .first<{ is_owner: number | null }>();
+
+  const asCustomer = await c.env.DB.prepare(
+    `
+    SELECT COUNT(*) AS unread
+    FROM chat_messages m
+    JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
+    LEFT JOIN chat_room_reads rd ON rd.room_id = m.room_id AND rd.user_id = ?
+    WHERE m.sender_id != ?
+      AND m.message_id > COALESCE(rd.last_read_message_id, 0)
+  `,
+  )
+    .bind(userId, userId, userId)
+    .first<{ unread: number }>();
+  let unread = asCustomer?.unread ?? 0;
+
+  if ((user?.is_owner ?? 0) === 1) {
+    const asOwner = await c.env.DB.prepare(
+      `
+      SELECT COUNT(*) AS unread
+      FROM chat_messages m
+      JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id != ?
+      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      LEFT JOIN chat_room_reads rd ON rd.room_id = m.room_id AND rd.user_id = ?
+      WHERE m.sender_id != ? AND m.sender_id != 0
+        AND m.message_id > COALESCE(rd.last_read_message_id, 0)
+    `,
+    )
+      .bind(userId, userId, userId, userId)
+      .first<{ unread: number }>();
+    unread += asOwner?.unread ?? 0;
+  }
+
+  return c.json({ unread });
+});
+
 // MARK: - 펫 특화 리뷰 (공공데이터 가게용, store_key = "이름|주소")
 
 app.post("/api/pet-reviews", async (c) => {

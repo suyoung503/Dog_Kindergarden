@@ -111,4 +111,22 @@ enum ChatService {
         ])
         _ = try await URLSession.shared.data(for: req)
     }
+
+    /// 안 읽은 메시지 수 — 홈 종 아이콘 빨간 점용 (보호자/사장님 시점은 서버가 계정 역할로 판단)
+    static func unreadCount(userId: Int) async -> Int {
+        let url = URL(string: "\(base)/api/users/\(userId)/unread-count")!
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return 0 }
+        return json["unread"] as? Int ?? 0
+    }
+
+    /// 방 열람 읽음 처리 — 현재 마지막 메시지까지 읽음으로 기록 (실패해도 다음 열람에서 재시도되므로 무시)
+    static func markRead(roomId: Int, userId: Int) async {
+        let url = URL(string: "\(base)/api/chatrooms/\(roomId)/read")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": userId])
+        _ = try? await URLSession.shared.data(for: req)
+    }
 }
