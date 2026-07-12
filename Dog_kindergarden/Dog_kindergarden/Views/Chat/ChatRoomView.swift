@@ -41,6 +41,7 @@ final class ChatRoomViewModel {
         do {
             let dtos = try await ChatService.messages(roomId: roomId)
             messages = dtos.map(map)
+            await ChatService.markRead(roomId: roomId, userId: myUserId)
         } catch {
             errorMessage = "메시지를 불러오지 못했어요."
         }
@@ -52,6 +53,8 @@ final class ChatRoomViewModel {
         guard let dtos = try? await ChatService.messages(roomId: roomId) else { return }
         if dtos.count != messages.count {
             messages = dtos.map(map)
+            // 방을 보고 있는 중에 도착한 메시지도 바로 읽음 처리
+            await ChatService.markRead(roomId: roomId, userId: myUserId)
         }
     }
 

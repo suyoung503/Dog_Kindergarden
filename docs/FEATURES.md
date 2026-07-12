@@ -73,6 +73,10 @@
 - 홈 우하단 발자국 버튼: 강아지 프로필 / 채팅 / 예약 내역 / 설정(마이페이지).
 - 사장님 계정에만 **받은 예약 요청** 항목이 추가로 노출된다.
 
+### 종 아이콘 — 안 읽은 채팅 알림
+- 홈 우상단 종 아이콘: **안 읽은 채팅이 1개 이상이면 빨간 점**, 모두 읽으면 사라진다. 탭하면 채팅 목록으로 이동.
+- 기준: 내가 손님인 방들의 상대(가게·자동) 메시지는 모든 계정 공통이고, **사장님 계정은 내 가게로 온 손님 메시지를 합산**한다(사장님도 다른 가게에는 손님으로 예약·문의하므로 양쪽 다 반영). 채팅방을 열람하면 그 시점의 마지막 메시지까지 읽음 처리(`chat_room_reads`), 홈에 돌아올 때 갱신된다.
+
 ---
 
 ## 3. 가게 상세
@@ -128,6 +132,7 @@
 
 ### 채팅방 (ChatRoomView)
 - 실제 메시지 로드/전송. 전송은 낙관적 추가(실패 시 롤백), 방을 열어두는 동안 **3초 간격 폴링**으로 상대 메시지 자동 반영.
+- 방을 열람하면(최초 로드 + 보는 중 도착분) 마지막 메시지까지 **읽음 처리** — 홈 종 아이콘 빨간 점의 기준이 된다.
 - 예약 시 "예약 요청이 완료되었습니다" 등 **자동 메시지**가 방에 남는다 — 손님 시점에선 가게(왼쪽), 사장님 시점에선 내(오른쪽) 말풍선으로 표시.
 - **리뷰 요청 자동 메시지** — 확정된 예약의 이용일 다음날 오후 6시(KST), 서버 Cron이 그 채팅방에 "어제 ○○ 이용은 어떠셨나요? 리뷰를 남겨주세요" 메시지를 자동 발송(예약당 1회, 연·월·일 정확 대조).
 - **예약 취소 자동 메시지** — 사장님이 예약을 취소하면 그 즉시 고객 채팅방에 "가게 사정으로 ○○ 예약(일시)이 취소되었어요" 메시지를 자동 발송(고객 본인 취소는 미발송).
@@ -195,6 +200,7 @@
 | 내 가게 | `POST /api/stores/claim`, `GET·DELETE /api/owners/:id/stores(/:storeId)` | 등록(409 충돌)·목록·해제 |
 | 예약 | `POST /api/reservations`, `GET /api/users/:id/reservations`, `PATCH /api/reservations/:id/cancel·confirm`, `GET /api/owners/:id/reservations/pending` | 신청(채팅방 자동 생성)·내역·취소·확정·사장님 수신함. cancel에 `by_owner` 바디를 주면 고객 채팅방에 취소 안내 자동 메시지 발송 |
 | 채팅 | `GET·POST /api/chatrooms(/:id/messages)`, `GET /api/chatrooms/lookup`, `GET /api/users/:id/chatrooms`, `GET /api/owners/:id/chatrooms` | 방 생성/조회·메시지·내 방 목록·받은 문의 |
+| 안 읽은 채팅 | `POST /api/chatrooms/:id/read`, `GET /api/users/:id/unread-count` | 방 열람 읽음 처리 · 안 읽은 메시지 수(손님 시점 공통 + 사장님 계정은 내 가게 문의 합산) |
 | 리뷰 | `GET·POST /api/pet-reviews`, `GET /api/pet-reviews/tags` | 펫 리뷰·태그 목록 |
 | 찜 | `POST /api/favorites`, `GET /api/users/:id/favorites`, `DELETE /api/users/:userId/favorites/:storeId` | 찜 토글·목록 |
 | 스케줄러 | Cron `0 9 * * *`(KST 18시), `POST /api/internal/review-requests`(수동 트리거) | 이용일 다음날 리뷰 요청 자동 메시지 |

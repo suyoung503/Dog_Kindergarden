@@ -70,6 +70,8 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 - `POST /api/chatrooms`
 - `GET /api/users/:id/chatrooms`
 - `GET /api/owners/:id/chatrooms` — 사장님이 받은 문의방 목록 (내 가게만)
+- `POST /api/chatrooms/:id/read` — 방 열람 읽음 처리 (마지막 메시지까지)
+- `GET /api/users/:id/unread-count` — 안 읽은 메시지 수 (홈 종 아이콘 빨간 점용, 손님 시점 공통 + 사장님 계정은 내 가게로 온 손님 메시지 합산)
 
 스케줄러
 - Cron `0 9 * * *`(매일 KST 18시) — 이용일 다음날 확정 예약의 채팅방에 리뷰 요청 자동 메시지

@@ -84,6 +84,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 - 예약 캘린더 일정은 **고객 기기**에만 쓴다(사장님 기기 금지) — 추가는 예약 요청 시점(`BookingView` 성공 직후), 삭제는 본인 취소 시 즉시 + 사장님 취소는 고객이 예약 내역(`ReservationListView`)을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 삭제(서버 푸시 없음).
 - 예약 취소는 고객·사장님 공용 `PATCH /api/reservations/:id/cancel` 하나 — 사장님 취소만 바디 `by_owner`로 구분해 고객 채팅방에 취소 안내 자동 메시지(sender 0)를 남긴다(iOS는 `cancelReservation(byOwner:)`, `OwnerModeView`에서만 true). 고객 본인 취소에 메시지를 보내지 말 것.
 - 채팅방 진입 시 `router.chatRoomAsOwner`를 반드시 설정할 것(받은 문의에서만 true) — 자동메시지(sender 0) 말풍선 방향과 '응답중' 표시가 이 플래그를 따른다. 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.
+- 안 읽은 채팅(홈 종 아이콘 빨간 점)은 `chat_room_reads(room_id, user_id)`의 `last_read_message_id`로 추적한다 — 읽음 처리는 `ChatRoomView`가 열람(최초 로드·폴링 신규분)마다 `ChatService.markRead` 호출, 카운트는 `GET /api/users/:id/unread-count` — 손님 시점(내가 손님인 방)은 모든 계정 공통이고 사장님 계정은 내 가게로 온 손님 메시지를 **합산**한다(사장님도 다른 가게엔 손님이므로 분기가 아니라 합산; 사장님 몫은 sender 0 제외 + 내가 손님인 방 제외로 중복 집계 방지). 채팅 로드 경로를 바꿀 때 markRead 호출을 빼먹지 말 것.
 - 이 패턴을 깨는 변경(예약마다 방 생성, 이름만으로 가게 식별 등)은 하지 않는다.
 - iOS에서 서버가 보강한 `store_key`로 화면을 다시 그릴 때(`FavoritesView` 등)는 `MapPin.storeKeyOverride`에 원본 키를 담아 재계산으로 키가 어긋나지 않게 한다.
 
