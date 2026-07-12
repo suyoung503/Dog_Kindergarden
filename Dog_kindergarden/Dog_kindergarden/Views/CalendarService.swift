@@ -6,31 +6,23 @@ enum CalendarService {
     private static let store = EKEventStore()
     private static let mappingKey = "reservation_calendar_events"
 
-    // "토 6/13 14:00" → Date. 연도가 없으므로 오늘 이후 가장 가까운 도래 시점으로 추정
+    // "2026-07-12 (일) 14:00" → Date. 연도가 포함된 형식이라 추정 없이 정확한 날짜로 해석
     static func parseSchedule(_ raw: String) -> Date? {
         let parts = raw.split(separator: " ")
         guard parts.count >= 3 else { return nil }
-        let dateParts = parts[1].split(separator: "/")
+        let dateParts = parts[0].split(separator: "-")
         let timeParts = parts[2].split(separator: ":")
-        guard dateParts.count == 2, timeParts.count == 2,
-              let month = Int(dateParts[0]), let day = Int(dateParts[1]),
+        guard dateParts.count == 3, timeParts.count == 2,
+              let year = Int(dateParts[0]), let month = Int(dateParts[1]), let day = Int(dateParts[2]),
               let hour = Int(timeParts[0]), let minute = Int(timeParts[1]) else { return nil }
 
-        let calendar = Calendar.current
-        let now = Date()
         var comps = DateComponents()
-        comps.year = calendar.component(.year, from: now)
+        comps.year = year
         comps.month = month
         comps.day = day
         comps.hour = hour
         comps.minute = minute
-
-        guard var date = calendar.date(from: comps) else { return nil }
-        if date < now {
-            comps.year = (comps.year ?? 0) + 1
-            date = calendar.date(from: comps) ?? date
-        }
-        return date
+        return Calendar.current.date(from: comps)
     }
 
     @discardableResult

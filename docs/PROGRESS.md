@@ -61,6 +61,7 @@
 - [x] **기능 명세 문서 신설** (2026-07-12) — `docs/FEATURES.md` 작성: 문서만 읽어도 앱 전체 기능을 파악할 수 있도록 화면 지도 + 도메인별 기능(계정/지도/가게 상세/예약/채팅/리뷰/찜/강아지 프로필/마이페이지/사장님 기능) + 백엔드 API 요약 표 + 설계 불변식 + 미완성 범위를 정리. 조사 과정에서 `POST /api/reviews`·`GET /api/stores/:id/reviews`·`GET /api/diaries/:reservationId`가 iOS에서 호출처 없는 구버전 잔재임을 확인해 문서에 명시
 - [x] **구버전 잔재 라우트·클라이언트 코드 제거** (2026-07-12) — FEATURES.md 조사에서 확인된 미사용 코드 삭제. **백엔드:** `POST /api/reviews`·`GET /api/stores/:id/reviews`(pet-reviews로 대체된 구 리뷰 계열)·`GET /api/diaries/:reservationId`(다이어리 기능 미구현) 라우트 3개와 전용 타입 `ReviewBody` 제거 — 배포 + curl 검증(삭제 라우트 404 / `pet-reviews/tags` 200) 완료. **iOS:** 호출처 0개였던 `APIClient.createReview`·`fetchStoreReviews`와 전용 타입 `ReviewResponse`·`ReviewCreateRequest`·`ReviewItem` 제거. DB의 `reviews`·`diaries` 테이블은 마이그레이션 이력이라 그대로 둠(reviews 0행, diaries는 0001 시드 데모 1행뿐 — 라우트만 제거). 백엔드 README API 목록·FEATURES.md 표에서도 해당 라우트 삭제. xcodebuild BUILD SUCCEEDED
 - [x] **이용일 다음날 리뷰 요청 자동 메시지** (2026-07-12) — 확정(CONFIRMED) 예약의 이용일 다음날, 그 (손님+가게) 채팅방에 자동 메시지(sender 0, '맡겨멍')로 리뷰 작성 요청을 보내는 기능. Cloudflare **Cron Triggers**(`wrangler.toml` crons `0 16 * * *` = 매일 KST 01시)가 `scheduled` 핸들러로 `sendReviewRequests` 실행 — `start_date`("토 7/11 14:00")에 연도가 없어 KST 기준 어제의 "월/일" 문자열 LIKE 대조로 대상 선별, 마이그레이션 0009(`reservations.review_requested` 플래그)로 중복 발송 방지. 데모·테스트용 수동 트리거 `POST /api/internal/review-requests` 추가. 마이그레이션 원격 적용 + 배포 + curl 종단 검증(가입→어제 날짜 예약→확정→트리거 sent:1·방에 메시지 확인→재트리거 sent:0) 후 일회용 데이터 정리 완료. iOS 변경 없음(기존 채팅 로드/3초 폴링으로 자동 표시)
+- [x] **리뷰 요청 발송 시각 18시 변경 + 예약 날짜 캘린더형·연도 포함** (2026-07-12) — (1) 리뷰 요청 Cron을 KST 01시→**18시**(`0 9 * * *`)로 변경. (2) 예약 날짜 선택을 6일 칩에서 **캘린더(그래픽 DatePicker)** 로 교체 — 오늘 이후 원하는 날짜 자유 선택(`in: Date()...`). (3) 예약 문자열을 연도 포함 `"2026-07-12 (일) 14:00"` 형식(`BookingViewModel.dateLabel`)으로 저장, `CalendarService.parseSchedule`도 추정('지난 날짜면 +1년') 없이 정확한 연·월·일 해석으로 재작성. (4) 리뷰 요청 대조를 신형은 `YYYY-MM-DD` 정확 매칭, 연도 없는 구형 데이터는 기존 월/일 매칭으로 병행 처리. 배포 + curl 검증(신형·구형 예약 각 1건 → 트리거 sent:2·방 메시지 2건 → 재트리거 sent:0) 후 일회용 데이터 정리, xcodebuild BUILD SUCCEEDED
 
 ---
 
@@ -125,6 +126,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `db8a176`(push 완료) — 기능 명세(FEATURES.md) 신설 + 구버전 잔재 제거 + 다음 구현 예정 기록. 로컬에 리뷰 요청 자동 메시지(Cron) 커밋 대기
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `1b47ff0`(push 완료) — 이용일 다음날 리뷰 요청 자동 메시지(Cron). 로컬에 발송 시각 18시 + 예약 날짜 캘린더형·연도 포함 커밋 대기
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`

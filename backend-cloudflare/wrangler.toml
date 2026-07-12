@@ -5,9 +5,9 @@ compatibility_date = "2026-05-20"
 [vars]
 APP_NAME = "맡겨멍 API"
 
-# 이용일 다음날 리뷰 요청 자동 메시지 — 16:00 UTC = 다음날 01:00 KST
+# 이용일 다음날 리뷰 요청 자동 메시지 — 09:00 UTC = 18:00 KST
 [triggers]
-crons = ["0 16 * * *"]
+crons = ["0 9 * * *"]
 
 [[d1_databases]]
 binding = "DB"

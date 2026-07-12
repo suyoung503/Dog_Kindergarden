@@ -804,10 +804,14 @@ app.get("/api/users/:id/favorites", async (c) => {
 
 // MARK: - 리뷰 요청 자동 메시지 (이용일 다음날, Cron Trigger)
 
-// KST 기준 어제의 "월/일" — start_date("토 7/12 14:00")에 연도가 없어 월/일 문자열로 대조한다
-function kstYesterdayMonthDay(): string {
+// KST 기준 어제 — 신형 start_date("2026-07-12 (일) 14:00")는 연·월·일 정확 대조(iso),
+// 구형("토 7/12 14:00", 연도 없음)은 월/일 문자열 대조(monthDay)로 계속 처리한다
+function kstYesterday(): { iso: string; monthDay: string } {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000);
-  return `${kst.getUTCMonth() + 1}/${kst.getUTCDate()}`;
+  const month = kst.getUTCMonth() + 1;
+  const day = kst.getUTCDate();
+  const iso = `${kst.getUTCFullYear()}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { iso, monthDay: `${month}/${day}` };
 }
 
 type ReviewRequestTarget = {
@@ -818,7 +822,7 @@ type ReviewRequestTarget = {
 
 // 어제가 이용일이었던 확정(CONFIRMED) 예약의 채팅방에 리뷰 요청 자동 메시지를 1회 보낸다
 async function sendReviewRequests(db: D1Database): Promise<number> {
-  const monthDay = kstYesterdayMonthDay();
+  const { iso, monthDay } = kstYesterday();
   const { results } = await db
     .prepare(
       `
@@ -828,10 +832,10 @@ async function sendReviewRequests(db: D1Database): Promise<number> {
     JOIN chat_rooms c ON c.user_id = r.user_id AND c.store_id = r.store_id
     WHERE r.status = 'CONFIRMED'
       AND r.review_requested = 0
-      AND r.start_date LIKE ?
+      AND (r.start_date LIKE ? OR r.start_date LIKE ?)
   `,
     )
-    .bind(`% ${monthDay} %`)
+    .bind(`${iso}%`, `% ${monthDay} %`)
     .all<ReviewRequestTarget>();
 
   for (const target of results) {
@@ -857,7 +861,7 @@ async function sendReviewRequests(db: D1Database): Promise<number> {
   return results.length;
 }
 
-// 데모·테스트용 수동 트리거 — 실서비스에선 매일 KST 01시 Cron이 자동 실행
+// 데모·테스트용 수동 트리거 — 실서비스에선 매일 KST 18시 Cron이 자동 실행
 app.post("/api/internal/review-requests", async (c) => {
   const sent = await sendReviewRequests(c.env.DB);
   return c.json({ sent });

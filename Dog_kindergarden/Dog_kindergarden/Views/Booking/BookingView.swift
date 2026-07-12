@@ -9,7 +9,7 @@ private let dogBgColors: [Color] = [Color(hex: "#FFE6CC"), Color.brandGreenLight
 final class BookingViewModel {
     var selectedPetId: Int?
     var selectedService = "호텔 1박"
-    var selectedDate: String
+    var selectedDate = Date()
     var selectedTime = "14:00"
     var request = ""
 
@@ -23,19 +23,14 @@ final class BookingViewModel {
         ("호텔 1박",      "₩50,000"),
         ("장기 이용",     "₩40,000~"),
     ]
-    // 오늘부터 6일 — 하드코딩하면 지난 날짜가 되어 CalendarService.parseSchedule이 내년으로 해석한다
-    let dates: [String]
     let times = ["10:00","12:00","14:00","16:00","18:00","20:00"]
 
-    init() {
+    // "2026-07-12 (일)" — 예약 문자열(연도 포함, 서버·캘린더가 정확한 날짜로 해석)과 화면 표시에 공용
+    var dateLabel: String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "E M/d"
-        dates = (0..<6).compactMap { offset in
-            Calendar.current.date(byAdding: .day, value: offset, to: Date())
-                .map { formatter.string(from: $0) }
-        }
-        selectedDate = dates.first ?? ""
+        formatter.dateFormat = "yyyy-MM-dd (E)"
+        return formatter.string(from: selectedDate)
     }
 
     private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
@@ -82,7 +77,7 @@ final class BookingViewModel {
         isLoading = true
         defer { isLoading = false }
 
-        let schedule = "\(selectedDate) \(selectedTime)"
+        let schedule = "\(dateLabel) \(selectedTime)"
         let body: [String: Any] = [
             "user_id": userId,
             "pet_id": petId,
@@ -204,7 +199,7 @@ struct BookingView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(router.selectedStore)
                     .font(.system(size: 14, weight: .bold)).foregroundStyle(Color.brandBrown)
-                Text("\(vm.selectedDate) · \(vm.selectedService)")
+                Text("\(vm.dateLabel) · \(vm.selectedService)")
                     .font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
             }
             Spacer()
@@ -308,26 +303,11 @@ struct BookingView: View {
                     Text("날짜 선택")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(vm.dates, id: \.self) { d in
-                            let parts = d.split(separator: " ")
-                            Button(action: { vm.selectedDate = d }) {
-                                VStack(spacing: 2) {
-                                    Text(String(parts[0]))
-                                        .font(.system(size: 11, weight: .bold))
-                                    Text(String(parts[1]))
-                                        .font(.system(size: 10, weight: .medium))
-                                }
-                                .frame(width: 58)
-                                .padding(.vertical, 10)
-                                .background(vm.selectedDate == d ? Color.brandOrange : Color.brandCream)
-                                .foregroundStyle(vm.selectedDate == d ? .white : Color.brandBrown)
-                                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                            }
-                        }
-                    }
-                }
+                DatePicker("예약 날짜", selection: $vm.selectedDate, in: Date()..., displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "ko_KR"))
+                    .tint(Color.brandOrange)
                 Divider().foregroundStyle(Color.brandBeigeBorder)
                 Text("시간")
                     .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
