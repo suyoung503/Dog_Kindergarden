@@ -132,6 +132,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `2432891`(push 완료) — 홈 종 아이콘 안 읽은 채팅 빨간 점. 로컬에 사용자별 데이터 분리 전수 검증 커밋 대기
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. origin 최신 커밋 `db36468`(push 완료) — 사용자별 데이터 분리 전수 검증
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
