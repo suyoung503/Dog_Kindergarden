@@ -407,7 +407,8 @@ struct StoreDetailView: View {
         let name = storeName
         let key = storeKey
         Task {
-            let rid = await ChatService.lookup(userId: authSession.userId ?? 1, storeKey: key)
+            guard let uid = authSession.userId else { return }
+            let rid = await ChatService.lookup(userId: uid, storeKey: key)
             router.selectedChat = name
             router.selectedRoomId = rid
             router.chatRoomAsOwner = false

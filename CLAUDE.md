@@ -66,7 +66,7 @@ NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← 네이버 키는 아직 미발급 상
 
 `APIClient.shared`가 기본 REST 레이어. snake_case↔camelCase 변환은 JSONDecoder/Encoder 전략으로 자동 처리. baseURL은 UserDefaults `"API_BASE_URL"`로 덮어쓸 수 있다(기본값: 배포 Workers URL). 예외: 채팅은 `ChatService`(static enum)가 담당하며 snake_case DTO를 그대로 쓴다 — 같은 이름의 타입을 `APIClient`에 중복 정의하지 말 것.
 
-주의: 일부 호출에 `userId: 1` 하드코딩이 남아 있다. 카카오 로그인(`AuthSession.userId`)은 구현되어 있으므로, 새 API 호출을 추가할 때는 하드코딩 대신 `AuthSession`의 userId를 쓰는 방향으로 간다.
+userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같은 폴백 금지(2026-07-12 전수 제거: 미로그인 시 user 1 데이터로 섞이는 사고 방지). 서버도 user_id 누락 시 1로 귀속하지 않고 400을 반환한다. 로그인 시 `AuthSession`이 서버 프로필(연락처·주소)을 **무조건** 로컬 `UserProfile`에 덮어쓴다(비어 있으면 초기화) — 계정 전환 시 이전 계정 값 잔존 방지이므로 조건부 반영으로 되돌리지 말 것.
 
 ### 지도 데이터 흐름
 

@@ -64,7 +64,10 @@ struct ChatListView: View {
             }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await vm.load(userId: authSession.userId ?? 1, isOwner: authSession.isOwner) }
+        .task {
+            guard let uid = authSession.userId else { return }
+            await vm.load(userId: uid, isOwner: authSession.isOwner)
+        }
     }
 
     // MARK: - Nav

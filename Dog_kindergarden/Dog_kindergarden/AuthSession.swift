@@ -90,10 +90,8 @@ final class AuthSession {
                 profile: profile
             )
         } catch {
-            // 오프라인 폴백 (서버 연동 기능은 동작하지 않음)
-            userId = 1
-            nickname = "테스트"
-            isOwner = asOwner
+            // user 1 행세 폴백은 실계정 데이터 혼입 위험이 있어 제거 — 서버 없이는 로그인 불가로 처리
+            errorMessage = "개발자 로그인 실패 — 서버에 연결할 수 없어요."
         }
     }
 #endif
@@ -134,15 +132,12 @@ final class AuthSession {
             UserDefaults.standard.set(self.nickname, forKey: "auth_nickname")
             UserDefaults.standard.set(self.isOwner, forKey: "auth_is_owner")
 
-            // 서버에 저장된 프로필(닉네임·연락처·주소)을 로컬 UserProfile에도 반영
+            // 서버에 저장된 프로필(닉네임·연락처·주소)을 로컬 UserProfile에 반영.
+            // 무조건 덮어써야 계정 전환 시 이전 계정의 연락처·주소가 남지 않는다 (서버가 비어 있으면 초기화)
             if let profile {
                 profile.name = self.nickname
-                if let phone = json?["phone"] as? String, !phone.isEmpty {
-                    profile.phone = phone
-                }
-                if let address = json?["address"] as? String, !address.isEmpty {
-                    profile.address = address
-                }
+                profile.phone = (json?["phone"] as? String) ?? ""
+                profile.address = (json?["address"] as? String) ?? ""
             }
         }
     }
