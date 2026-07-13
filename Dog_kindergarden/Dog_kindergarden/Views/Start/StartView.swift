@@ -78,9 +78,12 @@ struct StartView: View {
                 .font(.system(size: 19, weight: .bold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Color.brandBrown)
-            Text("따뜻한 손길로 돌봐드릴게요 🐾")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.brandBrownMid)
+            HStack(spacing: 4) {
+                Text("따뜻한 손길로 돌봐드릴게요")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.brandBrownMid)
+                EmojiIcon(emoji: "🐾", size: 14)
+            }
         }
         .padding(.top, 12)
     }
