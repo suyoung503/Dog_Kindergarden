@@ -6,33 +6,39 @@ enum CalendarService {
     private static let store = EKEventStore()
     private static let mappingKey = "reservation_calendar_events"
 
-    // "2026-07-12 (일) 14:00" → Date. 연도가 포함된 형식이라 추정 없이 정확한 날짜로 해석
+    // "2026-07-12 (일) 14:00"(시간권) 또는 "2026-07-12 (일)"(종일권·숙박권, 시간 없음) → Date.
+    // 연도가 포함된 형식이라 추정 없이 정확한 날짜로 해석
     static func parseSchedule(_ raw: String) -> Date? {
         let parts = raw.split(separator: " ")
-        guard parts.count >= 3 else { return nil }
+        guard parts.count >= 2 else { return nil }
         let dateParts = parts[0].split(separator: "-")
-        let timeParts = parts[2].split(separator: ":")
-        guard dateParts.count == 3, timeParts.count == 2,
-              let year = Int(dateParts[0]), let month = Int(dateParts[1]), let day = Int(dateParts[2]),
-              let hour = Int(timeParts[0]), let minute = Int(timeParts[1]) else { return nil }
+        guard dateParts.count == 3,
+              let year = Int(dateParts[0]), let month = Int(dateParts[1]), let day = Int(dateParts[2]) else { return nil }
 
         var comps = DateComponents()
         comps.year = year
         comps.month = month
         comps.day = day
-        comps.hour = hour
-        comps.minute = minute
+        if parts.count >= 3 {
+            let timeParts = parts[2].split(separator: ":")
+            guard timeParts.count == 2,
+                  let hour = Int(timeParts[0]), let minute = Int(timeParts[1]) else { return nil }
+            comps.hour = hour
+            comps.minute = minute
+        }
         return Calendar.current.date(from: comps)
     }
 
     @discardableResult
-    static func addReservationEvent(reservationId: Int, title: String, notes: String?, date: Date) async -> Bool {
+    static func addReservationEvent(reservationId: Int, title: String, notes: String?, date: Date,
+                                    isAllDay: Bool = false, durationHours: Int = 1) async -> Bool {
         guard await requestAccess() else { return false }
         let event = EKEvent(eventStore: store)
         event.title = title
         event.notes = notes
         event.startDate = date
-        event.endDate = date.addingTimeInterval(60 * 60)
+        event.endDate = isAllDay ? date : date.addingTimeInterval(TimeInterval(durationHours) * 60 * 60)
+        event.isAllDay = isAllDay
         event.calendar = store.defaultCalendarForNewEvents
         guard (try? store.save(event, span: .thisEvent)) != nil else { return false }
         setEventIdentifier(event.eventIdentifier, for: reservationId)
