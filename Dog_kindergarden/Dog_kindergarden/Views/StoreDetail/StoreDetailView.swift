@@ -351,7 +351,7 @@ struct StoreDetailView: View {
     private var noticeSection: some View {
         sectionWrapper(title: "맡기기 전 체크리스트") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(["광견병 접종 증명서 필수","공격성이 있는 경우 사전 상담","사료는 직접 준비해주세요"], id: \.self) { t in
+                ForEach(["광견병 접종 증명서 필수","공격성이 있는 경우 사전 상담","사료는 직접 준비해주세요","정기권은 가게에 문의해주세요"], id: \.self) { t in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.circle")
                             .font(.system(size: 13))

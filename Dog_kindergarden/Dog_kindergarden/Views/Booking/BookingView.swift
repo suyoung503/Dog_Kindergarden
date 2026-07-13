@@ -8,22 +8,29 @@ private let dogBgColors: [Color] = [Color(hex: "#FFE6CC"), Color.brandGreenLight
 @MainActor
 final class BookingViewModel {
     var selectedPetId: Int?
-    var selectedService = "호텔 1박"
+    var selectedService = "시간권"
     var selectedDate = Date()
-    var selectedTime = "14:00"
+    // 시간권 시작 시간 — 자유 선택 (기본 14:00)
+    var startTime = Calendar.current.date(bySettingHour: 14, minute: 0, second: 0, of: Date()) ?? Date()
+    var hours = 1               // 시간권 이용 시간
     var request = ""
 
     var pets: [Pet] = []
     var isLoading = false
     var errorMessage: String?
 
+    // 시간권은 시간당 요금 × 이용 시간, 종일권·하루 숙박권은 날짜만 선택하는 정액제
     let services: [(name: String, price: String)] = [
-        ("유치원 반일권", "₩20,000"),
-        ("유치원 종일권", "₩35,000"),
-        ("호텔 1박",      "₩50,000"),
-        ("장기 이용",     "₩40,000~"),
+        ("시간권",      "₩5,000/시간"),
+        ("종일권",      "₩35,000"),
+        ("하루 숙박권", "₩50,000"),
     ]
-    let times = ["10:00","12:00","14:00","16:00","18:00","20:00"]
+    let hourlyRate = 5000
+    let hourOptions = Array(1...6)
+
+    var isHourly: Bool { selectedService == "시간권" }
+    // 화면 표시·서버 reservation_type 공용 — 시간권은 이용 시간 포함
+    var serviceLabel: String { isHourly ? "시간권 \(hours)시간" : selectedService }
 
     // "2026-07-12 (일)" — 예약 문자열(연도 포함, 서버·캘린더가 정확한 날짜로 해석)과 화면 표시에 공용
     var dateLabel: String {
@@ -31,6 +38,13 @@ final class BookingViewModel {
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "yyyy-MM-dd (E)"
         return formatter.string(from: selectedDate)
+    }
+
+    // "14:00" — 시간권 예약 문자열용 시작 시간
+    var timeLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: startTime)
     }
 
     private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
@@ -48,7 +62,9 @@ final class BookingViewModel {
     private func priceValue(_ s: String) -> Int {
         Int(s.filter { $0.isNumber }) ?? 0
     }
-    var selectedServicePrice: Int { priceValue(servicePrice(selectedService)) }
+    var selectedServicePrice: Int {
+        isHourly ? hourlyRate * hours : priceValue(servicePrice(selectedService))
+    }
     var totalPrice: Int { selectedServicePrice + pickupPrice }
 
     // 50000 → "₩50,000"
@@ -77,7 +93,8 @@ final class BookingViewModel {
         isLoading = true
         defer { isLoading = false }
 
-        let schedule = "\(dateLabel) \(selectedTime)"
+        // 시간권만 시간 포함, 종일권·숙박권은 날짜만 ("2026-07-12 (일)")
+        let schedule = isHourly ? "\(dateLabel) \(timeLabel)" : dateLabel
         let body: [String: Any] = [
             "user_id": userId,
             "pet_id": petId,
@@ -87,7 +104,7 @@ final class BookingViewModel {
             "store_type": storeType,
             "start_date": schedule,
             "end_date": schedule,
-            "reservation_type": selectedService,
+            "reservation_type": serviceLabel,
             "request_message": request,
         ]
 
@@ -139,8 +156,8 @@ struct BookingView: View {
                     summaryCard
                     dogSection
                     guardianSection
-                    dateTimeSection
                     serviceSection
+                    dateTimeSection
                     requestSection
                     totalSection
                 }
@@ -199,7 +216,7 @@ struct BookingView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(router.selectedStore)
                     .font(.system(size: 14, weight: .bold)).foregroundStyle(Color.brandBrown)
-                Text("\(vm.dateLabel) · \(vm.selectedService)")
+                Text("\(vm.dateLabel) · \(vm.serviceLabel)")
                     .font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
             }
             Spacer()
@@ -295,7 +312,7 @@ struct BookingView: View {
     // MARK: - Date / Time
 
     private var dateTimeSection: some View {
-        BookingSection(title: "📅 날짜 · 시간") {
+        BookingSection(title: vm.isHourly ? "📅 날짜 · 시간" : "📅 날짜") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "calendar")
@@ -308,19 +325,31 @@ struct BookingView: View {
                     .labelsHidden()
                     .environment(\.locale, Locale(identifier: "ko_KR"))
                     .tint(Color.brandOrange)
-                Divider().foregroundStyle(Color.brandBeigeBorder)
-                Text("시간")
-                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                    ForEach(vm.times, id: \.self) { t in
-                        Button(action: { vm.selectedTime = t }) {
-                            Text(t)
-                                .font(.system(size: 11, weight: .bold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(vm.selectedTime == t ? Color.brandBrown : Color.brandCream)
-                                .foregroundStyle(vm.selectedTime == t ? .white : Color.brandBrown)
-                                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                // 시간권만 시작 시간·이용 시간 선택 (종일권·숙박권은 날짜만)
+                if vm.isHourly {
+                    Divider().foregroundStyle(Color.brandBeigeBorder)
+                    HStack {
+                        Text("시작 시간")
+                            .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
+                        Spacer()
+                        DatePicker("시작 시간", selection: $vm.startTime, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .environment(\.locale, Locale(identifier: "ko_KR"))
+                            .tint(Color.brandOrange)
+                    }
+                    Text("이용 시간 (시간당 ₩5,000)")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                        ForEach(vm.hourOptions, id: \.self) { h in
+                            Button(action: { vm.hours = h }) {
+                                Text("\(h)시간")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(vm.hours == h ? Color.brandBrown : Color.brandCream)
+                                    .foregroundStyle(vm.hours == h ? .white : Color.brandBrown)
+                                    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                            }
                         }
                     }
                 }
@@ -389,7 +418,7 @@ struct BookingView: View {
     private var totalSection: some View {
         VStack(spacing: 4) {
             HStack {
-                Text(vm.selectedService).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
+                Text(vm.serviceLabel).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
                 Spacer()
                 Text(vm.won(vm.selectedServicePrice)).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
             }
@@ -466,11 +495,14 @@ struct BookingView: View {
                 // 예약 요청과 동시에 내 기기 캘린더에 일정 추가
                 // (취소 시 삭제: 내가 취소하면 즉시, 사장님이 취소하면 예약 내역 열 때 동기화)
                 if let date = CalendarService.parseSchedule(result.schedule) {
+                    // 종일권·숙박권은 시간이 없으므로 종일 일정, 시간권은 이용 시간만큼
                     let saved = await CalendarService.addReservationEvent(
                         reservationId: result.reservationId,
                         title: "\(result.storeName) 예약",
                         notes: result.dogName.isEmpty ? nil : "\(result.dogName) 맡김",
-                        date: date
+                        date: date,
+                        isAllDay: !vm.isHourly,
+                        durationHours: vm.hours
                     )
                     // 권한 거부 상태면 시스템 알림이 다시 뜨지 않으므로 설정 이동을 직접 안내
                     if !saved && CalendarService.isAccessDenied {
