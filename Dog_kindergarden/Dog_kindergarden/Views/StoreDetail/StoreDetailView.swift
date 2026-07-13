@@ -412,6 +412,7 @@ struct StoreDetailView: View {
             router.selectedChat = name
             router.selectedRoomId = rid
             router.chatRoomAsOwner = false
+            router.chatRoomAvatar = (pin?.type == "호텔") ? "🏨" : "🏠"
             router.go(.chatRoom)
         }
     }

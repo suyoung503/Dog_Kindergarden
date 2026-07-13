@@ -31,11 +31,6 @@ struct ChatListView: View {
     @Environment(AuthSession.self) private var authSession
     @State private var vm = ChatListViewModel()
 
-    private let tileColors: [Color] = [
-        Color(hex: "#FFE6CC"), .brandGreenLight, .brandBlueLight, Color(hex: "#FFF1A8"),
-    ]
-    private let tileEmojis = ["🐶", "🐕", "🏨", "🦴"]
-
     var body: some View {
         VStack(spacing: 0) {
             navBar
@@ -54,8 +49,8 @@ struct ChatListView: View {
                                 sectionHeader("내 채팅")
                             }
                         }
-                        ForEach(Array(vm.rooms.enumerated()), id: \.element.room_id) { index, room in
-                            chatRow(room, index: index)
+                        ForEach(vm.rooms) { room in
+                            chatRow(room)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -122,10 +117,13 @@ struct ChatListView: View {
 
     // 받은 문의 행 — 손님 닉네임 + 가게명. 탭하면 같은 ChatRoomView에서 답장
     private func receivedRow(_ room: OwnerChatRoomSummary) -> some View {
-        Button(action: {
+        // 보호자 프로필 — 강아지 아바타(dog_b/dog_c)를 방마다 고정 순환
+        let avatar = "img:\(dogAvatarName(room.room_id))"
+        return Button(action: {
             router.selectedChat = room.customer_name ?? "보호자"
             router.selectedRoomId = room.room_id
             router.chatRoomAsOwner = true
+            router.chatRoomAvatar = avatar
             router.go(.chatRoom)
         }) {
             HStack(spacing: 12) {
@@ -133,7 +131,7 @@ struct ChatListView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .fill(Color(hex: "#FFD9A8"))
                         .frame(width: 48, height: 48)
-                    EmojiIcon(emoji: "🙋", size: 22)
+                    EmojiIcon(emoji: avatar, size: 28)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
@@ -165,19 +163,23 @@ struct ChatListView: View {
 
     // MARK: - Row
 
-    private func chatRow(_ room: ChatRoomSummary, index: Int) -> some View {
-        Button(action: {
+    private func chatRow(_ room: ChatRoomSummary) -> some View {
+        // 가게 프로필 — 타입별 호텔/유치원 아이콘
+        let isHotel = (room.store_type ?? "") == "호텔"
+        let avatar = isHotel ? "🏨" : "🏠"
+        return Button(action: {
             router.selectedChat = room.store_name ?? "채팅"
             router.selectedRoomId = room.room_id
             router.chatRoomAsOwner = false
+            router.chatRoomAvatar = avatar
             router.go(.chatRoom)
         }) {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(tileColors[index % tileColors.count])
+                        .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
                         .frame(width: 48, height: 48)
-                    EmojiIcon(emoji: tileEmojis[index % tileEmojis.count], size: 22)
+                    EmojiIcon(emoji: avatar, size: 26)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {

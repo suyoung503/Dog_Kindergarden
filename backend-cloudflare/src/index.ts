@@ -558,7 +558,7 @@ app.get("/api/users/:id/chatrooms", async (c) => {
   const userId = Number(c.req.param("id"));
   const { results } = await c.env.DB.prepare(
     `
-    SELECT r.room_id, r.store_id, s.name AS store_name,
+    SELECT r.room_id, r.store_id, s.name AS store_name, s.store_type,
            m.content AS last_message, m.created_at AS last_time
     FROM chat_rooms r
     LEFT JOIN stores s ON s.store_id = r.store_id
