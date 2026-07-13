@@ -15,7 +15,7 @@ extension String {
         case "🐶": return "dog_b"          // 기본 강아지
         case "🐕": return "dog_c"          // 강아지(다른 종)
         case "🦴": return "emoji_bone"
-        case "🏠": return "icon_kindergarten"  // house → 유치원 아이콘
+        case "🏠": return "kindergarden"    // house → 유치원 아이콘
         case "🏨": return "emoji_hotel"     // 호텔
         case "✂️", "✂": return "emoji_scissors"
         case "🐾": return "icon_paw"        // 발바닥

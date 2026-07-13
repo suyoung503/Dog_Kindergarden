@@ -18,6 +18,7 @@ struct ChatRoomSummary: Decodable, Identifiable {
     let room_id: Int
     let store_id: Int?
     let store_name: String?
+    let store_type: String?
     let last_message: String?
     let last_time: String?
 

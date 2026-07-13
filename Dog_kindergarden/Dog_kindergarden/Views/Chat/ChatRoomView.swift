@@ -161,7 +161,7 @@ struct ChatRoomView: View {
             }
             ZStack {
                 Circle().fill(Color(hex: "#FFE6CC")).frame(width: 36, height: 36)
-                EmojiIcon(emoji: "🐶", size: 18)
+                EmojiIcon(emoji: router.chatRoomAvatar, size: 20)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(router.selectedChat)
@@ -214,7 +214,7 @@ struct ChatRoomView: View {
             if msg.from == .store {
                 ZStack {
                     Circle().fill(Color(hex: "#FFE6CC")).frame(width: 28, height: 28)
-                    EmojiIcon(emoji: "🐶", size: 14)
+                    EmojiIcon(emoji: router.chatRoomAvatar, size: 16)
                 }
                 Text(msg.text)
                     .font(.system(size: 13))
