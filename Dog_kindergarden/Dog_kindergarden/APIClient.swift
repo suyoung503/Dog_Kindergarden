@@ -187,11 +187,20 @@ struct ReservationCancelRequest: Encodable {
     let byOwner: Bool
 }
 
-struct PendingReservation: Decodable {
+struct PendingReservation: Decodable, Identifiable {
+    var id: Int { reservationId ?? 0 }
     let reservationId: Int?
     let storeName: String?
     let storeType: String?
     let petName: String?
+    let petBreed: String?
+    let petAge: Int?
+    let petWeight: Double?
+    let petGender: String?
+    let petNote: String?
+    let userName: String?
+    let userPhone: String?
+    let userAddress: String?
     let startDate: String?
     let reservationType: String?
     let requestMessage: String?

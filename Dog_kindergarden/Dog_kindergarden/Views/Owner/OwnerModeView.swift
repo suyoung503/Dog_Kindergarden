@@ -9,6 +9,7 @@ struct OwnerModeView: View {
     @State private var isLoading = true
     @State private var confirmingId: Int?
     @State private var pendingCancel: PendingReservation?
+    @State private var selectedDetail: PendingReservation?   // 카드 탭 → 상세 시트
 
     var body: some View {
         ScrollView {
@@ -40,6 +41,9 @@ struct OwnerModeView: View {
             }
         } message: {
             Text("\(pendingCancel?.petName ?? "강아지") 보호자에게 '예약 취소됨'으로 표시됩니다.")
+        }
+        .sheet(item: $selectedDetail) { reservation in
+            PendingDetailSheet(reservation: reservation)
         }
     }
 
@@ -96,7 +100,14 @@ struct OwnerModeView: View {
                     Text(reservation.storeName ?? "가게 정보 없음")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color.brandBrown)
-                    Text("\(reservation.petName ?? "강아지") · \(reservation.startDate ?? "")")
+                    // 강아지·예약자를 라벨로 구별해 두 줄로 표시
+                    Text("강아지 : \(reservation.petName ?? "미상")")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.brandBrown)
+                    Text("예약자 : \(reservation.userName ?? "미상")")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.brandBrown)
+                    Text(reservation.startDate ?? "")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.brandBrownMid)
                     if let type = reservation.reservationType, !type.isEmpty {
@@ -142,6 +153,9 @@ struct OwnerModeView: View {
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        // 카드 탭 → 상세 시트 (취소/확정 버튼 터치는 버튼이 우선 처리)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedDetail = reservation }
     }
 
     // MARK: - Actions
@@ -180,6 +194,68 @@ struct OwnerModeView: View {
                 return
             }
             reservations.removeAll { $0.reservationId == rid }
+        }
+    }
+}
+
+// MARK: - 상세 시트
+
+// 카드 탭 시 화면 이동 없이 뜨는 예약 요청 상세 — 강아지·손님·예약 정보
+private struct PendingDetailSheet: View {
+    let reservation: PendingReservation
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("예약 요청 상세")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Color.brandBrown)
+                section("강아지 정보") {
+                    infoRow("이름",   reservation.petName ?? "미상")
+                    infoRow("견종",   reservation.petBreed ?? "미상")
+                    infoRow("나이",   reservation.petAge.map { "\($0)살" } ?? "미상")
+                    infoRow("몸무게", reservation.petWeight.map { "\($0)kg" } ?? "미상")
+                    infoRow("성별",   reservation.petGender ?? "미상")
+                    infoRow("메모",   (reservation.petNote?.isEmpty == false ? reservation.petNote! : "없음"))
+                }
+                section("예약자 정보") {
+                    infoRow("이름",   reservation.userName ?? "미상")
+                    infoRow("연락처", (reservation.userPhone?.isEmpty == false ? reservation.userPhone! : "미상"))
+                    infoRow("주소",   (reservation.userAddress?.isEmpty == false ? reservation.userAddress! : "미상"))
+                }
+                section("예약 정보") {
+                    infoRow("가게",     reservation.storeName ?? "미상")
+                    infoRow("일정",     reservation.startDate ?? "미상")
+                    infoRow("유형",     reservation.reservationType ?? "미상")
+                    infoRow("요청사항", (reservation.requestMessage?.isEmpty == false ? reservation.requestMessage! : "없음"))
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.brandCream)
+        .presentationDetents([.medium, .large])
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            EmojiTitle(title: title)
+            VStack(spacing: 6) { content() }
+                .padding(12)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        }
+    }
+
+    private func infoRow(_ k: String, _ v: String) -> some View {
+        HStack(alignment: .top) {
+            Text(k).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
+            Spacer()
+            Text(v)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: "#7a5635"))
+                .multilineTextAlignment(.trailing)
         }
     }
 }

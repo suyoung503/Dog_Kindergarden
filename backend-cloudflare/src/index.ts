@@ -432,11 +432,14 @@ app.get("/api/owners/:id/reservations/pending", async (c) => {
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
            COALESCE(r.store_name, s.name) AS store_name, s.store_type,
-           p.name AS pet_name,
+           p.name AS pet_name, p.breed AS pet_breed, p.age AS pet_age,
+           p.weight AS pet_weight, p.gender AS pet_gender, p.note AS pet_note,
+           u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
     JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
     LEFT JOIN pets p ON p.pet_id = r.pet_id
+    LEFT JOIN users u ON u.user_id = r.user_id
     WHERE r.status = 'REQUEST'
     ORDER BY r.reservation_id DESC
   `,
