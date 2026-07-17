@@ -10,7 +10,7 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var showFAB = false
     @State private var hasUnreadChats = false    // 종 아이콘 빨간 점 — 안 읽은 채팅 존재 여부
-    @State private var activeFilter: ReviewTag? = nil    // 리뷰 태그 필터
+    @State private var activeFilters: Set<ReviewTag> = []    // 리뷰 태그 필터 (다중 선택, AND)
     @State private var activeType: String? = nil         // "호텔" | "유치원" 필터
     // 현재 지도에 보이는 범위 — 카메라 이동/줌이 멈출 때 갱신
     @State private var mapBounds: MapBounds? = nil
@@ -33,8 +33,12 @@ struct HomeView: View {
         if !q.isEmpty {
             result = result.filter { $0.name.contains(q) || $0.address.contains(q) }
         }
-        if let f = activeFilter {
-            result = result.filter { tagStore.tagsByKey[$0.storeKey]?.has(f) == true }
+        if !activeFilters.isEmpty {
+            // 선택한 태그를 모두 만족하는 가게만 (AND)
+            result = result.filter { pin in
+                guard let tags = tagStore.tagsByKey[pin.storeKey] else { return false }
+                return activeFilters.allSatisfy { tags.has($0) }
+            }
         }
         guard let b = mapBounds else {
             // 초기(카메라 정착 전): 수도권만 폴백 표시
@@ -222,24 +226,54 @@ struct HomeView: View {
         .padding(.horizontal, 20)
     }
 
-    // 보호자 리뷰 태그로 가게 필터
+    // 보호자 리뷰 태그로 가게 필터 (다중 선택, AND 조건)
     private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                // 필터임을 알리는 리드 아이콘 (활성 시 주황)
+                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(activeFilters.isEmpty ? Color.brandBrownLight : Color.brandOrange)
+                    .padding(.trailing, 1)
+
                 ForEach(ReviewTag.allCases) { tag in
-                    let on = activeFilter == tag
-                    Button(action: { activeFilter = on ? nil : tag }) {
-                        Text(tag.label)
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(on ? .white : Color.brandBrown)
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(on ? Color.brandOrange : .white)
-                            .clipShape(Capsule())
-                            .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
+                    let on = activeFilters.contains(tag)
+                    Button(action: { toggleFilter(tag) }) {
+                        HStack(spacing: 3) {
+                            if on {
+                                Image(systemName: "checkmark").font(.system(size: 9, weight: .black))
+                            }
+                            Text(tag.label).font(.system(size: 12, weight: .bold))
+                        }
+                        .foregroundStyle(on ? .white : Color.brandBrown)
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(on ? Color.brandOrange : .white)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
+                    }
+                }
+
+                // 활성 필터 전체 해제
+                if !activeFilters.isEmpty {
+                    Button(action: { activeFilters.removeAll() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .black))
+                            Text("초기화").font(.system(size: 12, weight: .bold))
+                        }
+                        .foregroundStyle(Color.brandBrownMid)
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
                     }
                 }
             }
         }
+    }
+
+    private func toggleFilter(_ tag: ReviewTag) {
+        if activeFilters.contains(tag) { activeFilters.remove(tag) }
+        else { activeFilters.insert(tag) }
     }
 
     // MARK: - Recent
