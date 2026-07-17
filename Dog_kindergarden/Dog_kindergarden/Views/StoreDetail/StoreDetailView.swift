@@ -9,7 +9,7 @@ struct StoreDetailView: View {
     @State private var reviewService = ReviewService()
     @State private var blogService = NaverBlogService()
     @State private var showWriteSheet = false
-    @State private var kakaoPlace: KakaoPlace? = nil   // 카카오로 보강한 전체 주소·전화
+    @State private var kakaoPlace: KakaoPlace? = nil   // 네이버·카카오로 보강한 전체 주소·전화
     @State private var favoriteStoreId: Int? = nil     // nil이 아니면 찜한 가게 (해제용 store_id)
     @State private var isMyStore = false                // 사장님 계정: 이 가게가 내 가게로 등록됨
 
@@ -58,16 +58,17 @@ struct StoreDetailView: View {
             isMyStore = mine.contains { ($0.storeKey ?? "") == storeKey }
         }
         .task(id: storeKey) {
-            // 마스킹된 주소(***) 보강: 카카오 키워드 → 네이버 지역 검색 → 좌표→주소 변환 순
+            // 마스킹된 주소(***) 보강 — 주소는 네이버 우선(층·건물까지 상세), 전화·링크는 카카오로 보강
+            // 네이버·카카오 모두 없으면 좌표→주소 변환(지번)으로 폴백
             guard let p = pin else { return }
-            if let k = await KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude) {
+            let region = p.address.split(separator: " ").prefix(2).joined(separator: " ")
+            async let naverLookup = NaverLocalService.lookup(name: p.name, region: region, lat: p.latitude, lon: p.longitude)
+            async let kakaoLookup = KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude)
+            let (n, k) = await (naverLookup, kakaoLookup)
+            if let n {
+                kakaoPlace = KakaoPlace(roadAddress: n.roadAddress, address: n.address, phone: k?.phone ?? "", placeURL: k?.placeURL ?? "")
+            } else if let k {
                 kakaoPlace = k
-            } else if let n = await NaverLocalService.lookup(
-                name: p.name,
-                region: p.address.split(separator: " ").prefix(2).joined(separator: " "),
-                lat: p.latitude, lon: p.longitude
-            ) {
-                kakaoPlace = KakaoPlace(roadAddress: n.roadAddress, address: n.address, phone: "", placeURL: "")
             } else {
                 kakaoPlace = await KakaoLocalService.coordAddress(lat: p.latitude, lon: p.longitude)
             }
