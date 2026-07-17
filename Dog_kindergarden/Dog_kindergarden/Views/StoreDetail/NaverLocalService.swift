@@ -39,10 +39,28 @@ enum NaverLocalService {
 
         let query = region.isEmpty ? name : "\(region) \(name)"
         if let place = await search(query: query, lat: lat, lon: lon, id: id, secret: secret) {
-            return place
+            return cleaned(place, name: name)
         }
         guard !region.isEmpty else { return nil }
-        return await search(query: name, lat: lat, lon: lon, id: id, secret: secret)
+        return (await search(query: name, lat: lat, lon: lon, id: id, secret: secret))
+            .map { cleaned($0, name: name) }
+    }
+
+    /// 네이버 주소 끝에 붙는 상호명 꼬리표 제거 ("백마로 487 멍스테이" → "백마로 487")
+    private static func cleaned(_ place: NaverPlace, name: String) -> NaverPlace {
+        NaverPlace(
+            roadAddress: stripTrailingName(place.roadAddress, name: name),
+            address: stripTrailingName(place.address, name: name)
+        )
+    }
+
+    private static func stripTrailingName(_ address: String, name: String) -> String {
+        let compactName = name.replacingOccurrences(of: " ", with: "")
+        var tokens = address.split(separator: " ").map(String.init)
+        while tokens.count > 1, let last = tokens.last, last.count >= 2, compactName.contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
     }
 
     private static func search(query: String, lat: Double, lon: Double, id: String, secret: String) async -> NaverPlace? {
