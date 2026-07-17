@@ -16,6 +16,16 @@ enum AppScreen {
     case favorites
     case reservationList
     case ownerMode
+    case ownerDiaryList
+    case diary
+}
+
+// 알림장 화면 전달 컨텍스트 — 어느 예약의 알림장인지 + 작성 권한(사장님) 여부
+struct DiaryContext {
+    let reservationId: Int
+    let petName: String
+    let storeName: String
+    let canWrite: Bool
 }
 
 enum UserRole {
@@ -48,6 +58,7 @@ final class AppRouter {
     var recentPins: [MapPin] = []                  // 최근 본 가게 — 계정별 UserDefaults 영속, 최대 6개
     private var activeUserId: Int? = nil           // recentPins 저장 키에 쓰는 현재 계정
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
+    var diaryContext: DiaryContext? = nil          // 알림장 화면 진입 컨텍스트 (예약·작성 권한)
 
     // 프로필 미설정 시 사용할 사용자 강아지 아바타 (dog_c 고정)
     let userDogAvatar: String = "dog_c"
@@ -72,6 +83,7 @@ final class AppRouter {
         chatRoomAsOwner = false
         recentPins = []
         lastBooking = nil
+        diaryContext = nil
     }
 
     // MARK: - 최근 본 가게 (계정별 영속)

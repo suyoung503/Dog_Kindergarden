@@ -90,7 +90,7 @@ struct ChatListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("💬").font(.system(size: 40))
+            EmojiIcon(emoji: "💬", size: 40)
             Text("아직 채팅방이 없어요")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color.brandBrown)

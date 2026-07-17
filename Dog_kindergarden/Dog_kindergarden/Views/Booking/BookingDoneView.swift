@@ -22,7 +22,7 @@ struct BookingDoneView: View {
                     .foregroundStyle(Color.brandBrown)
                     .padding(.top, 28)
 
-                Text("\(booking?.storeName ?? "가게")에서 예약을 확인하고\n곧 연락드릴게요 🐾")
+                Text("\(booking?.storeName ?? "가게")에서 예약을 확인하고\n곧 연락드릴게요")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.brandBrownMid)
                     .multilineTextAlignment(.center)

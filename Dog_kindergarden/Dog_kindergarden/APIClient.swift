@@ -62,6 +62,34 @@ final class APIClient {
         let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/confirm", method: "PATCH")
     }
 
+    // MARK: - 알림장(diary)
+
+    // 사장님 '맡은 아이들' — 내 가게로 온 확정(CONFIRMED) 예약
+    func fetchConfirmedReservations(ownerId: Int) async throws -> [PendingReservation] {
+        try await request(path: "/owners/\(ownerId)/reservations/confirmed", method: "GET")
+    }
+
+    func fetchDiaries(reservationId: Int) async throws -> [DiaryEntry] {
+        try await request(path: "/reservations/\(reservationId)/diaries", method: "GET")
+    }
+
+    // 엔트리 생성 — 서버가 보호자 채팅방에 새 알림장 도착 자동 메시지를 남긴다
+    @discardableResult
+    func createDiary(reservationId: Int, content: String) async throws -> DiaryEntry {
+        try await request(path: "/reservations/\(reservationId)/diaries", method: "POST", body: DiaryContentRequest(content: content))
+    }
+
+    // 엔트리 수정 — 자동 메시지 없음
+    @discardableResult
+    func updateDiary(diaryId: Int, content: String) async throws -> DiaryEntry {
+        try await request(path: "/diaries/\(diaryId)", method: "PATCH", body: DiaryContentRequest(content: content))
+    }
+
+    // 엔트리 삭제 — 자동 메시지 없음
+    func deleteDiary(diaryId: Int) async throws {
+        let _: ReservationCancelResponse = try await request(path: "/diaries/\(diaryId)", method: "DELETE")
+    }
+
     @discardableResult
     func updateUser(userId: Int, nickname: String, phone: String, address: String) async throws -> UserResponse {
         let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address)
@@ -172,6 +200,7 @@ struct ReservationSummary: Decodable {
     let storeId: Int?
     let storeName: String?
     let storeType: String?
+    let petName: String?
     let startDate: String?
     let endDate: String?
     let reservationType: String?
@@ -204,6 +233,25 @@ struct PendingReservation: Decodable, Identifiable {
     let startDate: String?
     let reservationType: String?
     let requestMessage: String?
+}
+
+// 알림장 엔트리 — 사진(photos)은 R2 활성화 전까지 항상 빈 배열
+struct DiaryPhoto: Decodable, Identifiable {
+    var id: Int { photoId ?? 0 }
+    let photoId: Int?
+    let url: String?
+}
+
+struct DiaryEntry: Decodable, Identifiable {
+    var id: Int { diaryId ?? 0 }
+    let diaryId: Int?
+    let content: String?
+    let createdAt: String?
+    let photos: [DiaryPhoto]?
+}
+
+struct DiaryContentRequest: Encodable {
+    let content: String
 }
 
 struct StoreClaimRequest: Encodable {

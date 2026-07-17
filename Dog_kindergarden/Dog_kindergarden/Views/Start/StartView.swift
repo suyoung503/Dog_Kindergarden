@@ -154,7 +154,7 @@ struct StartView: View {
 
     private var footerText: some View {
         VStack(spacing: 8) {
-            Text("처음이라면 자동으로 회원가입 돼요 · 3초면 시작 🐾\n시작 시 이용약관 및 개인정보처리방침에 동의합니다")
+            Text("처음이라면 자동으로 회원가입 돼요 · 3초면 시작\n시작 시 이용약관 및 개인정보처리방침에 동의합니다")
                 .font(.system(size: 10))
                 .foregroundStyle(Color.brandBrownMid)
                 .multilineTextAlignment(.center)

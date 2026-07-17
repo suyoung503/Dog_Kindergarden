@@ -59,10 +59,10 @@ enum ReviewTag: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .cctv: return "📹 CCTV"
-        case .pickup: return "🚗 픽업"
-        case .largeDog: return "🐕 대형견"
-        case .separationCare: return "💛 분리불안 케어"
+        case .cctv: return "CCTV"
+        case .pickup: return "픽업"
+        case .largeDog: return "대형견"
+        case .separationCare: return "분리불안 케어"
         }
     }
 }

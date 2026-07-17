@@ -48,15 +48,15 @@ struct ReviewWriteSheet: View {
 
                     // 펫 특화 체크박스
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("우리 아이 기준 체크 🐾")
+                        Text("우리 아이 기준 체크")
                             .font(.system(size: 14, weight: .bold)).foregroundStyle(Color.brandBrown)
                         Text("다음 보호자에게 그대로 필터가 됩니다")
                             .font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
-                        checkRow("📹 CCTV 실시간 확인됐어요", $draft.cctv)
-                        checkRow("🚗 픽업/드랍 가능했어요", $draft.pickup)
-                        checkRow("🐕 대형견도 받아줬어요", $draft.largeDog)
-                        checkRow("💛 분리불안 케어 잘해줬어요", $draft.separationCare)
-                        checkRow("🔁 또 맡기고 싶어요 (재방문)", $draft.revisit)
+                        checkRow("CCTV 실시간 확인됐어요", $draft.cctv)
+                        checkRow("픽업/드랍 가능했어요", $draft.pickup)
+                        checkRow("대형견도 받아줬어요", $draft.largeDog)
+                        checkRow("분리불안 케어 잘해줬어요", $draft.separationCare)
+                        checkRow("또 맡기고 싶어요 (재방문)", $draft.revisit)
                     }
 
                     // 자유 텍스트

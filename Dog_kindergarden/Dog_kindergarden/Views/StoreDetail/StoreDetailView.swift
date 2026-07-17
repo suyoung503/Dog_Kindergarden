@@ -95,7 +95,7 @@ struct StoreDetailView: View {
                     }
                     FlowTags(tags: confirmedTags(s))
                 } else {
-                    Text("아직 리뷰가 없어요. 첫 보호자가 되어주세요 🐶")
+                    Text("아직 리뷰가 없어요. 첫 보호자가 되어주세요")
                         .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
                 }
 
@@ -123,10 +123,10 @@ struct StoreDetailView: View {
     private func confirmedTags(_ s: ReviewSummary) -> [String] {
         let half = max(1, s.count / 2)
         var tags: [String] = []
-        if (s.cctv ?? 0) >= half { tags.append("📹 CCTV") }
-        if (s.pickup ?? 0) >= half { tags.append("🚗 픽업") }
-        if (s.large_dog ?? 0) >= half { tags.append("🐕 대형견 OK") }
-        if (s.separation_care ?? 0) >= half { tags.append("💛 분리불안 케어") }
+        if (s.cctv ?? 0) >= half { tags.append("CCTV") }
+        if (s.pickup ?? 0) >= half { tags.append("픽업") }
+        if (s.large_dog ?? 0) >= half { tags.append("대형견 OK") }
+        if (s.separation_care ?? 0) >= half { tags.append("분리불안 케어") }
         return tags
     }
 
@@ -300,7 +300,7 @@ struct StoreDetailView: View {
     // MARK: - 블로그 후기 (네이버)
 
     private var blogSection: some View {
-        sectionWrapper(title: "📝 블로그 후기") {
+        sectionWrapper(title: "블로그 후기") {
             VStack(alignment: .leading, spacing: 8) {
                 if blogService.posts.isEmpty {
                     Text(blogService.isLoading ? "블로그 후기를 찾는 중…" : "관련 블로그 글을 찾지 못했어요.")
@@ -374,8 +374,7 @@ struct StoreDetailView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             Button(action: openChat) {
-                Text("💬")
-                    .font(.system(size: 18))
+                EmojiIcon(emoji: "💬", size: 22)
                     .frame(width: 52, height: 52)
                     .background(.white)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
