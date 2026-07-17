@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 // 네이버 블로그 검색 — 가게 이름으로 실제 방문 후기 블로그 글을 가져옴
-// 키: Info.plist의 NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (네이버 개발자센터 검색 API)
+// NCP NAVER API HUB 경유 (구 개발자센터 검색 API는 신규 등록 중단 → API HUB로 이관)
+// 키: Info.plist의 NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (지역 검색과 같은 Application)
 
 struct BlogPost: Identifiable {
     let id = UUID()
@@ -45,7 +46,7 @@ final class NaverBlogService {
         defer { isLoading = false }
 
         let query = region.isEmpty ? storeName : "\(region) \(storeName)"
-        var comps = URLComponents(string: "https://openapi.naver.com/v1/search/blog.json")!
+        var comps = URLComponents(string: "https://naverapihub.apigw.ntruss.com/search/v1/blog")!
         comps.queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "display", value: "5"),
@@ -54,8 +55,8 @@ final class NaverBlogService {
         guard let url = comps.url else { return }
 
         var req = URLRequest(url: url)
-        req.setValue(id, forHTTPHeaderField: "X-Naver-Client-Id")
-        req.setValue(secret, forHTTPHeaderField: "X-Naver-Client-Secret")
+        req.setValue(id, forHTTPHeaderField: "X-NCP-APIGW-API-KEY-ID")
+        req.setValue(secret, forHTTPHeaderField: "X-NCP-APIGW-API-KEY")
 
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
