@@ -38,9 +38,9 @@ NAVER_CLIENT_SECRET = 네이버_클라이언트_시크릿
 |---|---|---|
 | `KAKAO_NATIVE_APP_KEY`, `KAKAO_REST_API_KEY` | [Kakao Developers](https://developers.kakao.com) | 지도, 카카오 로그인, 주소 검색 |
 | `DATA_GO_KR_SERVICE_KEY` | [공공데이터포털](https://www.data.go.kr) — "동물위탁관리업" 검색 | 전국 애견 유치원·호텔 업체 데이터 |
-| `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | [Naver Developers](https://developers.naver.com) — 검색 API 중 블로그 사용 설정 | 가게 상세의 블로그 후기 |
+| `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | [NCP NAVER API HUB](https://console.ncloud.com) — 검색(지역·블로그) API 이용 신청 ※ 구 developers.naver.com 검색 API는 신규 제휴 중단 | 가게 상세의 블로그 후기 + 주소 정밀 보강(지역 검색) |
 
-> 네이버 키가 없어도 앱은 정상 빌드·실행됩니다 — 블로그 후기 섹션만 비어 있습니다.
+> 네이버 키가 없어도 앱은 정상 빌드·실행됩니다 — 블로그 후기 섹션이 비고, 주소는 카카오·좌표 변환 폴백으로 표시됩니다.
 
 ### 3. 빌드·실행
 

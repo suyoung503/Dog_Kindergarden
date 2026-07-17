@@ -1,8 +1,8 @@
 # Deployment Readiness Report
 
-**Last checked:** 2026-07-13 (KST)
+**Last checked:** 2026-07-13 (KST) · 부분 갱신 2026-07-17 (하단 추가 점검 기록 참고)
 **감지된 스택:** iOS (Swift / SwiftUI, CocoaPods) + Cloudflare Workers (TypeScript/Hono) + D1 (SQLite)
-**전체 판정:** ⚠️ Conditional — 포트폴리오 데모 배포 기준 하드 블로커 없음. `hono` high 취약점 업그레이드 권장. **App Store 실출시 기준으로는 API 무인증이 블로커.**
+**전체 판정:** ⚠️ Conditional — 포트폴리오 데모 배포 기준 하드 블로커 없음. npm audit 취약점은 2026-07-13, NAVER 키 미발급은 2026-07-17 해소. **App Store 실출시 기준으로는 API 무인증이 블로커.**
 
 ---
 
@@ -22,7 +22,7 @@
 - **구 노출 키 이력** — 저장소를 삭제 후 재생성해 이력이 초기화됨 (최초 커밋 `bf59e7a`, 2026-07-07). 전체 이력 pickaxe 검색(`git log --all -S`)에서 하드코딩 키 흔적 0건 확인 → 재발급 불필요
 
 ### 🆕 New issues found
-- **npm audit: high 5 / low 1** — 런타임 의존성 `hono@^4.6.10`(≤4.12.24 취약, CORS 와일드카드 반사 등) + wrangler 개발 체인(undici·ws·esbuild·miniflare). `npm audit fix`로 해결 가능하나 로컬 `node_modules`가 root 소유라 쓰기 명령이 실패할 수 있음 — 소유권 정리 또는 재설치 필요
+- **npm audit: high 5 / low 1** — 런타임 의존성 `hono@^4.6.10`(≤4.12.24 취약, CORS 와일드카드 반사 등) + wrangler 개발 체인(undici·ws·esbuild·miniflare). `npm audit fix`로 해결 가능하나 로컬 `node_modules`가 root 소유라 쓰기 명령이 실패할 수 있음 — 소유권 정리 또는 재설치 필요 → **당일 해소** (하단 2026-07-13 기록)
 - **API 무인증 = 실출시 블로커** — 2026-07-12 사용자별 데이터 분리 검증에서 공식 기록 (아래 추가 점검 기록 참고). 데모 배포에는 블로커 아님
 
 ### ⏳ Still open from last check
@@ -33,7 +33,7 @@
 
 ## Summary
 
-6/21 시점의 하드 블로커(공공 API 키 하드코딩)와 경고 8건 중 7건이 해결됐습니다. 시크릿은 전부 git 제외된 `Create.xcconfig` → Info.plist 주입 구조로 정리됐고, Pods·node_modules 추적, ATS 비활성화, 목업 데이터도 모두 해소됐습니다. 남은 것은 ① `npm audit fix`로 해결 가능한 의존성 취약점(런타임에 실리는 건 hono뿐), ② App Store 실출시 전 필수인 API 인증 레이어(JWT), ③ 콘솔에서 확인해야 하는 수동 항목 1건(Kakao 번들 ID 제한)입니다. 6/21 이전 키 노출 이력은 저장소 재생성으로 초기화 확인 — 재발급 불필요.
+6/21 시점의 하드 블로커(공공 API 키 하드코딩)와 경고 8건 중 7건이 해결됐습니다. 시크릿은 전부 git 제외된 `Create.xcconfig` → Info.plist 주입 구조로 정리됐고, Pods·node_modules 추적, ATS 비활성화, 목업 데이터도 모두 해소됐습니다. 이 리포트(7/13) 이후 ① 의존성 취약점 6건은 당일 `npm audit fix` + 재배포로 해소, ② NAVER 키는 7/17 NCP API HUB 발급·연동으로 해소(경고 #1·#2·#5 종결). 남은 것은 ① App Store 실출시 전 필수인 API 인증 레이어(JWT), ② 콘솔에서 확인해야 하는 수동 항목 1건(Kakao 번들 ID 제한), ③ 성격상 경미한 디버그 print 정리입니다. 6/21 이전 키 노출 이력은 저장소 재생성으로 초기화 확인 — 재발급 불필요.
 
 ---
 
@@ -53,11 +53,11 @@ _데모(포트폴리오) 배포 기준: 없음_
 
 | # | Issue | Location | What to do |
 |---|-------|----------|------------|
-| 1 | `hono` high 취약점 (CORS 와일드카드 반사 GHSA-88fw-hqm2-52qc 등 5건, ≤4.12.24) — `app.use("*", cors())` 사용 중 | `backend-cloudflare/package.json` (`^4.6.10`) | `npm audit fix` 후 재배포. ※ 네이티브 앱 전용 API + 쿠키/credential 미사용이라 실질 영향은 제한적 |
-| 2 | wrangler 개발 체인 취약점 (undici·ws·esbuild·miniflare, high 4/low 1) | `backend-cloudflare/` devDependencies | 배포 코드에 포함되지 않는 로컬 도구 — #1과 함께 `npm audit fix`. node_modules root 소유 문제로 실패 시 소유권 정리 후 재설치 |
-| 3 | 디버그 `print()` 8건 | `KakaoLocalService.swift:61`, `KakaoMapView.swift:485,490`, `AnimalBoardingService.swift:155`, `NaverBlogService.swift:75`, `ReviewService.swift:98,129,159` | 전부 에러 핸들러 경고 로그. 출시 빌드 전 `os.Logger` 전환 또는 `#if DEBUG` 처리 |
+| 1 | ~~`hono` high 취약점 (CORS 와일드카드 반사 GHSA-88fw-hqm2-52qc 등 5건, ≤4.12.24)~~ | `backend-cloudflare/package.json` | ✅ **해소 (2026-07-13)** — hono 4.12.30 업그레이드 + 재배포 (커밋 `e918406`) |
+| 2 | ~~wrangler 개발 체인 취약점 (undici·ws·esbuild·miniflare, high 4/low 1)~~ | `backend-cloudflare/` devDependencies | ✅ **해소 (2026-07-13)** — wrangler 4.110.0, #1과 함께 `npm audit fix` (audit 0건) |
+| 3 | 디버그 `print()` 10건 (7/13 8건 + `KakaoLocalService.coordAddress`·`NaverLocalService` 각 1건 추가) | `KakaoLocalService.swift`, `KakaoMapView.swift`, `AnimalBoardingService.swift`, `NaverLocalService.swift`, `NaverBlogService.swift`, `ReviewService.swift` | 전부 `#if DEBUG` 에러 핸들러 경고 로그. 출시 빌드 전 `os.Logger` 전환 검토 |
 | 4 | Kakao 앱 키 번들 ID 제한 미확인 | Kakao Developer Console | 콘솔에서 iOS 플랫폼 번들 ID 등록 여부 확인 (수동) |
-| 5 | NAVER 키 미발급 — 블로그 후기 기능 비활성 상태 | `Create.xcconfig` (`NAVER_CLIENT_ID/SECRET`) | 기능 대기 항목 (배포 블로커 아님). 발급 절차: `PLAN.md` Task 5 |
+| 5 | ~~NAVER 키 미발급 — 블로그 후기 기능 비활성 상태~~ | `Create.xcconfig` (`NAVER_CLIENT_ID/SECRET`) | ✅ **해소 (2026-07-17)** — NCP NAVER API HUB에서 발급·연동(구 developers.naver.com 검색 API는 신규 제휴 중단). 블로그 후기 + 지역 검색 주소 보강 활성화 |
 
 ---
 
@@ -102,7 +102,7 @@ _데모(포트폴리오) 배포 기준: 없음_
 | Pods/ gitignored | ✅ | 추적 0건 |
 | .gitignore | ✅ | 루트·iOS 정비됨 |
 | NSAllowsArbitraryLoads | ✅ | Info.plist에 없음 |
-| 디버그 print | ⚠️ | 8건 — 전부 에러 핸들러 (Warning #3) |
+| 디버그 print | ⚠️ | 10건 — 전부 에러 핸들러 (Warning #3, 2026-07-17 재집계) |
 | MARKETING_VERSION | ✅ | 1.0 |
 
 ### Node.js / Cloudflare Workers
@@ -111,7 +111,7 @@ _데모(포트폴리오) 배포 기준: 없음_
 | package-lock.json | ✅ | 존재 |
 | tsconfig strict | ✅ | `"strict": true` |
 | `: any` / `@ts-ignore` | ✅ | `src/index.ts` 0건 |
-| npm audit | ❌ | high 5 / low 1 — hono(런타임)·wrangler 체인(개발) (Warning #1·#2) |
+| npm audit | ✅ | 0건 — 2026-07-13 `npm audit fix`(hono 4.12.30·wrangler 4.110.0) + 재배포로 해소 |
 | wrangler.toml | ✅ | D1 바인딩 + workers.dev + cron `0 9 * * *` |
 | env 바인딩 정합 | ✅ | 코드 사용 `c.env.DB`·`c.env.APP_NAME` 모두 wrangler.toml 정의 |
 | backend .gitignore | ✅ | node_modules/.wrangler/dist/.env 제외 |
@@ -119,9 +119,9 @@ _데모(포트폴리오) 배포 기준: 없음_
 ### Database Migrations
 | Check | Status | Evidence |
 |-------|--------|----------|
-| 순차 정렬 | ✅ | 0001~0010, 결번·중복 없음 |
+| 순차 정렬 | ✅ | 0001~0012, 결번·중복 없음 (2026-07-17 기준: 0011 diary_photos, 0012 drop_reviews — 다음 번호 0013) |
 | 롤백(down) | N/A | D1 마이그레이션 구조상 별도 down 없음 |
-| 스키마 변경 ↔ 마이그레이션 대응 | ✅ | 최근 스키마 변경(chat_room_reads) = `0010` 커밋 `2432891` |
+| 스키마 변경 ↔ 마이그레이션 대응 | ✅ | 최근 스키마 변경(diary_photos·reviews 드롭) = `0011`·`0012` 배포 DB 적용 완료 |
 
 ### TODO / Debug
 | Check | Status | Evidence |
@@ -147,6 +147,19 @@ _데모(포트폴리오) 배포 기준: 없음_
 | API 인증 | ⚠️ 실출시 블로커 | 전 API 무인증 — `user_id`를 클라이언트 신뢰로 받음. 정상 앱 사용에는 문제없으나 **App Store 출시 전 JWT 등 인증 레이어 필수** (상세: `FEATURES.md` §13) |
 
 검증 방법: 서버 라우트 전수 rg 스캔 + curl 400 케이스 5종·정상 회귀 테스트 + xcodebuild BUILD SUCCEEDED. 테스트 데이터 잔존 0 확인.
+
+### 2026-07-13 — 의존성 취약점 해소 ✅ (커밋 `e918406`)
+
+원본 리포트의 Warning #1·#2 당일 해소. `npm audit fix`로 hono 4.6.10→**4.12.30**(런타임 유일 의존성), wrangler 4.93.0→**4.110.0**(esbuild·miniflare·undici·ws 동반) — audit **0건**. package.json 범위 내 semver 갱신이라 lockfile만 변경, 갱신된 wrangler로 재배포 + 읽기 전용 curl 스모크 통과.
+
+### 2026-07-17 — NAVER 키 해소 + 신규 코드 반영 (커밋 `fdf6eb1`·`c519d61`)
+
+| 항목 | 판정 | 내용 |
+|---|---|---|
+| Warning #5 (NAVER 키 미발급) | ✅ 해소 | 구 developers.naver.com 검색 API가 **신규 제휴 중단**이라 **NCP NAVER API HUB**에서 발급 — 엔드포인트 `naverapihub.apigw.ntruss.com/search/v1/*`, 헤더 `X-NCP-APIGW-API-KEY-ID`/`-KEY`. 블로그 후기(`NaverBlogService`)·지역 검색 주소 보강(`NaverLocalService` 신설) 모두 실연동 확인 |
+| 시크릿 구조 | ✅ 유지 | 새 네이버 키도 기존 구조 그대로 — git 제외된 `Create.xcconfig` → Info.plist `$(변수)` 주입, 소스 하드코딩 0건 |
+| 디버그 print | ⚠️ 8→10건 | 신설 `NaverLocalService`·`KakaoLocalService.coordAddress` 에러 핸들러 각 1건 추가 — 기존과 같은 `#if DEBUG` 경고 로그 성격 (Warning #3에 반영) |
+| DB 데이터 | ✅ 안전 확인 | 배포 D1 `stores.address` 16곳 실주소 백필 — 정체성 키 `store_key`는 불변, 표시용 컬럼만 갱신(스키마 변경 없음, 마이그레이션 불필요한 데이터 작업) |
 
 ---
 
