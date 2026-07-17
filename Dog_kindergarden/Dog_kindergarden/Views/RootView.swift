@@ -43,6 +43,8 @@ struct RootView: View {
         case .favorites:   FavoritesView()
         case .reservationList: ReservationListView()
         case .ownerMode:   OwnerModeView()
+        case .ownerDiaryList: OwnerDiaryListView()
+        case .diary:       DiaryTimelineView()
         }
     }
 }

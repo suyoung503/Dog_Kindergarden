@@ -71,7 +71,7 @@ struct OwnerModeView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            EmojiIcon(emoji: "📭", size: 48)
+            EmojiIcon(emoji: "📅", size: 48)
             Text("받은 예약 요청이 없어요")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color.brandBrown)

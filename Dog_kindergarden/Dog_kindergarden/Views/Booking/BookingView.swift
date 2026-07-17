@@ -285,7 +285,7 @@ struct BookingView: View {
     // MARK: - Guardian
 
     private var guardianSection: some View {
-        BookingSection(title: "👤 보호자 정보") {
+        BookingSection(title: "보호자 정보") {
             VStack(spacing: 10) {
                 HStack {
                     Spacer()
@@ -391,7 +391,7 @@ struct BookingView: View {
     // MARK: - Request
 
     private var requestSection: some View {
-        BookingSection(title: "✍️ 요청사항") {
+        BookingSection(title: "요청사항") {
             TextEditor(text: $vm.request)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.brandBrown)

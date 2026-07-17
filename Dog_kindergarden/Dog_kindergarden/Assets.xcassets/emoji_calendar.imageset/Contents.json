@@ -1,0 +1,6 @@
+{
+  "images" : [
+    { "idiom" : "universal", "filename" : "emoji_calendar.png" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}

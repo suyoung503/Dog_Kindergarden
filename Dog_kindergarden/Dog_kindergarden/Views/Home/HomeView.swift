@@ -332,8 +332,11 @@ private let fabItems: [FABItem] = [
     FABItem(icon: "gearshape",       label: "설정",         bg: Color.brandBlueLight,  destination: .myPage),
 ]
 
-// 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정
-private let ownerFabItem = FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청", bg: Color(hex: "#FFD9A8"), destination: .ownerMode)
+// 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정, 맡은 아이 알림장 작성
+private let ownerFabItems: [FABItem] = [
+    FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청", bg: Color(hex: "#FFD9A8"), destination: .ownerMode),
+    FABItem(icon: "book",                label: "알림장",       bg: Color(hex: "#FFE0B0"), destination: .ownerDiaryList),
+]
 
 struct FloatingActionButton: View {
     @Environment(AppRouter.self) private var router
@@ -341,7 +344,7 @@ struct FloatingActionButton: View {
     @Binding var isOpen: Bool
 
     private var items: [FABItem] {
-        authSession.isOwner ? fabItems + [ownerFabItem] : fabItems
+        authSession.isOwner ? fabItems + ownerFabItems : fabItems
     }
 
     var body: some View {

@@ -362,9 +362,11 @@ app.get("/api/users/:id/reservations", async (c) => {
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
            COALESCE(r.store_name, s.name) AS store_name, s.store_type,
+           p.name AS pet_name,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
     LEFT JOIN stores s ON s.store_id = r.store_id
+    LEFT JOIN pets p ON p.pet_id = r.pet_id
     WHERE r.user_id = ?
     ORDER BY r.reservation_id DESC
   `,
@@ -416,7 +418,7 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
       )
         .bind(
           target.room_id,
-          `가게 사정으로 ${target.store_name} 예약(${target.start_date})이 취소되었어요. 예약 내역에서 확인해주세요 🙏`,
+          `가게 사정으로 ${target.store_name} 예약(${target.start_date})이 취소되었어요. 예약 내역에서 확인해주세요`,
         )
         .run();
     }
@@ -449,6 +451,30 @@ app.get("/api/owners/:id/reservations/pending", async (c) => {
   return c.json(results);
 });
 
+// 사장님 알림장 — 내 가게(owner_id)로 온 확정(CONFIRMED) 예약(맡은 아이들)
+app.get("/api/owners/:id/reservations/confirmed", async (c) => {
+  const ownerId = Number(c.req.param("id"));
+  const { results } = await c.env.DB.prepare(
+    `
+    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
+           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
+           p.name AS pet_name, p.breed AS pet_breed, p.age AS pet_age,
+           p.weight AS pet_weight, p.gender AS pet_gender, p.note AS pet_note,
+           u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
+           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
+    FROM reservations r
+    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+    LEFT JOIN pets p ON p.pet_id = r.pet_id
+    LEFT JOIN users u ON u.user_id = r.user_id
+    WHERE r.status = 'CONFIRMED'
+    ORDER BY r.reservation_id DESC
+  `,
+  )
+    .bind(ownerId)
+    .all();
+  return c.json(results);
+});
+
 // 예약 확정 — 상태만 CONFIRMED로 변경
 app.patch("/api/reservations/:id/confirm", async (c) => {
   const reservationId = Number(c.req.param("id"));
@@ -456,6 +482,139 @@ app.patch("/api/reservations/:id/confirm", async (c) => {
     `UPDATE reservations SET status = 'CONFIRMED' WHERE reservation_id = ?`,
   )
     .bind(reservationId)
+    .run();
+  return c.json({ ok: true });
+});
+
+// MARK: - 알림장(diary)
+// 예약 1건에 타임라인 엔트리 여러 개. 사진(diary_photos)은 R2 활성화 후 채워지며 지금은 항상 빈 배열.
+
+type DiaryBody = { content?: string };
+type DiaryRow = {
+  diary_id: number;
+  reservation_id: number;
+  store_id: number | null;
+  content: string;
+  created_at: string;
+};
+type DiaryPhotoOut = { photo_id: number; url: string };
+
+// 타임라인 조회 — 엔트리를 시간순으로, 각 엔트리에 사진 배열을 매달아 반환
+app.get("/api/reservations/:id/diaries", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  const { results: entries } = await c.env.DB.prepare(
+    `SELECT diary_id, reservation_id, store_id, content, created_at
+     FROM diaries WHERE reservation_id = ? ORDER BY diary_id ASC`,
+  )
+    .bind(reservationId)
+    .all<DiaryRow>();
+
+  const { results: photos } = await c.env.DB.prepare(
+    `SELECT p.photo_id, p.diary_id, p.r2_key
+     FROM diary_photos p
+     JOIN diaries d ON d.diary_id = p.diary_id
+     WHERE d.reservation_id = ?
+     ORDER BY p.sort_order ASC, p.photo_id ASC`,
+  )
+    .bind(reservationId)
+    .all<{ photo_id: number; diary_id: number; r2_key: string }>();
+
+  const byDiary = new Map<number, DiaryPhotoOut[]>();
+  for (const ph of photos) {
+    const arr = byDiary.get(ph.diary_id) ?? [];
+    arr.push({ photo_id: ph.photo_id, url: `/api/diaries/photos/${ph.r2_key}` });
+    byDiary.set(ph.diary_id, arr);
+  }
+  return c.json(
+    entries.map((e) => ({ ...e, photos: byDiary.get(e.diary_id) ?? [] })),
+  );
+});
+
+// 엔트리 생성 — 성공 시 보호자 채팅방에 새 알림장 도착 자동 메시지(sender 0)
+app.post("/api/reservations/:id/diaries", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
+  const content = body.content?.trim();
+  if (!content) return c.json({ message: "content is required" }, 400);
+
+  const r = await c.env.DB.prepare(
+    `SELECT r.user_id, r.store_id, COALESCE(r.store_name, s.name) AS store_name, p.name AS pet_name
+     FROM reservations r
+     LEFT JOIN stores s ON s.store_id = r.store_id
+     LEFT JOIN pets p ON p.pet_id = r.pet_id
+     WHERE r.reservation_id = ?`,
+  )
+    .bind(reservationId)
+    .first<{
+      user_id: number;
+      store_id: number;
+      store_name: string;
+      pet_name: string | null;
+    }>();
+  if (!r) return c.json({ message: "reservation not found" }, 404);
+
+  const inserted = await c.env.DB.prepare(
+    `INSERT INTO diaries (reservation_id, store_id, content) VALUES (?, ?, ?)`,
+  )
+    .bind(reservationId, r.store_id, content)
+    .run();
+  const diaryId = inserted.meta.last_row_id;
+
+  const room = await c.env.DB.prepare(
+    `SELECT room_id FROM chat_rooms WHERE user_id = ? AND store_id = ?`,
+  )
+    .bind(r.user_id, r.store_id)
+    .first<{ room_id: number }>();
+  if (room) {
+    const petName = r.pet_name ?? "우리 아이";
+    await c.env.DB.prepare(
+      `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
+       VALUES (?, 0, '맡겨멍', 'AUTO', ?)`,
+    )
+      .bind(
+        room.room_id,
+        `${petName}의 새 알림장이 도착했어요\n예약 내역에서 확인해주세요`,
+      )
+      .run();
+  }
+
+  const created = await c.env.DB.prepare(
+    `SELECT diary_id, reservation_id, store_id, content, created_at FROM diaries WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<DiaryRow>();
+  if (!created) return c.json({ message: "insert failed" }, 500);
+  return c.json({ ...created, photos: [] as DiaryPhotoOut[] });
+});
+
+// 엔트리 수정 — 글만 갱신(자동 메시지 없음). 사진 편집은 R2 도입 시 추가.
+app.patch("/api/diaries/:diaryId", async (c) => {
+  const diaryId = Number(c.req.param("diaryId"));
+  const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
+  const content = body.content?.trim();
+  if (!content) return c.json({ message: "content is required" }, 400);
+
+  await c.env.DB.prepare(`UPDATE diaries SET content = ? WHERE diary_id = ?`)
+    .bind(content, diaryId)
+    .run();
+
+  const updated = await c.env.DB.prepare(
+    `SELECT diary_id, reservation_id, store_id, content, created_at FROM diaries WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<DiaryRow>();
+  if (!updated) return c.json({ message: "diary not found" }, 404);
+  return c.json({ ...updated, photos: [] as DiaryPhotoOut[] });
+});
+
+// 엔트리 삭제(자동 메시지 없음) — 사진 행도 함께 정리(R2 객체 삭제는 R2 도입 시 추가)
+app.delete("/api/diaries/:diaryId", async (c) => {
+  const diaryId = Number(c.req.param("diaryId"));
+  await c.env.DB.prepare(`DELETE FROM diary_photos WHERE diary_id = ?`)
+    .bind(diaryId)
+    .run();
+  await c.env.DB.prepare(`DELETE FROM diaries WHERE diary_id = ?`)
+    .bind(diaryId)
     .run();
   return c.json({ ok: true });
 });
@@ -969,7 +1128,7 @@ async function sendReviewRequests(db: D1Database): Promise<number> {
       )
       .bind(
         target.room_id,
-        `어제 ${target.store_name} 이용은 어떠셨나요? 가게 상세에서 리뷰를 남겨주시면 다른 보호자들에게 큰 도움이 돼요 🐾`,
+        `어제 ${target.store_name} 이용은 어떠셨나요? 가게 상세에서 리뷰를 남겨주시면 다른 보호자들에게 큰 도움이 돼요`,
       )
       .run();
     await db

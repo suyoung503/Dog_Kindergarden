@@ -19,6 +19,9 @@ extension String {
         case "🏨": return "emoji_hotel"     // 호텔
         case "✂️", "✂": return "emoji_scissors"
         case "🐾": return "icon_paw"        // 발바닥
+        case "📅": return "emoji_calendar"  // 예약(캘린더)
+        case "💬": return "emoji_chat"      // 채팅
+        case "📔": return "emoji_note"      // 알림장(노트)
         default: return nil
         }
     }
