@@ -58,9 +58,18 @@ struct StoreDetailView: View {
             isMyStore = mine.contains { ($0.storeKey ?? "") == storeKey }
         }
         .task(id: storeKey) {
-            // 카카오 로컬 검색으로 마스킹된 주소(***)를 전체 주소로 보강
-            if let p = pin {
-                kakaoPlace = await KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude)
+            // 마스킹된 주소(***) 보강: 카카오 키워드 → 네이버 지역 검색 → 좌표→주소 변환 순
+            guard let p = pin else { return }
+            if let k = await KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude) {
+                kakaoPlace = k
+            } else if let n = await NaverLocalService.lookup(
+                name: p.name,
+                region: p.address.split(separator: " ").prefix(2).joined(separator: " "),
+                lat: p.latitude, lon: p.longitude
+            ) {
+                kakaoPlace = KakaoPlace(roadAddress: n.roadAddress, address: n.address, phone: "", placeURL: "")
+            } else {
+                kakaoPlace = await KakaoLocalService.coordAddress(lat: p.latitude, lon: p.longitude)
             }
         }
         .task(id: storeKey) {
