@@ -7,7 +7,7 @@ struct ChatMessage: Identifiable {
     let text: String
 }
 
-enum MessageSender { case store, me }
+enum MessageSender { case store, me, system }
 
 @Observable
 @MainActor
@@ -19,16 +19,14 @@ final class ChatRoomViewModel {
 
     private(set) var roomId: Int?
     private var myUserId = 1
-    private var viewingAsOwner = false   // 사장님 시점: 자동메시지(sender 0)는 가게(=나) 쪽 말풍선
     // 작성 모드용 store 컨텍스트 (roomId 없을 때 첫 전송에서 방 생성)
     private var storeKey = ""
     private var storeName = ""
     private var storeAddress = ""
 
-    func configure(roomId: Int?, userId: Int, asOwner: Bool, storeKey: String, storeName: String, storeAddress: String) {
+    func configure(roomId: Int?, userId: Int, storeKey: String, storeName: String, storeAddress: String) {
         self.roomId = roomId
         self.myUserId = userId
-        self.viewingAsOwner = asOwner
         self.storeKey = storeKey
         self.storeName = storeName
         self.storeAddress = storeAddress
@@ -99,9 +97,9 @@ final class ChatRoomViewModel {
     }
 
     private func map(_ dto: ChatMessageDTO) -> ChatMessage {
-        // 자동메시지(sender 0)는 가게가 보낸 것 — 사장님 시점에서는 내(오른쪽) 말풍선
-        let isMine = dto.sender_id == myUserId || (viewingAsOwner && dto.sender_id == 0)
-        return ChatMessage(from: isMine ? .me : .store, text: dto.content)
+        // 자동메시지(sender 0)는 화자 없는 시스템 안내 — 양쪽 시점 모두 중앙 안내문
+        if dto.sender_id == 0 { return ChatMessage(from: .system, text: dto.content) }
+        return ChatMessage(from: dto.sender_id == myUserId ? .me : .store, text: dto.content)
     }
 }
 
@@ -133,7 +131,6 @@ struct ChatRoomView: View {
             vm.configure(
                 roomId: router.selectedRoomId,
                 userId: uid,
-                asOwner: router.chatRoomAsOwner,
                 storeKey: pin?.storeKey ?? "",
                 storeName: router.selectedChat,
                 storeAddress: pin?.address ?? ""
@@ -210,8 +207,20 @@ struct ChatRoomView: View {
 
     @ViewBuilder
     private func messageBubble(_ msg: ChatMessage) -> some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            if msg.from == .store {
+        switch msg.from {
+        case .system:
+            // 시스템 안내(sender 0) — 화자 없는 중앙 안내문 (예약 취소·리뷰 요청·알림장 알림)
+            Text(msg.text)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.brandBrownMid)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.brandCreamLight)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+        case .store:
+            HStack(alignment: .bottom, spacing: 6) {
                 ZStack {
                     Circle().fill(Color(hex: "#FFE6CC")).frame(width: 28, height: 28)
                     EmojiIcon(emoji: router.chatRoomAvatar, size: 16)
@@ -232,7 +241,9 @@ struct ChatRoomView: View {
                     )
                     .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .leading)
                 Spacer()
-            } else {
+            }
+        case .me:
+            HStack(alignment: .bottom, spacing: 6) {
                 Spacer()
                 Text(msg.text)
                     .font(.system(size: 13))
