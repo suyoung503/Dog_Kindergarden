@@ -86,10 +86,10 @@ final class AppNotificationService: NSObject {
             "title": item.title,
             "store_type": item.store_type ?? "",
         ]
-        // identifier를 이벤트 대상 기준으로 고정 — 같은 방 재알림은 교체되어 알림 센터에 방당 1개 유지
-        let idSeed = item.room_id ?? item.reservation_id ?? 0
+        // 매번 고유 identifier — 같은 방으로 여러 번 알림이 와도 알림 센터에 각각 쌓인다
+        // (예전엔 방 기준 고정 id라 나중 알림이 이전 알림을 덮어써 히스토리가 사라졌음)
         let request = UNNotificationRequest(
-            identifier: "\(item.type)-\(idSeed)", content: content, trigger: nil
+            identifier: "\(item.type)-\(UUID().uuidString)", content: content, trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
     }
@@ -119,17 +119,23 @@ final class AppNotificationService: NSObject {
 
 // 포그라운드 배너 표시 + 알림 탭 딥링크
 extension AppNotificationService: UNUserNotificationCenterDelegate {
+    // async 버전 델리게이트 메서드는 ObjC completion-handler 브리징 스텁이
+    // 메인 스레드 콜백을 강제하는데 await로 스레드를 넘나들면 깨진다
+    // (NSInternalInconsistencyException: Call must be made on main thread) —
+    // 그래서 전통적인 completion-handler 형태를 쓴다.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
     }
 
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let info = response.notification.request.content.userInfo
         let type = info["type"] as? String ?? ""
         let roomId = info["room_id"] as? Int ?? 0
@@ -149,7 +155,11 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
         default:
             link = nil
         }
-        guard let link else { return }
-        await MainActor.run { AppNotificationService.shared.pendingDeepLink = link }
+        if let link {
+            Task { @MainActor in
+                AppNotificationService.shared.pendingDeepLink = link
+            }
+        }
+        completionHandler()
     }
 }
