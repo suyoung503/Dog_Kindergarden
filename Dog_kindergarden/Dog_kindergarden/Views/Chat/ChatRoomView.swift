@@ -136,6 +136,8 @@ struct ChatRoomView: View {
                 storeAddress: pin?.address ?? ""
             )
             await vm.load()
+            // 이 방을 보는 동안은 이 방의 채팅 알림 배너 생략 (3초 폴링으로 이미 화면에 보임)
+            AppNotificationService.shared.activeRoomId = router.selectedRoomId
         }
         .task {
             // 3초 주기 폴링 — 상대가 보낸 메시지를 방에 머무는 동안 반영 (화면 이탈 시 자동 취소)
@@ -144,6 +146,7 @@ struct ChatRoomView: View {
                 await vm.refresh()
             }
         }
+        .onDisappear { AppNotificationService.shared.activeRoomId = nil }
     }
 
     // MARK: - Nav
