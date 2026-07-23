@@ -17,6 +17,7 @@ enum AppScreen {
     case reservationList
     case ownerMode
     case ownerDiaryList
+    case myDiaryList
     case diary
 }
 

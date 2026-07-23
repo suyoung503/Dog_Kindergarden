@@ -80,6 +80,7 @@ struct RootView: View {
         case .reservationList: ReservationListView()
         case .ownerMode:   OwnerModeView()
         case .ownerDiaryList: OwnerDiaryListView()
+        case .myDiaryList: MyDiaryListView()
         case .diary:       DiaryTimelineView()
         }
     }

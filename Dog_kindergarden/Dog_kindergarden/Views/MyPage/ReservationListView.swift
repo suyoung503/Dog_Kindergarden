@@ -82,7 +82,6 @@ struct ReservationListView: View {
     private func reservationCard(_ reservation: ReservationSummary) -> some View {
         let isHotel = (reservation.storeType ?? "") == "호텔"
         let isCancelable = reservation.status == "REQUEST" || reservation.status == "CONFIRMED"
-        let isConfirmed = reservation.status == "CONFIRMED"
         return VStack(alignment: .trailing, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
@@ -117,30 +116,17 @@ struct ReservationListView: View {
                 }
                 Spacer()
             }
-            if isCancelable || isConfirmed {
+            if isCancelable {
                 HStack(spacing: 8) {
-                    if isConfirmed {
-                        Button(action: { openDiary(reservation) }) {
-                            Text("알림장 보기")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color.brandBrown)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.brandGreenLight)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
+                    Button(action: { pendingCancel = reservation }) {
+                        Text("예약 취소")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.brandOrange)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Color.brandOrange.opacity(0.12))
+                            .clipShape(Capsule())
                     }
-                    if isCancelable {
-                        Button(action: { pendingCancel = reservation }) {
-                            Text("예약 취소")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color.brandOrange)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.brandOrange.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -157,18 +143,6 @@ struct ReservationListView: View {
         case "CANCELED": return "예약 취소됨"
         default: return status ?? "상태 정보 없음"
         }
-    }
-
-    // 보호자 열람 전용으로 알림장 진입 — 예약에 담긴 실제 강아지 이름 사용
-    private func openDiary(_ reservation: ReservationSummary) {
-        guard let rid = reservation.reservationId else { return }
-        router.diaryContext = DiaryContext(
-            reservationId: rid,
-            petName: reservation.petName ?? "우리 아이",
-            storeName: reservation.storeName ?? "가게",
-            canWrite: false
-        )
-        router.go(.diary)
     }
 
     // MARK: - Actions
