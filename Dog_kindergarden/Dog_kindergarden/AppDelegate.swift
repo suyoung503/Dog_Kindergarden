@@ -2,6 +2,8 @@ import UIKit
 import KakaoMapsSDK
 import KakaoSDKCommon
 import KakaoSDKAuth
+import UserNotifications
+import BackgroundTasks
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -11,6 +13,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         SDKInitializer.InitSDK(appKey: appKey)
         // KakaoSDK (로그인) 초기화
         KakaoSDK.initSDK(appKey: appKey)
+        // 로컬 알림 포그라운드 표시·탭 딥링크 델리게이트
+        UNUserNotificationCenter.current().delegate = AppNotificationService.shared
+        // 백그라운드 알림 폴링 등록 (didFinishLaunching 리턴 전에 등록해야 함)
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: AppNotificationService.backgroundTaskId, using: nil
+        ) { task in
+            guard let refresh = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            AppNotificationService.handleBackgroundRefresh(refresh)
+        }
         return true
     }
 
