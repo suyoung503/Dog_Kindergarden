@@ -363,13 +363,14 @@ private let fabItems: [FABItem] = [
     FABItem(icon: "person",          label: "강아지 프로필", bg: Color(hex: "#FFE6CC"), destination: .dogProfile),
     FABItem(icon: "message",         label: "채팅",         bg: Color.brandGreenLight, destination: .chatList),
     FABItem(icon: "calendar",        label: "예약 내역",    bg: Color(hex: "#FFF1A8"), destination: .reservationList),
-    FABItem(icon: "gearshape",       label: "설정",         bg: Color.brandBlueLight,  destination: .myPage),
+    FABItem(icon: "book.closed",     label: "확정예약·알림장", bg: Color(hex: "#F5E6C8"), destination: .myDiaryList),
+    FABItem(icon: "gearshape",       label: "설정",           bg: Color.brandBlueLight,  destination: .myPage),
 ]
 
 // 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정, 맡은 아이 알림장 작성
 private let ownerFabItems: [FABItem] = [
-    FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청", bg: Color(hex: "#FFD9A8"), destination: .ownerMode),
-    FABItem(icon: "book",                label: "알림장",       bg: Color(hex: "#FFE0B0"), destination: .ownerDiaryList),
+    FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청",  bg: Color(hex: "#FFD9A8"), destination: .ownerMode),
+    FABItem(icon: "book",                label: "확정예약·알림장", bg: Color(hex: "#FFE0B0"), destination: .ownerDiaryList),
 ]
 
 struct FloatingActionButton: View {
@@ -377,36 +378,27 @@ struct FloatingActionButton: View {
     @Environment(AuthSession.self) private var authSession
     @Binding var isOpen: Bool
 
-    private var items: [FABItem] {
-        authSession.isOwner ? fabItems + ownerFabItems : fabItems
-    }
-
     var body: some View {
         VStack(alignment: .trailing, spacing: 10) {
             if isOpen {
-                ForEach(items, id: \.label) { item in
-                    Button(action: {
-                        isOpen = false
-                        router.go(item.destination)
-                    }) {
-                        HStack(spacing: 8) {
-                            ZStack {
-                                Circle().fill(item.bg).frame(width: 28, height: 28)
-                                Image(systemName: item.icon)
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Color.brandBrown)
-                            }
-                            Text(item.label)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.brandBrown)
-                        }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 16)
-                        .frame(height: 40)
-                        .background(.white)
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.brandBeigeBorder, lineWidth: 1))
-                        .shadow(color: Color.brandBrown.opacity(0.15), radius: 7, x: 0, y: 6)
+                ForEach(fabItems, id: \.label) { item in
+                    fabButton(item)
+                }
+                if authSession.isOwner {
+                    HStack(spacing: 4) {
+                        Image(systemName: "storefront.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("사장님 메뉴")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Color.brandBrown)
+                    .clipShape(Capsule())
+                    .shadow(color: Color.brandBrown.opacity(0.3), radius: 5, x: 0, y: 3)
+                    ForEach(ownerFabItems, id: \.label) { item in
+                        fabButton(item)
                     }
                 }
             }
@@ -421,6 +413,32 @@ struct FloatingActionButton: View {
                         .foregroundStyle(Color(hex: "#FFF8EF"))
                 }
             }
+        }
+    }
+
+    private func fabButton(_ item: FABItem) -> some View {
+        Button(action: {
+            isOpen = false
+            router.go(item.destination)
+        }) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle().fill(item.bg).frame(width: 28, height: 28)
+                    Image(systemName: item.icon)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.brandBrown)
+                }
+                Text(item.label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.brandBrown)
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 16)
+            .frame(height: 40)
+            .background(.white)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.brandBeigeBorder, lineWidth: 1))
+            .shadow(color: Color.brandBrown.opacity(0.15), radius: 7, x: 0, y: 6)
         }
     }
 }
