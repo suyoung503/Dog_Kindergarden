@@ -392,9 +392,9 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
   const byOwner = body.by_owner ?? body.byOwner ?? false;
 
   await c.env.DB.prepare(
-    `UPDATE reservations SET status = 'CANCELED' WHERE reservation_id = ?`,
+    `UPDATE reservations SET status = 'CANCELED', canceled_at = CURRENT_TIMESTAMP, canceled_by = ? WHERE reservation_id = ?`,
   )
-    .bind(reservationId)
+    .bind(byOwner ? "OWNER" : "USER", reservationId)
     .run();
 
   if (byOwner) {
@@ -475,11 +475,11 @@ app.get("/api/owners/:id/reservations/confirmed", async (c) => {
   return c.json(results);
 });
 
-// 예약 확정 — 상태만 CONFIRMED로 변경
+// 예약 확정 — 상태 변경 + 확정 시각 기록(알림 피드 커서용)
 app.patch("/api/reservations/:id/confirm", async (c) => {
   const reservationId = Number(c.req.param("id"));
   await c.env.DB.prepare(
-    `UPDATE reservations SET status = 'CONFIRMED' WHERE reservation_id = ?`,
+    `UPDATE reservations SET status = 'CONFIRMED', confirmed_at = CURRENT_TIMESTAMP WHERE reservation_id = ?`,
   )
     .bind(reservationId)
     .run();
@@ -803,6 +803,204 @@ app.get("/api/users/:id/unread-count", async (c) => {
   }
 
   return c.json({ unread });
+});
+
+// MARK: - 통합 알림 피드 (설계: docs/superpowers/specs/2026-07-18-push-notifications-design.md)
+// 중복 방지 불변식: 채팅 메시지를 남기는 이벤트(알림장·사장님 취소·리뷰 요청 등)는 채팅 축으로만,
+// 메시지가 없는 이벤트(새 요청·확정·고객 취소)는 예약 축으로만 들어간다 — 이벤트당 알림 1회.
+
+type NotificationCursor = {
+  message_id?: number;
+  request_id?: number;
+  confirmed_at?: string;
+  canceled_at?: string;
+};
+
+type NotificationItem = {
+  type: "chat" | "reservation_request" | "reservation_confirmed" | "reservation_canceled";
+  title: string;
+  body: string;
+  room_id?: number;
+  reservation_id?: number;
+  as_owner?: boolean;
+  store_type?: string;
+};
+
+app.get("/api/users/:id/notifications", async (c) => {
+  const userId = Number(c.req.param("id"));
+  if (!userId) return c.json({ message: "user id required" }, 400);
+  const rawCursor = c.req.query("cursor");
+
+  const user = await c.env.DB.prepare(`SELECT is_owner FROM users WHERE user_id = ?`)
+    .bind(userId)
+    .first<{ is_owner: number | null }>();
+  const isOwner = (user?.is_owner ?? 0) === 1;
+
+  // 다음 커서 스냅샷 — 이벤트 유무와 무관하게 항상 현재 최신값
+  const maxMsg = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(message_id), 0) AS v FROM chat_messages`,
+  ).first<{ v: number }>();
+  const maxRes = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(reservation_id), 0) AS v FROM reservations`,
+  ).first<{ v: number }>();
+  const now = await c.env.DB.prepare(`SELECT CURRENT_TIMESTAMP AS v`).first<{ v: string }>();
+  const nextCursor: NotificationCursor = {
+    message_id: maxMsg?.v ?? 0,
+    request_id: maxRes?.v ?? 0,
+    confirmed_at: now?.v ?? "",
+    canceled_at: now?.v ?? "",
+  };
+
+  // 첫 호출(커서 없음): 과거 이벤트를 알림으로 쏟지 않도록 커서만 내려준다
+  if (!rawCursor) return c.json({ notifications: [], cursor: nextCursor });
+
+  let cursor: NotificationCursor;
+  try {
+    cursor = JSON.parse(rawCursor) as NotificationCursor;
+  } catch {
+    return c.json({ message: "invalid cursor" }, 400);
+  }
+  const afterMessage = cursor.message_id ?? 0;
+  const afterRequest = cursor.request_id ?? 0;
+  const afterConfirmed = cursor.confirmed_at ?? "";
+  const afterCanceled = cursor.canceled_at ?? "";
+
+  const items: NotificationItem[] = [];
+
+  // ── 채팅 축 ① 내가 손님인 방의 상대·시스템 메시지 — 방별 최신 1건 + 건수
+  //    (SQLite: MAX() 집계 시 bare 컬럼은 최댓값 행의 값을 취한다)
+  const asCustomer = await c.env.DB.prepare(
+    `
+    SELECT m.room_id, m.content, m.sender_id, s.name AS store_name, s.store_type,
+           COUNT(*) AS cnt, MAX(m.message_id) AS last_id
+    FROM chat_messages m
+    JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
+    LEFT JOIN stores s ON s.store_id = r.store_id
+    WHERE m.sender_id != ? AND m.message_id > ?
+    GROUP BY m.room_id
+  `,
+  )
+    .bind(userId, userId, afterMessage)
+    .all<{
+      room_id: number;
+      content: string;
+      sender_id: number;
+      store_name: string | null;
+      store_type: string | null;
+      cnt: number;
+    }>();
+  for (const row of asCustomer.results) {
+    items.push({
+      type: "chat",
+      title: row.sender_id === 0 ? "맡겨멍" : (row.store_name ?? "채팅"),
+      body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+      room_id: row.room_id,
+      as_owner: false,
+      store_type: row.store_type ?? undefined,
+    });
+  }
+
+  // ── 채팅 축 ② (사장님) 내 가게 방의 손님 메시지 — sender 0 제외, 내가 손님인 방 제외
+  if (isOwner) {
+    const asOwnerRows = await c.env.DB.prepare(
+      `
+      SELECT m.room_id, m.content, u.nickname AS customer_name,
+             COUNT(*) AS cnt, MAX(m.message_id) AS last_id
+      FROM chat_messages m
+      JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id != ?
+      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      LEFT JOIN users u ON u.user_id = r.user_id
+      WHERE m.sender_id != ? AND m.sender_id != 0 AND m.message_id > ?
+      GROUP BY m.room_id
+    `,
+    )
+      .bind(userId, userId, userId, afterMessage)
+      .all<{ room_id: number; content: string; customer_name: string | null; cnt: number }>();
+    for (const row of asOwnerRows.results) {
+      items.push({
+        type: "chat",
+        title: row.customer_name ?? "보호자",
+        body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+        room_id: row.room_id,
+        as_owner: true,
+      });
+    }
+  }
+
+  // ── 예약 축 (사장님) 새 예약 요청
+  if (isOwner) {
+    const requests = await c.env.DB.prepare(
+      `
+      SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
+             p.name AS pet_name, r.reservation_type
+      FROM reservations r
+      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      LEFT JOIN pets p ON p.pet_id = r.pet_id
+      WHERE r.status = 'REQUEST' AND r.reservation_id > ?
+      ORDER BY r.reservation_id
+    `,
+    )
+      .bind(userId, afterRequest)
+      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; reservation_type: string | null }>();
+    for (const row of requests.results) {
+      items.push({
+        type: "reservation_request",
+        title: "새 예약 요청",
+        body: `${row.pet_name ?? "강아지"} 보호자의 ${row.reservation_type ?? "예약"} 요청 — ${row.store_name ?? ""}`,
+        reservation_id: row.reservation_id,
+      });
+    }
+  }
+
+  // ── 예약 축 (고객) 예약 확정 — 확정 시스템 메시지는 없으므로 이 항목이 유일한 알림(1회 원칙)
+  if (afterConfirmed) {
+    const confirmed = await c.env.DB.prepare(
+      `
+      SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
+      FROM reservations r
+      LEFT JOIN stores s ON s.store_id = r.store_id
+      WHERE r.user_id = ? AND r.confirmed_at IS NOT NULL AND r.confirmed_at > ?
+      ORDER BY r.confirmed_at
+    `,
+    )
+      .bind(userId, afterConfirmed)
+      .all<{ reservation_id: number; store_name: string | null; start_date: string }>();
+    for (const row of confirmed.results) {
+      items.push({
+        type: "reservation_confirmed",
+        title: "예약 확정",
+        body: `${row.store_name ?? "가게"} 예약이 확정되었어요 — ${row.start_date}`,
+        reservation_id: row.reservation_id,
+      });
+    }
+  }
+
+  // ── 예약 축 (사장님) 고객 취소 — canceled_by='USER'만 (사장님 본인 취소 제외)
+  if (isOwner && afterCanceled) {
+    const canceled = await c.env.DB.prepare(
+      `
+      SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
+             p.name AS pet_name, r.start_date
+      FROM reservations r
+      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      LEFT JOIN pets p ON p.pet_id = r.pet_id
+      WHERE r.canceled_by = 'USER' AND r.canceled_at IS NOT NULL AND r.canceled_at > ?
+      ORDER BY r.canceled_at
+    `,
+    )
+      .bind(userId, afterCanceled)
+      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; start_date: string }>();
+    for (const row of canceled.results) {
+      items.push({
+        type: "reservation_canceled",
+        title: "예약 취소",
+        body: `${row.pet_name ?? "강아지"} 보호자가 ${row.start_date} 예약을 취소했어요 — ${row.store_name ?? ""}`,
+        reservation_id: row.reservation_id,
+      });
+    }
+  }
+
+  return c.json({ notifications: items, cursor: nextCursor });
 });
 
 // MARK: - 펫 특화 리뷰 (공공데이터 가게용, store_key = "이름|주소")
