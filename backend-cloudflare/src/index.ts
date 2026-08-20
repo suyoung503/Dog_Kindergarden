@@ -106,6 +106,32 @@ type StoreClaimBody = {
   storeAddress?: string;
 };
 
+type StoreDetailImportBody = {
+  store_key?: string;
+  storeKey?: string;
+  store_name?: string;
+  storeName?: string;
+  store_address?: string;
+  storeAddress?: string;
+  phone?: string;
+  store_type?: string;
+  storeType?: string;
+  latitude?: number;
+  longitude?: number;
+  open_time?: string;
+  openTime?: string;
+  price_info?: string;
+  priceInfo?: string;
+  image_url?: string;
+  imageUrl?: string;
+  image_urls?: string[];
+  imageUrls?: string[];
+  pickup?: boolean | number;
+  playground?: boolean | number;
+  large_dog?: boolean | number;
+  largeDog?: boolean | number;
+};
+
 type CreatePetBody = {
   name: string;
   breed?: string;
@@ -115,9 +141,19 @@ type CreatePetBody = {
   note?: string;
 };
 
+// @cloudflare/workers-types 미설치 환경(로컬 node_modules 손상)에서도 타입체크가 되도록
+// Workers AI 바인딩에서 실제로 쓰는 부분만 최소 타입으로 직접 선언한다.
+type WorkersAiBinding = {
+  run: (
+    model: string,
+    input: { image: number[]; prompt: string; max_tokens?: number },
+  ) => Promise<{ description?: string; response?: string }>;
+};
+
 type Bindings = {
   DB: D1Database;
   APP_NAME: string;
+  AI: WorkersAiBinding;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -195,15 +231,130 @@ async function findRoomId(
 
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME }));
 
+// 지도 핀 소스 — 선별(is_curated) 서울 가게만 반환. 가격정보 유무와 무관하게 유치원/호텔이면 포함.
 app.get("/api/stores", async (c) => {
   const { results } = await c.env.DB.prepare(
     `
-    SELECT store_id, name, address, phone, status, latitude, longitude, open_time, pickup, playground, large_dog, price_info
+    SELECT store_id, store_key, name, address, phone, status, latitude, longitude,
+           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category
     FROM stores
+    WHERE is_curated = 1
     ORDER BY store_id DESC
   `,
   ).all();
   return c.json(results);
+});
+
+// 가게 상세 보강 정보 조회 — 앱 상세 화면에서 store_key로 호출
+app.get("/api/stores/detail", async (c) => {
+  const storeKey = (c.req.query("storeKey") ?? c.req.query("store_key") ?? "").trim();
+  if (!storeKey) return c.json({ message: "storeKey is required" }, 400);
+
+  const store = await c.env.DB.prepare(
+    `
+    SELECT store_id, store_key, name, address, phone, status, latitude, longitude,
+           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category
+    FROM stores
+    WHERE store_key = ?
+  `,
+  )
+    .bind(storeKey)
+    .first();
+
+  if (!store) return c.json(null);
+
+  const { results: images } = await c.env.DB.prepare(
+    `
+    SELECT image_id, image_url, sort_order
+    FROM store_images
+    WHERE store_id = ?
+    ORDER BY sort_order ASC, image_id ASC
+  `,
+  )
+    .bind((store as { store_id: number }).store_id)
+    .all();
+
+  return c.json({ ...store, images });
+});
+
+function flagValue(value: boolean | number | undefined): number | null {
+  if (value === undefined) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  return value ? 1 : 0;
+}
+
+// 로컬/관리자용 상세 데이터 업서트.
+// 크롤링 스크립트가 store_key 기준으로 대표 이미지, 추가 이미지, 가격/태그를 저장한다.
+app.post("/api/admin/stores/import", async (c) => {
+  const body = await c.req.json<StoreDetailImportBody>();
+  const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
+  if (!storeKey) return c.json({ message: "store_key is required" }, 400);
+
+  const storeName = body.store_name ?? body.storeName ?? "";
+  const storeAddress = body.store_address ?? body.storeAddress ?? "";
+  const storeType = body.store_type ?? body.storeType ?? null;
+  const openTime = body.open_time ?? body.openTime ?? null;
+  const priceInfo = body.price_info ?? body.priceInfo ?? null;
+  const imageUrl = body.image_url ?? body.imageUrl ?? null;
+  const imageUrls = body.image_urls ?? body.imageUrls ?? [];
+
+  const storeId = await resolveStoreId(c.env.DB, {
+    storeKey,
+    storeName,
+    storeAddress,
+  });
+
+  await c.env.DB.prepare(
+    `
+    UPDATE stores SET
+      name = COALESCE(NULLIF(?, ''), name),
+      address = COALESCE(NULLIF(?, ''), address),
+      phone = COALESCE(NULLIF(?, ''), phone),
+      store_type = COALESCE(NULLIF(?, ''), store_type),
+      latitude = COALESCE(?, latitude),
+      longitude = COALESCE(?, longitude),
+      open_time = COALESCE(NULLIF(?, ''), open_time),
+      price_info = COALESCE(NULLIF(?, ''), price_info),
+      image_url = COALESCE(NULLIF(?, ''), image_url),
+      pickup = COALESCE(?, pickup),
+      playground = COALESCE(?, playground),
+      large_dog = COALESCE(?, large_dog)
+    WHERE store_id = ?
+  `,
+  )
+    .bind(
+      storeName,
+      storeAddress,
+      body.phone ?? "",
+      storeType ?? "",
+      body.latitude ?? null,
+      body.longitude ?? null,
+      openTime ?? "",
+      priceInfo ?? "",
+      imageUrl ?? "",
+      flagValue(body.pickup),
+      flagValue(body.playground),
+      flagValue(body.large_dog ?? body.largeDog),
+      storeId,
+    )
+    .run();
+
+  const allImages = [imageUrl, ...imageUrls]
+    .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+    .map((url) => url.trim());
+
+  for (const [index, url] of allImages.entries()) {
+    await c.env.DB.prepare(
+      `
+      INSERT OR IGNORE INTO store_images (store_id, image_url, sort_order)
+      VALUES (?, ?, ?)
+    `,
+    )
+      .bind(storeId, url, index)
+      .run();
+  }
+
+  return c.json({ store_id: storeId, imported: true, image_count: allImages.length }, 201);
 });
 
 // 사장님-가게 연결: 가게 상세의 "내 가게로 등록" — store_key 업서트 후 owner_id 지정
@@ -1343,6 +1494,29 @@ async function sendReviewRequests(db: D1Database): Promise<number> {
 app.post("/api/internal/review-requests", async (c) => {
   const sent = await sendReviewRequests(c.env.DB);
   return c.json({ sent });
+});
+
+// 데이터 정비용 임시 엔드포인트 — 네이버 플레이스 업체사진이 가격표인지 비전 모델로 판별하고,
+// 가격표면 텍스트를 추출한다 (crawl-results 가격 이미지 스캔 스크립트 전용).
+app.post("/api/internal/vision-price-ocr", async (c) => {
+  const body = await c.req.json<{ image_url?: string; model?: string }>();
+  const imageUrl = (body.image_url ?? "").trim();
+  if (!imageUrl) return c.json({ error: "image_url이 필요합니다" }, 400);
+  // llava-1.5-7b-hf는 프롬프트를 그대로 되풀이하거나 없는 가격을 지어내는 사례가 확인되어(2026-08-09) 기본값 교체.
+  const model = body.model ?? "@cf/meta/llama-3.2-11b-vision-instruct";
+
+  const imageRes = await fetch(imageUrl);
+  if (!imageRes.ok) return c.json({ error: "이미지 다운로드 실패" }, 502);
+  const bytes = Array.from(new Uint8Array(await imageRes.arrayBuffer()));
+
+  const result = await c.env.AI.run(model, {
+    image: bytes,
+    prompt:
+      "이 이미지가 반려동물 유치원/호텔의 요금표(가격표) 사진인가요? 요금표이면 다른 설명 없이 '가격표:' 다음에 이미지에 실제로 적힌 서비스명과 가격만 콤마로 구분해 나열하세요(예시나 가상의 숫자를 만들지 마세요). 요금표가 아니면 다른 말 없이 '요금표 아님'이라고만 답하세요. 두 경우를 섞어서 답하지 마세요.",
+    max_tokens: 512,
+  });
+
+  return c.json({ result: result.description ?? result.response ?? "" });
 });
 
 export default {

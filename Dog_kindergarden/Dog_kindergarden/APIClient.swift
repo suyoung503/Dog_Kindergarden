@@ -130,6 +130,20 @@ final class APIClient {
         try await request(path: "/owners/\(userId)/stores", method: "GET")
     }
 
+    // 지도 핀 소스 — 선별(큐레이션)된 서울 가게 전체
+    func fetchStores() async throws -> [StoreDetailResponse] {
+        try await request(path: "/stores", method: "GET")
+    }
+
+    func fetchStoreDetail(storeKey: String) async throws -> StoreDetailResponse? {
+        var components = URLComponents(url: baseURL.appendingPathComponent("stores/detail"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "storeKey", value: storeKey)]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try await perform(request)
+    }
+
     // 내 가게 등록 해제 (잘못 등록 시 복구 경로)
     func unclaimStore(userId: Int, storeId: Int) async throws {
         let _: StoreUnclaimResponse = try await request(path: "/owners/\(userId)/stores/\(storeId)", method: "DELETE")
@@ -319,4 +333,30 @@ struct FavoriteAddResponse: Decodable {
 
 struct FavoriteDeleteResponse: Decodable {
     let ok: Bool?
+}
+
+struct StoreImageResponse: Decodable, Identifiable {
+    var id: Int { imageId ?? 0 }
+    let imageId: Int?
+    let imageUrl: String?
+    let sortOrder: Int?
+}
+
+struct StoreDetailResponse: Decodable {
+    let storeId: Int?
+    let storeKey: String?
+    let name: String?
+    let address: String?
+    let phone: String?
+    let status: String?
+    let latitude: Double?
+    let longitude: Double?
+    let openTime: String?
+    let pickup: Int?
+    let playground: Int?
+    let largeDog: Int?
+    let priceInfo: String?
+    let imageUrl: String?
+    let storeType: String?
+    let images: [StoreImageResponse]?
 }
