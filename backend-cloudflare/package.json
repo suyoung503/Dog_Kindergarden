@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "d1:migrate": "wrangler d1 migrations apply dog_kindergarden_db"
+    "d1:migrate": "wrangler d1 migrations apply dog_kindergarden_db",
+    "d1:migrate:local": "wrangler d1 migrations apply dog_kindergarden_db --local",
+    "crawl:seoul": "node scripts/crawl-store-details.mjs --region=서울 --limit=600",
+    "crawl:seoul:local": "node scripts/crawl-store-details.mjs --region=서울 --limit=600 --apply-local",
+    "scrape:naver-prices": "node scripts/scrape-naver-place-prices.mjs --limit=50",
+    "scrape:naver-prices:local": "node scripts/scrape-naver-place-prices.mjs --limit=50 --apply-local"
   },
   "dependencies": {
     "hono": "^4.6.10"

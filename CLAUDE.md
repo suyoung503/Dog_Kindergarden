@@ -69,9 +69,9 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 
 ### 지도 데이터 흐름
 
-1. `AnimalBoardingService`가 공공데이터 동물위탁관리업 API 호출 → 좌표가 TM(EPSG:5181)이므로 `TMConverter`로 WGS84 변환 (외부 라이브러리 없이 직접 구현, 대한민국 범위 밖 좌표는 필터링)
+1. `AnimalBoardingService`의 `BoardingStore`가 `GET /api/stores`(백엔드 `is_curated=1` 필터)를 호출해 **선별된 서울 유치원/호텔만** 핀 데이터로 가져온다(2026-08-20 이전엔 공공데이터 API를 직접 호출·전국 페이지네이션했으나, 서버가 `numOfRows`를 100건으로 강제 절단하는 미문서화 제한 때문에 대부분의 가게가 애초에 로드되지 않는 문제가 있어 폐기 — `TMConverter`·전국 페이지네이션 코드는 삭제). 큐레이션 목록은 공공데이터 폐업 여부 확인 + 네이버/카카오 보강 주소·좌표를 거쳐 `backend-cloudflare/crawl-results/apply-curated-seoul-*.sql`로 D1에 반영한 것 — 가격정보 유무와 무관하게 유치원/호텔이면 포함된다. 응답의 `store_key`는 `MapPin.storeKeyOverride`에 담아 식별 키가 어긋나지 않게 한다.
 2. `KakaoLocalService`로 마스킹된 주소 보강
-3. `KakaoMapView`는 뷰포트 기반: 지도 이동이 멈추면(`cameraDidStopped`) 현재 화면 위경도 범위 안의 가게만 핀 표시, 중심 가까운 순 개수 상한
+3. `KakaoMapView`는 뷰포트 기반: 지도 이동이 멈추면(`cameraDidStopped`) 현재 화면 위경도 범위 안의 가게만 핀 표시, 중심 가까운 순 개수 상한(현재 큐레이션 대상이 서울로 한정되어 있어 서울 밖에서는 핀이 뜨지 않음 — 전국 확장 시 재검토)
 4. 가게 상세(`StoreDetailView`)의 주소 보강은 **네이버 우선**: `NaverLocalService`(지역 검색)가 층·건물·호까지 상세한 등록 주소를 주고, 카카오는 전화·카카오맵 링크를 보강, 둘 다 없으면 좌표→주소 변환(지번) 폴백. 동명 타지역 가게 오매칭 방지로 검색 결과 중 핀 좌표 최근접을 고르고 **3km 밖이면 기각**한다. 네이버 검색 API(지역·블로그)는 구 developers.naver.com이 아니라 **NCP NAVER API HUB**(`naverapihub.apigw.ntruss.com`, 헤더 `X-NCP-APIGW-API-KEY-ID`/`-KEY`) 경유 — 응답 포맷은 구 API와 동일. 상세는 `docs/PORTFOLIO.md` §12.
 
 ### 핵심 도메인 설계 — 공공 가게의 ID 승격

@@ -10,6 +10,7 @@ struct StoreDetailView: View {
     @State private var blogService = NaverBlogService()
     @State private var showWriteSheet = false
     @State private var kakaoPlace: KakaoPlace? = nil   // 네이버·카카오로 보강한 전체 주소·전화
+    @State private var storeDetail: StoreDetailResponse? = nil // DB 크롤링 보강 정보
     @State private var favoriteStoreId: Int? = nil     // nil이 아니면 찜한 가게 (해제용 store_id)
     @State private var isMyStore = false                // 사장님 계정: 이 가게가 내 가게로 등록됨
 
@@ -33,6 +34,7 @@ struct StoreDetailView: View {
                 VStack(spacing: 0) {
                     heroSection
                     titleCard
+                    crawledDetailSection  // DB 크롤링 보강 정보
                     petReviewSection      // 🐾 펫 특화 리뷰 (핵심 가치, 실데이터)
                     blogSection           // 📝 네이버 블로그 후기
                     noticeSection         // 일반 안내(체크리스트)
@@ -45,6 +47,9 @@ struct StoreDetailView: View {
             bottomBar
         }
         .task(id: storeKey) { await reviewService.load(storeKey: storeKey) }
+        .task(id: storeKey) {
+            storeDetail = (try? await APIClient.shared.fetchStoreDetail(storeKey: storeKey)) ?? nil
+        }
         .task(id: storeKey) {
             // 찜 여부 확인 — 내 찜 목록에서 같은 store_key 찾기
             guard let uid = authSession.userId else { return }
@@ -164,18 +169,26 @@ struct StoreDetailView: View {
 
     private var heroSection: some View {
         ZStack(alignment: .top) {
-            // 실제 가게 사진이 없으므로 브랜드 그라데이션 (사진인 척하지 않음)
-            LinearGradient(colors: [Color(hex: "#FFE6CC"), Color.brandOrange],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let imageURL = storeDetail?.imageUrl, let url = URL(string: imageURL), !imageURL.isEmpty {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        heroGradient
+                    }
+                }
                 .frame(height: 220)
+                .clipped()
                 .overlay(
-                    EmojiIcon(emoji: pin?.type == "호텔" ? "🏨" : "🏠", size: 64)
-                        .opacity(0.9)
-                )
-                .overlay(
-                    LinearGradient(colors: [.black.opacity(0.25), .clear],
+                    LinearGradient(colors: [.black.opacity(0.35), .clear],
                                    startPoint: .bottom, endPoint: .top)
                 )
+            } else {
+                heroGradient
+            }
 
             HStack {
                 Button(action: router.back) {
@@ -199,6 +212,16 @@ struct StoreDetailView: View {
             .padding(.top, 52)
         }
         .frame(height: 220)
+    }
+
+    private var heroGradient: some View {
+        LinearGradient(colors: [Color(hex: "#FFE6CC"), Color.brandOrange],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+            .frame(height: 220)
+            .overlay(
+                EmojiIcon(emoji: pin?.type == "호텔" ? "🏨" : "🏠", size: 64)
+                    .opacity(0.9)
+            )
     }
 
     private func heroButton(icon: String, tint: Color = Color.brandBrown) -> some View {
@@ -305,6 +328,86 @@ struct StoreDetailView: View {
         .shadow(color: Color.brandBrown.opacity(0.12), radius: 12, x: 0, y: 10)
         .padding(.horizontal, 16)
         .offset(y: -28)
+    }
+
+    // MARK: - 크롤링 보강 상세
+
+    private var crawledDetailSection: some View {
+        Group {
+            if hasCrawledDetail {
+                sectionWrapper(title: "상세 정보") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        FlowTags(tags: crawledTags)
+
+                        if let price = storeDetail?.priceInfo, !price.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("가격")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(Color.brandBrown)
+                                Text(price)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.brandBrownMid)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
+                        }
+
+                        if !extraImageUrls.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(extraImageUrls.prefix(4), id: \.self) { raw in
+                                        if let url = URL(string: raw) {
+                                            AsyncImage(url: url) { phase in
+                                                switch phase {
+                                                case .success(let image):
+                                                    image.resizable().scaledToFill()
+                                                default:
+                                                    Color(hex: "#FFE6CC")
+                                                }
+                                            }
+                                            .frame(width: 88, height: 88)
+                                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text("크롤링/검색 기반 보강 정보라 실제 운영 정보와 다를 수 있어요.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.brandBrownLight)
+                    }
+                }
+            }
+        }
+    }
+
+    private var hasCrawledDetail: Bool {
+        guard let detail = storeDetail else { return false }
+        return detail.largeDog == 1
+            || detail.pickup == 1
+            || detail.playground == 1
+            || !(detail.priceInfo ?? "").isEmpty
+            || !(detail.imageUrl ?? "").isEmpty
+            || !(detail.images ?? []).isEmpty
+    }
+
+    private var crawledTags: [String] {
+        var tags: [String] = []
+        if storeDetail?.largeDog == 1 { tags.append("대형견 가능") }
+        if storeDetail?.pickup == 1 { tags.append("픽업 가능") }
+        if storeDetail?.playground == 1 { tags.append("운동장 있음") }
+        if tags.isEmpty { tags.append("상세 확인 필요") }
+        return tags
+    }
+
+    private var extraImageUrls: [String] {
+        (storeDetail?.images ?? [])
+            .compactMap { $0.imageUrl }
+            .filter { !$0.isEmpty && $0 != (storeDetail?.imageUrl ?? "") }
     }
 
     // MARK: - 블로그 후기 (네이버)

@@ -13,3 +13,6 @@ crons = ["0 9 * * *"]
 binding = "DB"
 database_name = "dog_kindergarden_db"
 database_id = "02c8c308-32cb-4a5c-b785-a0d6ba01d236"
+
+[ai]
+binding = "AI"
