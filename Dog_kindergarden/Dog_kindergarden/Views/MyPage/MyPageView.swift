@@ -178,9 +178,29 @@ struct MyPageView: View {
 
     private var supportSection: some View {
         MyPageSection(title: "고객지원") {
-            MyPageItem(icon: "bubble.left",       label: "1:1 문의")
+            MyPageItem(icon: "bubble.left",       label: "1:1 문의") { openSupportChat() }
             MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
             MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
+        }
+    }
+
+    // 1:1 문의 — "고객센터"를 고정 store_key를 가진 가상 가게로 취급해 기존 채팅 인프라 재사용.
+    // 기존 방 있으면 그 방으로, 없으면 작성 모드로 진입 (StoreDetailView.openChat()과 동일 패턴)
+    private func openSupportChat() {
+        let key = "맡겨멍 고객센터|고객센터"
+        Task {
+            guard let uid = authSession.userId else { return }
+            let rid = await ChatService.lookup(userId: uid, storeKey: key)
+            router.selectedPin = MapPin(
+                name: "맡겨멍 고객센터", type: "고객센터", rating: 0, distance: "",
+                latitude: 0, longitude: 0, province: "",
+                storeKeyOverride: key
+            )
+            router.selectedChat = "맡겨멍 고객센터"
+            router.selectedRoomId = rid
+            router.chatRoomAsOwner = false
+            router.chatRoomAvatar = "🎧"
+            router.go(.chatRoom)
         }
     }
 
