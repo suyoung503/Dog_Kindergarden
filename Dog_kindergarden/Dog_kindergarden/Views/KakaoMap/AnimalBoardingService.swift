@@ -33,7 +33,8 @@ final class BoardingStore {
                     address: store.address ?? "",
                     phone: store.phone ?? "",
                     status: store.status ?? "",
-                    storeKeyOverride: key
+                    storeKeyOverride: key,
+                    imageUrl: store.imageUrl
                 )
             }
             await MainActor.run {
