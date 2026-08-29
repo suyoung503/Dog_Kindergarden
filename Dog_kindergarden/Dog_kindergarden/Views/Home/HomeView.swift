@@ -19,9 +19,9 @@ struct HomeView: View {
     private let metroKeys = ["서울", "경기"]
     // 화면 영역 안 가게가 많을 때 표시 상한 (중심에서 가까운 순)
     private let maxVisiblePins = 50
-    // 초기 지도 위치 — 서울+경기가 한 화면에 들어오도록
-    private let metroCenter = (lat: 37.45, lon: 127.0)
-    private let metroZoom = 8
+    // 초기 지도 위치 — 서울 중심, 큐레이션 대상이 서울로 한정돼 있어 서울이 크게 보이도록 확대
+    private let metroCenter = (lat: 37.5665, lon: 126.9780)
+    private let metroZoom = 10
 
     // 현재 화면 범위 + (유형·검색·리뷰태그) 필터를 전국 데이터에 적용
     private var visiblePins: [MapPin] {
