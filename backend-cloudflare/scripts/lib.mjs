@@ -75,6 +75,14 @@ export function isSubset(a, b) {
 // "THE발라당고양이호텔"(고양이 전용 지점)이 1위였다 — 같은 건물이라 거리 필터로도 못 거른다.
 // 그래서 이름이 실질적으로 같다고 볼 수 있는 후보만 채택하고, 없으면 매칭 실패로 둔다.
 export function namesLikelyMatch(storeName, placeName) {
+  if (namesLikelyMatchExact(storeName, placeName)) return true;
+  // "waldog(왈독)"처럼 영문명(한글별칭) 형태면 괄호 안 별칭만 따로도 대조해본다 —
+  // 네이버 등록명("왈독 강아지 유치원...")엔 영문명이 안 붙어있어 원문 그대로는 안 걸림.
+  const alias = parenAlias(storeName);
+  return alias ? namesLikelyMatchExact(alias, placeName) : false;
+}
+
+function namesLikelyMatchExact(storeName, placeName) {
   const flatA = flattenName(storeName);
   const flatB = flattenName(placeName);
   if (!flatA || !flatB) return false;
@@ -83,6 +91,11 @@ export function namesLikelyMatch(storeName, placeName) {
   const tokensA = nameTokens(storeName);
   const tokensB = nameTokens(placeName);
   return isSubset(tokensA, tokensB) || isSubset(tokensB, tokensA);
+}
+
+function parenAlias(name) {
+  const m = String(name ?? "").match(/\(([^)]+)\)/);
+  return m ? m[1].trim() : "";
 }
 
 export function sqlString(value) {
