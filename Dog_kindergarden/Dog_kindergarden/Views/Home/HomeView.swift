@@ -320,10 +320,26 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: Radius.lg)
-                    .fill(bg)
+                if let imageUrlString = pin.imageUrl, let url = URL(string: imageUrlString), !imageUrlString.isEmpty {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        default:
+                            ZStack {
+                                RoundedRectangle(cornerRadius: Radius.lg).fill(bg)
+                                EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 34)
+                            }
+                        }
+                    }
                     .frame(height: 64)
-                EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                } else {
+                    RoundedRectangle(cornerRadius: Radius.lg)
+                        .fill(bg)
+                        .frame(height: 64)
+                    EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 34)
+                }
                 Text(pin.type)
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.white)

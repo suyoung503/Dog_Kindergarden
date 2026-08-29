@@ -17,11 +17,12 @@ struct MapPin: Identifiable, Codable {
     var status: String = ""
     // 서버에 저장된 원본 키 — 찜 목록처럼 보강된 주소로 복원할 때 키가 달라지는 것 방지
     var storeKeyOverride: String? = nil
+    var imageUrl: String? = nil
 
     // 최근 본 가게 영속(JSON)용 — id는 실행마다 새로 부여하므로 제외
     private enum CodingKeys: String, CodingKey {
         case name, type, rating, distance, latitude, longitude, province
-        case address, phone, status, storeKeyOverride
+        case address, phone, status, storeKeyOverride, imageUrl
     }
 
     // 리뷰 식별 키 (백엔드 store_key)
