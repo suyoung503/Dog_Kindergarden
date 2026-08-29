@@ -70,12 +70,22 @@ final class NaverBlogService {
                     date: Self.formatDate(item.postdate)
                 )
             }
-            await MainActor.run { self.posts = mapped }
+            await MainActor.run { self.posts = Self.filterRelevant(mapped, storeName: storeName) }
         } catch {
             #if DEBUG
             print("⚠️ 네이버 블로그 검색 실패: \(error)")
             #endif
         }
+    }
+
+    // 검색 유사도(sort=sim)만으로는 지역명만 일치해도 가게와 무관한 글이 섞여 들어와
+    // 본문(snippet)에 가게명이 실제로 언급된 글만 남긴다. 전체 상호명으로 안 걸리면
+    // 핵심 브랜드명(첫 단어)으로 완화 — 그래도 없으면 빈 배열(빈 상태 UI로 처리됨).
+    private static func filterRelevant(_ posts: [BlogPost], storeName: String) -> [BlogPost] {
+        let matchedFull = posts.filter { $0.snippet.contains(storeName) }
+        if !matchedFull.isEmpty { return matchedFull }
+        guard let coreName = storeName.split(separator: " ").first, coreName.count >= 2 else { return [] }
+        return posts.filter { $0.snippet.contains(coreName) }
     }
 
     private static func formatDate(_ raw: String?) -> String {
