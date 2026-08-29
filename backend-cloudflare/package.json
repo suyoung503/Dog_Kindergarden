@@ -11,7 +11,9 @@
     "crawl:seoul": "node scripts/crawl-store-details.mjs --region=서울 --limit=600",
     "crawl:seoul:local": "node scripts/crawl-store-details.mjs --region=서울 --limit=600 --apply-local",
     "scrape:naver-prices": "node scripts/scrape-naver-place-prices.mjs --limit=50",
-    "scrape:naver-prices:local": "node scripts/scrape-naver-place-prices.mjs --limit=50 --apply-local"
+    "scrape:naver-prices:local": "node scripts/scrape-naver-place-prices.mjs --limit=50 --apply-local",
+    "crawl:images": "node scripts/crawl-store-images.mjs --limit=50",
+    "crawl:images:local": "node scripts/crawl-store-images.mjs --limit=50 --apply-local"
   },
   "dependencies": {
     "hono": "^4.6.10"

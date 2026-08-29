@@ -28,6 +28,13 @@ CI에 연결되지 않은 수동 실행 스크립트이며, 결과는 `crawl-res
 이후 키워드/카테고리 기준으로 최종 목록을 추리고 `apply-curated-*.sql`을 만드는 과정은 스크립트가 아니라
 직접 검토하며 진행했다 — 산출물은 `crawl-results/`에 SQL 파일로만 남아있다.
 
+5. **crawl-store-images.mjs** (`npm run crawl:images`)
+   배포 API(`GET /api/stores`)에서 `image_url`이 비어있는 큐레이션 가게를 뽑아, 네이버 플레이스
+   검색 목록 페이지가 제공하는 대표 이미지(`imageUrl` 필드)로 채운다. 상세페이지를 열 필요 없이
+   가격/카테고리 스크립트와 같은 목록 페이지 fetch 한 번으로 끝난다.
+   입력: 없음 (배포 API 직접 호출)
+   출력: `crawl-results/store-images-{timestamp}.json`, `.sql`
+
 ## 공통 유틸 (lib.mjs)
 
 Apollo State 파싱, 이름 매칭(`namesLikelyMatch`), SQL 문자열 이스케이프, rate-limit용 `sleep`,
