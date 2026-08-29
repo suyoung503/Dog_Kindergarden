@@ -31,7 +31,7 @@ struct StoreDetailView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(spacing: 0) {
                     heroSection
                     titleCard
                     crawledDetailSection  // DB 크롤링 보강 정보
@@ -536,6 +536,7 @@ struct StoreDetailView: View {
             EmojiTitle(title: title)
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.top, 4)
     }
