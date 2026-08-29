@@ -231,6 +231,26 @@ async function findRoomId(
 
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME }));
 
+// 공지사항 목록 — 본문 제외, 최신순
+app.get("/api/notices", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, title, created_at FROM notices ORDER BY created_at DESC`,
+  ).all();
+  return c.json(results);
+});
+
+// 공지사항 상세
+app.get("/api/notices/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const notice = await c.env.DB.prepare(
+    `SELECT id, title, body, created_at FROM notices WHERE id = ?`,
+  )
+    .bind(id)
+    .first();
+  if (!notice) return c.json({ message: "notice not found" }, 404);
+  return c.json(notice);
+});
+
 // 지도 핀 소스 — 선별(is_curated) 서울 가게만 반환. 가격정보 유무와 무관하게 유치원/호텔이면 포함.
 app.get("/api/stores", async (c) => {
   const { results } = await c.env.DB.prepare(
