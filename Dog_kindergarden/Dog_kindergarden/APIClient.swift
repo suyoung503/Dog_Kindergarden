@@ -135,6 +135,15 @@ final class APIClient {
         try await request(path: "/stores", method: "GET")
     }
 
+    // 공지사항 — 목록은 본문 제외, 상세는 본문 포함(body가 nil이면 목록에서 온 요약)
+    func fetchNotices() async throws -> [Notice] {
+        try await request(path: "/notices", method: "GET")
+    }
+
+    func fetchNotice(id: Int) async throws -> Notice? {
+        try await request(path: "/notices/\(id)", method: "GET")
+    }
+
     func fetchStoreDetail(storeKey: String) async throws -> StoreDetailResponse? {
         var components = URLComponents(url: baseURL.appendingPathComponent("stores/detail"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "storeKey", value: storeKey)]
@@ -359,4 +368,11 @@ struct StoreDetailResponse: Decodable {
     let imageUrl: String?
     let storeType: String?
     let images: [StoreImageResponse]?
+}
+
+struct Notice: Decodable, Identifiable {
+    let id: Int
+    let title: String
+    let createdAt: String
+    let body: String?
 }

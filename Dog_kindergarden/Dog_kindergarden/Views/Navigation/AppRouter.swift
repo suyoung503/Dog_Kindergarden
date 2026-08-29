@@ -19,6 +19,8 @@ enum AppScreen {
     case ownerDiaryList
     case myDiaryList
     case diary
+    case noticeList
+    case noticeDetail
 }
 
 // 알림장 화면 전달 컨텍스트 — 어느 예약의 알림장인지 + 작성 권한(사장님) 여부
@@ -60,6 +62,7 @@ final class AppRouter {
     private var activeUserId: Int? = nil           // recentPins 저장 키에 쓰는 현재 계정
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
     var diaryContext: DiaryContext? = nil          // 알림장 화면 진입 컨텍스트 (예약·작성 권한)
+    var selectedNotice: Notice? = nil      // 공지사항 목록에서 탭한 항목 — 상세 화면에 전달
 
     // 프로필 미설정 시 사용할 사용자 강아지 아바타 (dog_c 고정)
     let userDogAvatar: String = "dog_c"
