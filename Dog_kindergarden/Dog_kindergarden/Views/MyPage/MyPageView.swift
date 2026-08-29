@@ -37,7 +37,7 @@ struct MyPageView: View {
             guard let uid = authSession.userId else { return }
             reservationCount = (try? await APIClient.shared.fetchReservations(userId: uid))?.count
             petCount = (try? await APIClient.shared.fetchPets(userId: uid))?.count
-            chatCount = (try? await ChatService.rooms(userId: uid))?.count
+            chatCount = await ChatService.unreadCount(userId: uid)
             favoriteCount = (try? await APIClient.shared.fetchFavorites(userId: uid))?.count
             await reloadMyStores()
         }
@@ -145,7 +145,6 @@ struct MyPageView: View {
             MyPageItem(icon: "calendar",         label: "예약 내역",    badge: reservationCount.map(String.init), bg: Color(hex: "#FFE6CC")) { router.go(.reservationList) }
             MyPageItem(icon: "heart",             label: "찜한 가게",    badge: favoriteCount.map(String.init), bg: Color(hex: "#FFC4C4")) { router.go(.favorites) }
             MyPageItem(icon: "message",           label: "채팅",         badge: chatCount.map(String.init), bg: Color.brandGreenLight) { router.go(.chatList) }
-            MyPageItem(icon: "gift",              label: "쿠폰함",       badge: "5장", bg: Color(hex: "#FFF1A8"))
         }
     }
 
@@ -161,8 +160,14 @@ struct MyPageView: View {
                 MyPageItem(icon: "building.2",    label: "내 가게",      badge: myStoreBadge, bg: Color(hex: "#FFD9A8")) { showMyStoreSheet = true }
             }
             MyPageItem(icon: "pawprint",          label: "우리 아이 프로필", bg: Color(hex: "#FFE6CC")) { router.go(.dogProfile) }
-            MyPageItem(icon: "bell",              label: "알림 설정",    bg: Color.brandBlueLight)
-            MyPageItem(icon: "gearshape",         label: "앱 설정",      bg: Color(hex: "#E8E0F0"))
+            MyPageItem(icon: "bell",              label: "알림 설정",    bg: Color.brandBlueLight) { openNotificationSettings() }
+        }
+    }
+
+    // 아이폰 설정 앱의 맡겨멍 알림 설정 화면으로 이동
+    private func openNotificationSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
         }
     }
 
