@@ -380,7 +380,7 @@ private let fabItems: [FABItem] = [
     FABItem(icon: "message",         label: "채팅",         bg: Color.brandGreenLight, destination: .chatList),
     FABItem(icon: "calendar",        label: "예약 내역",    bg: Color(hex: "#FFF1A8"), destination: .reservationList),
     FABItem(icon: "book.closed",     label: "확정예약·알림장", bg: Color(hex: "#F5E6C8"), destination: .myDiaryList),
-    FABItem(icon: "gearshape",       label: "설정",           bg: Color.brandBlueLight,  destination: .myPage),
+    FABItem(icon: "gearshape",       label: "마이페이지",     bg: Color.brandBlueLight,  destination: .myPage),
 ]
 
 // 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정, 맡은 아이 알림장 작성
