@@ -82,6 +82,8 @@ struct RootView: View {
         case .ownerDiaryList: OwnerDiaryListView()
         case .myDiaryList: MyDiaryListView()
         case .diary:       DiaryTimelineView()
+        case .noticeList:  NoticeListView()
+        case .noticeDetail: NoticeDetailView()
         }
     }
 }

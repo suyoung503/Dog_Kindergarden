@@ -179,7 +179,7 @@ struct MyPageView: View {
     private var supportSection: some View {
         MyPageSection(title: "고객지원") {
             MyPageItem(icon: "bubble.left",       label: "1:1 문의")
-            MyPageItem(icon: "megaphone",         label: "공지사항")
+            MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
             MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
         }
     }
