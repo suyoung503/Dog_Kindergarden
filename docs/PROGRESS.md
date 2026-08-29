@@ -92,6 +92,8 @@
 - [x] **블로그 후기 검색 결과에 가게명 언급 필터링 추가** (2026-08-29) — `NaverBlogService.load`가 "{지역} {가게명}"으로 네이버 블로그 검색을 호출한 뒤 `sort=sim`(유사도) 결과를 필터 없이 그대로 노출하고 있었음 — 블로그 검색은 AND가 아닌 느슨한 유사도 매칭이라 지역명만 강하게 일치해도 가게와 무관한 글이 상위로 올라올 수 있었고, 실제로 한 가게 상세에서 무관한 지역 소식 블로그가 노출되는 것을 확인해 사용자가 제보. 옆 파일의 `NaverLocalService.lookup`(주소 보강용)이 이미 "핀 좌표 3km 밖이면 기각"으로 사후 검증하는 패턴을 쓰는 것과 달리 블로그 검색엔 이런 검증이 없던 게 원인. 응답을 받은 뒤 **본문(snippet)에 가게명이 실제로 언급된 글만** 남기는 `filterRelevant` 후처리를 추가 — 전체 상호명으로 안 걸리면 핵심 브랜드명(첫 단어)으로 완화, 그래도 없으면 빈 배열 반환(기존 "관련 블로그 글을 찾지 못했어요" 빈 상태 UI로 자연 처리). 제목이 아닌 본문 기준으로 필터링한 이유는 후기 제목은 감성적 문구만 쓰고 가게명을 안 담는 경우가 많아 제목 기준이면 실제 관련 글까지 걸러낼 위험이 있기 때문(사용자 지적 반영). xcodebuild BUILD SUCCEEDED — 시뮬레이터 시각 확인은 이번 세션 자동화 불안정으로 생략, 사용자에게 한계 고지. 커밋 `697bacf`, 원격 푸시 완료.
 - [x] **홈 사이드바 '설정' 라벨을 '마이페이지'로 정정** (2026-08-29) — `FloatingActionButton`의 `fabItems` 배열에서 `destination`은 원래도 `.myPage`였지만 라벨이 '설정'으로 표기돼 있어 실제 이동 화면과 불일치하던 것을 '마이페이지'로 수정. xcodebuild BUILD SUCCEEDED. 커밋 `3268147`, 원격 푸시 완료.
 - [x] **홈 화면 지도 초기 위치를 서울 중심으로 + 확대 레벨 조정** (2026-08-29) — 기존 `HomeView.metroCenter`(37.45, 127.0)는 서울+경기가 한 화면에 들어오도록 잡은 중간 좌표였는데, 큐레이션 대상이 서울로 한정돼 있어(가게 대표이미지 작업 등에서 재확인) 서울시청 좌표(37.5665, 126.9780)로 중심을 옮기고 `metroZoom`을 8→10으로 확대. 이 SDK는 레벨 숫자가 클수록 확대되는 방식(`KakaoMapView.swift:99` 주석 "값이 클수록 확대"로 확인) — 처음에 반대로 8→7로 낮췄다가(축소) 방향 오류를 발견해 정정. 시뮬레이터 스크린샷으로 8/10/11/12를 비교: 11·12는 지도 배경(도로·지명)이 거의 안 보일 만큼 과확대되고 핀도 심하게 겹쳐 기각, 서울 윤곽(고양·구리·과천·성남 등 인접 지명)과 핀 클러스터가 균형 잡힌 10으로 확정. xcodebuild BUILD SUCCEEDED. 커밋 `d8d7080`, 원격 푸시 완료.
+- [x] **공지사항 기능 신설 — 백엔드 notices 테이블 + iOS 목록/상세 화면 + 프로덕션 배포** (2026-08-29) — 마이페이지의 죽어있던 '공지사항' 버튼(`megaphone` 아이콘)을 살리는 기능. 브레인스토밍→설계(`docs/superpowers/specs/2026-08-29-notice-board-design.md`)→계획(`docs/superpowers/plans/2026-08-29-notice-board.md`)을 거쳐 subagent-driven-development로 구현. **백엔드:** `notices` 테이블(마이그레이션 `0017_notices.sql` — `id`/`title`/`body`/`created_at`) + `GET /api/notices`(본문 제외, 최신순)·`GET /api/notices/:id` 신설 — 앱 내 작성 화면은 의도적으로 두지 않음(개발자가 DB에 직접 INSERT해서 운영). **iOS:** `NoticeListView`·`NoticeDetailView` 신설 + `AppRouter`에 `.noticeList`/`.noticeDetail`·`selectedNotice` 추가, 마이페이지 버튼 연결. 커밋 `81e28fe`(백엔드)·`62246fb`(iOS). **배포:** 원격 마이그레이션 적용 중 이전 세션에 수동으로 반영됐던 `stores.category` 컬럼(마이그레이션 0016)이 `d1_migrations` 기록엔 없어 적용이 막히는 드리프트를 발견 — 사용자 확인 후 0016은 적용완료로만 기록(SQL 재실행 없이)하고 0017을 정상 적용, `wrangler deploy` 후 curl로 프로덕션 엔드포인트 재검증. **시뮬레이터 확인:** `osascript`/System Events 좌표 클릭이 Accessibility 권한을 켜도 시뮬레이터에 실제 터치를 전달하지 못하는 환경 한계를 발견(원인 미해결) — 임시 `#if DEBUG` 런치 인자 훅(`RootView.swift`)으로 `router.stack`을 목록/상세 화면으로 직접 세팅해 실제 배포 API·SwiftUI 화면 렌더링을 스크린샷으로 확인한 뒤 코드·테스트 데이터 전부 원복(git diff 없음 확인). 실제 공지는 `npx wrangler d1 execute dog_kindergarden_db --remote --command "INSERT INTO notices ..."`로 직접 등록(앱스토어 출시 준비 안내문 1건).
+- [x] **공지 제목 이모지 표시 실험 — EmojiTitle 에셋 적용 시도 후 전부 원복** (2026-08-29) — 위에서 올린 공지 제목 끝의 🐾 이모지가 시뮬레이터에서 안 보인다는 제보로 시작해 여러 차례 조정. 다른 화면(가게 상세·예약·사장님 모드)에서 쓰는 `EmojiTitle`(문자열 맨 앞 이모지를 `icon_paw` 등 PNG 에셋으로 치환하는 컴포넌트, `EmojiIcon.swift`)을 공지 목록/상세에 적용하며 이모지를 문장 맨 앞으로 이동 → 에셋 크기가 본문 텍스트와 안 맞아 맨 왼쪽으로 밀려 보인다는 재지적에 `EmojiTitle`에 문장 끝 이모지도 지원하는 trailing 케이스를 추가 → 그래도 어색하다는 최종 피드백에 에셋 적용을 전부 되돌리고(`EmojiIcon.swift`·`NoticeListView.swift`·`NoticeDetailView.swift`를 원본과 완전히 동일하게 복원, `git diff` 없음으로 확인) 공지 제목은 순수 `Text` + 이모지 없는 문구로 최종 정리. 매 단계 xcodebuild BUILD SUCCEEDED로 검증. 코드 변경은 결과적으로 전부 되돌아가 별도 커밋 없음(작업 트리는 `main`과 동일하게 깨끗한 상태로 종료).
 
 ---
 
@@ -156,11 +158,12 @@
 | 푸시 알림(서버 이벤트 피드 + 로컬 알림) | ✅ 구현 완료 (2026-07-23, 백엔드 배포·curl 검증 + iOS xcodebuild 확인 — 시뮬레이터 종단 검증은 별도 예정) |
 | README | ✅ 작성 완료 |
 | 백엔드 의존성 취약점 | ✅ 해소 (2026-07-13, npm audit fix 6건 + 재배포) |
+| 공지사항 | ✅ 구현 완료 (2026-08-29, 배포·curl·시뮬레이터 우회 검증 완료 — 앱 내 작성 화면 없이 DB 직접 INSERT로 운영) |
 
 ---
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. 최신 푸시 커밋 `d8d7080` — 홈 지도 초기 위치 서울 중심 + 확대 레벨 조정
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. 최신 푸시 커밋 `62246fb` — 공지사항 iOS 목록/상세 화면
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
