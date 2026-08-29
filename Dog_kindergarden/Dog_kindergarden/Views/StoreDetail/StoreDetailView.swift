@@ -31,7 +31,7 @@ struct StoreDetailView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     heroSection
                     titleCard
                     crawledDetailSection  // DB 크롤링 보강 정보
