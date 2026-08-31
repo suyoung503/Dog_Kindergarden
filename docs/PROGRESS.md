@@ -1,6 +1,6 @@
 # 맡겨멍 — 현재 진행상황 및 다음 단계
 
-**마지막 업데이트:** 2026-08-29
+**마지막 업데이트:** 2026-09-01
 
 ---
 
@@ -94,6 +94,9 @@
 - [x] **홈 화면 지도 초기 위치를 서울 중심으로 + 확대 레벨 조정** (2026-08-29) — 기존 `HomeView.metroCenter`(37.45, 127.0)는 서울+경기가 한 화면에 들어오도록 잡은 중간 좌표였는데, 큐레이션 대상이 서울로 한정돼 있어(가게 대표이미지 작업 등에서 재확인) 서울시청 좌표(37.5665, 126.9780)로 중심을 옮기고 `metroZoom`을 8→10으로 확대. 이 SDK는 레벨 숫자가 클수록 확대되는 방식(`KakaoMapView.swift:99` 주석 "값이 클수록 확대"로 확인) — 처음에 반대로 8→7로 낮췄다가(축소) 방향 오류를 발견해 정정. 시뮬레이터 스크린샷으로 8/10/11/12를 비교: 11·12는 지도 배경(도로·지명)이 거의 안 보일 만큼 과확대되고 핀도 심하게 겹쳐 기각, 서울 윤곽(고양·구리·과천·성남 등 인접 지명)과 핀 클러스터가 균형 잡힌 10으로 확정. xcodebuild BUILD SUCCEEDED. 커밋 `d8d7080`, 원격 푸시 완료.
 - [x] **공지사항 기능 신설 — 백엔드 notices 테이블 + iOS 목록/상세 화면 + 프로덕션 배포** (2026-08-29) — 마이페이지의 죽어있던 '공지사항' 버튼(`megaphone` 아이콘)을 살리는 기능. 브레인스토밍→설계(`docs/superpowers/specs/2026-08-29-notice-board-design.md`)→계획(`docs/superpowers/plans/2026-08-29-notice-board.md`)을 거쳐 subagent-driven-development로 구현. **백엔드:** `notices` 테이블(마이그레이션 `0017_notices.sql` — `id`/`title`/`body`/`created_at`) + `GET /api/notices`(본문 제외, 최신순)·`GET /api/notices/:id` 신설 — 앱 내 작성 화면은 의도적으로 두지 않음(개발자가 DB에 직접 INSERT해서 운영). **iOS:** `NoticeListView`·`NoticeDetailView` 신설 + `AppRouter`에 `.noticeList`/`.noticeDetail`·`selectedNotice` 추가, 마이페이지 버튼 연결. 커밋 `81e28fe`(백엔드)·`62246fb`(iOS). **배포:** 원격 마이그레이션 적용 중 이전 세션에 수동으로 반영됐던 `stores.category` 컬럼(마이그레이션 0016)이 `d1_migrations` 기록엔 없어 적용이 막히는 드리프트를 발견 — 사용자 확인 후 0016은 적용완료로만 기록(SQL 재실행 없이)하고 0017을 정상 적용, `wrangler deploy` 후 curl로 프로덕션 엔드포인트 재검증. **시뮬레이터 확인:** `osascript`/System Events 좌표 클릭이 Accessibility 권한을 켜도 시뮬레이터에 실제 터치를 전달하지 못하는 환경 한계를 발견(원인 미해결) — 임시 `#if DEBUG` 런치 인자 훅(`RootView.swift`)으로 `router.stack`을 목록/상세 화면으로 직접 세팅해 실제 배포 API·SwiftUI 화면 렌더링을 스크린샷으로 확인한 뒤 코드·테스트 데이터 전부 원복(git diff 없음 확인). 실제 공지는 `npx wrangler d1 execute dog_kindergarden_db --remote --command "INSERT INTO notices ..."`로 직접 등록(앱스토어 출시 준비 안내문 1건).
 - [x] **공지 제목 이모지 표시 실험 — EmojiTitle 에셋 적용 시도 후 전부 원복** (2026-08-29) — 위에서 올린 공지 제목 끝의 🐾 이모지가 시뮬레이터에서 안 보인다는 제보로 시작해 여러 차례 조정. 다른 화면(가게 상세·예약·사장님 모드)에서 쓰는 `EmojiTitle`(문자열 맨 앞 이모지를 `icon_paw` 등 PNG 에셋으로 치환하는 컴포넌트, `EmojiIcon.swift`)을 공지 목록/상세에 적용하며 이모지를 문장 맨 앞으로 이동 → 에셋 크기가 본문 텍스트와 안 맞아 맨 왼쪽으로 밀려 보인다는 재지적에 `EmojiTitle`에 문장 끝 이모지도 지원하는 trailing 케이스를 추가 → 그래도 어색하다는 최종 피드백에 에셋 적용을 전부 되돌리고(`EmojiIcon.swift`·`NoticeListView.swift`·`NoticeDetailView.swift`를 원본과 완전히 동일하게 복원, `git diff` 없음으로 확인) 공지 제목은 순수 `Text` + 이모지 없는 문구로 최종 정리. 매 단계 xcodebuild BUILD SUCCEEDED로 검증. 코드 변경은 결과적으로 전부 되돌아가 별도 커밋 없음(작업 트리는 `main`과 동일하게 깨끗한 상태로 종료).
+- [x] **앱 아이콘 등록 — 맡겨멍 로고** (2026-09-01) — `AppIcon.appiconset`에 1024×1024 로고 이미지를 추가하고 `Contents.json`에 참조를 연결. 커밋 `3afcf9e`.
+- [x] **카카오톡 앱 로그인 복귀 URL 미전달 버그 수정** (2026-09-01) — Scene 기반 앱 생명주기에서는 OAuth 리다이렉트 URL이 `AppDelegate`가 아니라 `SceneDelegate.scene(_:openURLContexts:)`로 전달되는데 이 콜백이 구현돼 있지 않아, 카카오톡 앱을 거쳐 로그인한 뒤 앱으로 복귀해도 로그인 처리가 이어지지 않던 것을 수정. `SceneDelegate.swift`에 콜백 구현 추가. 커밋 `9f8ad5d`.
+- [x] **예약 확정 자동 채팅 메시지 + 알림 축 정리 + 채팅 UX 개선 + 예약취소 목록 반영 수정** (2026-09-01) — 여러 건을 한 커밋으로 묶어 반영. **(1) 예약 확정 자동 채팅 메시지:** `PATCH /api/reservations/:id/confirm`이 확정 시 고객 채팅방에 `sender_id=0` 자동 메시지("{가게명} 예약({이용일})이 확정되었어요. 예약 내역에서 확인해주세요")를 남기도록 추가 — "이벤트당 정확히 한 축" 불변식에 따라 예약 확정 이벤트를 예약 축에서 채팅 축으로 이전(`NotificationCursor`/`NotificationItem`의 `confirmed_at`/`"reservation_confirmed"` 및 예약 축의 "고객 예약 확정" 조회 블록 제거, iOS `AppNotificationService`의 대응 딥링크 분기도 함께 제거). CLAUDE.md의 채팅/예약 축 분리 규칙 문구도 실제 동작에 맞게 갱신. **(2) 채팅 UX 개선:** `RootView`의 `.ignoresSafeArea()`를 `.ignoresSafeArea(.container)`로 좁혀 전 화면에서 시스템 키보드 세이프에어리어 회피가 다시 정상 동작하도록 복구, `ChatRoomView` 메시지 목록이 `keyboardWillShowNotification`을 관찰해 키보드가 올라올 때 즉시 하단으로 스크롤(별도 애니메이션을 걸면 시스템 리사이즈 애니메이션과 겹쳐 두 번 움직이는 문제 방지). **(3) 예약취소 목록 반영 수정:** `ReservationListView.cancel`이 취소된 예약의 `status`만 바꿔 목록에 그대로 남아 있던 버그를, `reservations.remove(at:)`로 즉시 제거하고 실패 시 원래 자리로 롤백하는 낙관적 업데이트로 변경. **(4) 원복된 시도:** 채팅방 스와이프 제스처 2건(키보드를 아래로 스와이프해 닫기, 왼쪽→오른쪽 스와이프로 채팅 목록으로 뒤로가기)도 이번 세션에 시도 — `DragGesture` 기반(+`scrollDismissesKeyboard`), `UIScreenEdgePanGestureRecognizer` 기반 두 가지 구현 모두 실기기에서 동작하지 않는다는 피드백을 받아 전부 원복(관련 코드 변경 없음, 근본 원인은 미진단 상태로 보류 — 재시도 시 온디바이스 진단부터 필요). xcodebuild BUILD SUCCEEDED, 백엔드 배포 완료. 커밋 `1b16a4b`, 원격 푸시 완료.
 
 ---
 
@@ -179,6 +182,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. 최신 푸시 커밋 `62246fb` — 공지사항 iOS 목록/상세 화면
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. 최신 푸시 커밋 `1b16a4b` — 예약 확정 자동 채팅 메시지 + 채팅 UX 개선, 예약취소 목록 반영 수정
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`
