@@ -148,8 +148,6 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
         case "chat" where roomId > 0:
             link = .chat(roomId: roomId, title: title, asOwner: asOwner,
                          storeType: storeType.isEmpty ? nil : storeType)
-        case "reservation_confirmed":
-            link = .reservationList
         case "reservation_request", "reservation_canceled":
             link = .ownerMode
         default:

@@ -155,28 +155,18 @@ struct ReservationListView: View {
         await CalendarService.syncReservationEvents(reservations)
     }
 
-    // 낙관적 취소 — 실패 시 원래 상태로 복원
+    // 낙관적 취소 — 목록에서 즉시 제거, 실패 시 원래 자리에 복원
     private func cancel(_ reservation: ReservationSummary) {
         guard let rid = reservation.reservationId,
               let index = reservations.firstIndex(where: { $0.reservationId == rid }) else { return }
         let previous = reservations[index]
-        reservations[index] = ReservationSummary(
-            reservationId: previous.reservationId,
-            storeId: previous.storeId,
-            storeName: previous.storeName,
-            storeType: previous.storeType,
-            petName: previous.petName,
-            startDate: previous.startDate,
-            endDate: previous.endDate,
-            reservationType: previous.reservationType,
-            status: "CANCELED"
-        )
+        reservations.remove(at: index)
         Task {
             do {
                 try await APIClient.shared.cancelReservation(reservationId: rid)
                 await CalendarService.removeReservationEvent(reservationId: rid)
             } catch {
-                reservations[index] = previous
+                reservations.insert(previous, at: index)
             }
         }
     }

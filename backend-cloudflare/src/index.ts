@@ -646,7 +646,7 @@ app.get("/api/owners/:id/reservations/confirmed", async (c) => {
   return c.json(results);
 });
 
-// 예약 확정 — 상태 변경 + 확정 시각 기록(알림 피드 커서용)
+// 예약 확정 — 상태 변경 + 고객 채팅방에 확정 안내 자동 메시지
 app.patch("/api/reservations/:id/confirm", async (c) => {
   const reservationId = Number(c.req.param("id"));
   await c.env.DB.prepare(
@@ -654,6 +654,31 @@ app.patch("/api/reservations/:id/confirm", async (c) => {
   )
     .bind(reservationId)
     .run();
+
+  const target = await c.env.DB.prepare(
+    `
+    SELECT cr.room_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
+    FROM reservations r
+    LEFT JOIN stores s ON s.store_id = r.store_id
+    JOIN chat_rooms cr ON cr.user_id = r.user_id AND cr.store_id = r.store_id
+    WHERE r.reservation_id = ?
+  `,
+  )
+    .bind(reservationId)
+    .first<{ room_id: number; store_name: string; start_date: string }>();
+  if (target) {
+    await c.env.DB.prepare(
+      `
+      INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
+      VALUES (?, 0, '맡겨멍', 'AUTO', ?)
+    `,
+    )
+      .bind(
+        target.room_id,
+        `${target.store_name} 예약(${target.start_date})이 확정되었어요. 예약 내역에서 확인해주세요`,
+      )
+      .run();
+  }
   return c.json({ ok: true });
 });
 
@@ -977,18 +1002,17 @@ app.get("/api/users/:id/unread-count", async (c) => {
 });
 
 // MARK: - 통합 알림 피드 (설계: docs/superpowers/specs/2026-07-18-push-notifications-design.md)
-// 중복 방지 불변식: 채팅 메시지를 남기는 이벤트(알림장·사장님 취소·리뷰 요청 등)는 채팅 축으로만,
-// 메시지가 없는 이벤트(새 요청·확정·고객 취소)는 예약 축으로만 들어간다 — 이벤트당 알림 1회.
+// 중복 방지 불변식: 채팅 메시지를 남기는 이벤트(알림장·예약 확정·사장님 취소·리뷰 요청 등)는 채팅 축으로만,
+// 메시지가 없는 이벤트(새 요청·고객 취소)는 예약 축으로만 들어간다 — 이벤트당 알림 1회.
 
 type NotificationCursor = {
   message_id?: number;
   request_id?: number;
-  confirmed_at?: string;
   canceled_at?: string;
 };
 
 type NotificationItem = {
-  type: "chat" | "reservation_request" | "reservation_confirmed" | "reservation_canceled";
+  type: "chat" | "reservation_request" | "reservation_canceled";
   title: string;
   body: string;
   room_id?: number;
@@ -1018,7 +1042,6 @@ app.get("/api/users/:id/notifications", async (c) => {
   const nextCursor: NotificationCursor = {
     message_id: maxMsg?.v ?? 0,
     request_id: maxRes?.v ?? 0,
-    confirmed_at: now?.v ?? "",
     canceled_at: now?.v ?? "",
   };
 
@@ -1033,7 +1056,6 @@ app.get("/api/users/:id/notifications", async (c) => {
   }
   const afterMessage = cursor.message_id ?? 0;
   const afterRequest = cursor.request_id ?? 0;
-  const afterConfirmed = cursor.confirmed_at ?? "";
   const afterCanceled = cursor.canceled_at ?? "";
 
   const items: NotificationItem[] = [];
@@ -1118,29 +1140,6 @@ app.get("/api/users/:id/notifications", async (c) => {
         type: "reservation_request",
         title: "새 예약 요청",
         body: `${row.pet_name ?? "강아지"} 보호자의 ${row.reservation_type ?? "예약"} 요청 — ${row.store_name ?? ""}`,
-        reservation_id: row.reservation_id,
-      });
-    }
-  }
-
-  // ── 예약 축 (고객) 예약 확정 — 확정 시스템 메시지는 없으므로 이 항목이 유일한 알림(1회 원칙)
-  if (afterConfirmed) {
-    const confirmed = await c.env.DB.prepare(
-      `
-      SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
-      FROM reservations r
-      LEFT JOIN stores s ON s.store_id = r.store_id
-      WHERE r.user_id = ? AND r.confirmed_at IS NOT NULL AND r.confirmed_at > ?
-      ORDER BY r.confirmed_at
-    `,
-    )
-      .bind(userId, afterConfirmed)
-      .all<{ reservation_id: number; store_name: string | null; start_date: string }>();
-    for (const row of confirmed.results) {
-      items.push({
-        type: "reservation_confirmed",
-        title: "예약 확정",
-        body: `${row.store_name ?? "가게"} 예약이 확정되었어요 — ${row.start_date}`,
         reservation_id: row.reservation_id,
       });
     }

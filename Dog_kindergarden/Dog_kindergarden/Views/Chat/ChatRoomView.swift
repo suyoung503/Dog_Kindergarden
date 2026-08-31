@@ -107,6 +107,7 @@ struct ChatRoomView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
     @State private var vm = ChatRoomViewModel()
+    @State private var didInitialScroll = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -185,6 +186,8 @@ struct ChatRoomView: View {
 
     // MARK: - Messages
 
+    private let bottomAnchorId = "chat-bottom-anchor"
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -196,14 +199,25 @@ struct ChatRoomView: View {
                         messageBubble(msg)
                             .id(msg.id)
                     }
+                    // 마지막 메시지 뒤 트레일링 여백을 메시지 사이 간격(spacing: 8)과 동일하게 유지하는 스크롤 앵커
+                    Color.clear.frame(height: 0).id(bottomAnchorId)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 16)
+                .padding(.top, 16)
             }
             .onChange(of: vm.messages.count) { _ in
-                if let last = vm.messages.last {
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                // 방 진입 시 첫 로드는 즉시 이동, 이후 새 메시지 도착 시에만 애니메이션
+                if didInitialScroll {
+                    withAnimation { proxy.scrollTo(bottomAnchorId, anchor: .bottom) }
+                } else {
+                    proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+                    didInitialScroll = true
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                // 별도 애니메이션을 걸면 시스템의 키보드 세이프에어리어 리사이즈 애니메이션과 겹쳐 두 번 움직이는 것처럼 보인다 —
+                // 즉시 이동시켜 화면엔 시스템 키보드 회피 애니메이션 하나만 보이게 한다
+                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
     }
