@@ -17,7 +17,9 @@ struct RootView: View {
             .environment(userProfile)
             .environment(authSession)
             .environment(notificationService)
-            .ignoresSafeArea()
+            // .container만 무시(노치·상태바·홈 인디케이터 edge-to-edge 유지) — .keyboard는 무시하지 않아
+            // 전 화면에서 텍스트 입력 시 SwiftUI 기본 키보드 세이프에어리어 회피가 정상 동작한다
+            .ignoresSafeArea(.container)
             .animation(.easeInOut(duration: 0.2), value: router.current)
             .task {
                 await boarding.loadIfNeeded()
