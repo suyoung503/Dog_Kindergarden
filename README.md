@@ -17,6 +17,30 @@
 - **찜한 가게** — 가게 상세에서 하트로 찜하고, 마이페이지에서 목록으로 모아보기.
 - **카카오 로그인** — 프로필(이름·연락처·주소) 저장 및 수정.
 
+## 시스템 구조도
+
+```mermaid
+flowchart LR
+    app["iOS 앱 · SwiftUI"]
+    api["REST API · Hono / Cloudflare Workers"]
+    db[("Cloudflare D1 · SQLite")]
+    kakao["Kakao SDK · 로그인 / 지도"]
+    local["Kakao Local API · 장소 / 주소 보강"]
+    naver["Naver API · 지역 / 블로그 검색"]
+    cron["Cloudflare Cron · 리뷰 요청"]
+    app -->|"가게 · 예약 · 채팅 · 리뷰 · 찜"| api
+    api -->|"조회 / 저장"| db
+    app --> kakao
+    app --> local
+    app --> naver
+    cron --> api
+```
+
+- **앱:** SwiftUI 화면에서 사용자 입력을 받고 APIClient·기능별 Service로 요청합니다. 외부 지도·검색 서비스는 앱에서 직접 호출하는 경로가 있습니다.
+- **백엔드:** Workers의 Hono 라우트가 요청을 처리하고 D1에 가게·예약·채팅·리뷰·사용자 정보를 저장합니다.
+- **현재 지도 데이터 경로:** `AnimalBoardingService` → `APIClient.fetchStores()` → `/api/stores` → D1에 저장된 업체 목록입니다. 초기 공공데이터 활용 설명과 현재 저장소의 조회 경로를 구분합니다.
+- **예약 이후 흐름:** 예약 생성 시 채팅방을 연결하고, 예약 상태에 따라 Cron 작업이 리뷰 요청 메시지를 생성합니다. 채팅 API는 HTTP 기반이며 이 구조도는 별도 WebSocket 서버를 가정하지 않습니다.
+
 ## 구조
 
 모노레포로 구성되어 있습니다.
