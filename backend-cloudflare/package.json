@@ -13,7 +13,12 @@
     "scrape:naver-prices": "node scripts/scrape-naver-place-prices.mjs --limit=50",
     "scrape:naver-prices:local": "node scripts/scrape-naver-place-prices.mjs --limit=50 --apply-local",
     "crawl:images": "node scripts/crawl-store-images.mjs --limit=50",
-    "crawl:images:local": "node scripts/crawl-store-images.mjs --limit=50 --apply-local"
+    "crawl:images:local": "node scripts/crawl-store-images.mjs --limit=50 --apply-local",
+    "crawl:enrichment": "node scripts/crawl-store-enrichment.mjs --limit=50",
+    "crawl:enrichment:local": "node scripts/crawl-store-enrichment.mjs --limit=50 --apply-local",
+    "crawl:prices": "node scripts/crawl-store-prices.mjs --limit=40",
+    "crawl:prices:local": "node scripts/crawl-store-prices.mjs --limit=40 --apply-local",
+    "ocr:prices:local": "node scripts/ocr-price-images-local.mjs --input=crawl-results/price-ocr-input-2026-10-01.json --limit=10 --apply-local"
   },
   "dependencies": {
     "hono": "^4.6.10"

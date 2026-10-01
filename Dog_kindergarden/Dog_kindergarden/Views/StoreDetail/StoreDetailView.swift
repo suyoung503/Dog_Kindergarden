@@ -339,6 +339,22 @@ struct StoreDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         FlowTags(tags: crawledTags)
 
+                        if let openTime = storeDetail?.openTime, !openTime.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("영업시간")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(Color.brandBrown)
+                                Text(openTime)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.brandBrownMid)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
+                        }
+
                         if let price = storeDetail?.priceInfo, !price.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("가격")
@@ -390,6 +406,7 @@ struct StoreDetailView: View {
         return detail.largeDog == 1
             || detail.pickup == 1
             || detail.playground == 1
+            || !(detail.openTime ?? "").isEmpty
             || !(detail.priceInfo ?? "").isEmpty
             || !(detail.imageUrl ?? "").isEmpty
             || !(detail.images ?? []).isEmpty

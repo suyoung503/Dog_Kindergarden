@@ -35,6 +35,35 @@ CI에 연결되지 않은 수동 실행 스크립트이며, 결과는 `crawl-res
    입력: 없음 (배포 API 직접 호출)
    출력: `crawl-results/store-images-{timestamp}.json`, `.sql`
 
+6. **crawl-store-enrichment.mjs** (`npm run crawl:enrichment`)
+   배포 API의 큐레이션 가게를 네이버 플레이스 상세에서 다시 찾아 영업시간, 업체 등록 사진
+   최대 5장, 대형견·픽업·운동장 키워드를 보강한다. 편의 태그는 업체 정보·가격표를 우선하고
+   공개 리뷰를 보조 근거로 사용하며, 긍정 근거가 있을 때만 `1`로 갱신한다.
+   입력: 없음 (배포 API 직접 호출)
+   출력: `crawl-results/store-enrichment-{timestamp}.json`, `.sql`
+   로컬 D1 반영: `npm run crawl:enrichment:local`
+
+   네이버가 연속 요청을 제한할 수 있으므로 전체 목록은 `--offset=0 --limit=40`처럼 작은 묶음으로
+   나눠 실행하고, 연속 fetch 실패로 멈추면 충분히 기다린 뒤 마지막 처리 위치부터 재개한다.
+   특정 가게만 재수집할 때는 `--name="가게명 일부" --limit=1 --apply-local`을 사용한다.
+   `large_dog`, `pickup`, `playground`의 `0`은 "불가" 확정이 아니라 **긍정 근거 미확인**을 뜻한다.
+
+7. **crawl-store-prices.mjs** (`npm run crawl:prices`)
+   가격 정보가 비어 있는 큐레이션 가게만 대상으로 네이버 플레이스의 구조화된 `Menu.price`를
+   다시 수집한다. 과거 상세 보강 결과의 `place_id`를 재사용하고, 가격표 이미지밖에 없는 곳은
+   OCR 후보 URL만 결과 JSON에 남긴다. 불확실한 이미지 OCR 결과는 DB에 자동 반영하지 않는다.
+   입력: 없음 (배포 API + 기존 `store-enrichment-*.json` 결과 사용)
+   출력: `crawl-results/store-prices-{timestamp}.json`, `.sql`
+   로컬 D1 반영: `npm run crawl:prices:local`
+   기존 가격을 현재 구조화 가격으로 재검증할 때는 `--name="가게명" --refresh --overwrite --apply-local`을 사용한다.
+
+8. **ocr-price-images-local.mjs** (`npm run ocr:prices:local`)
+   7번 결과에서 가격표 이미지만 있는 가게를 macOS Vision의 한국어 OCR로 읽는다.
+   생성형 모델을 사용하지 않으며, 서로 다른 금액 2개 이상과 서비스 문맥이 함께 잡힌 경우만
+   고신뢰로 판정해 로컬 D1의 빈 `price_info`에 반영한다.
+   입력: `crawl-results/price-ocr-input-*.json`
+   출력: `crawl-results/local-price-ocr-{timestamp}.json`, `.sql`
+
 ## 공통 유틸 (lib.mjs)
 
 Apollo State 파싱, 이름 매칭(`namesLikelyMatch`), SQL 문자열 이스케이프, rate-limit용 `sleep`,
@@ -45,3 +74,5 @@ Apollo State 파싱, 이름 매칭(`namesLikelyMatch`), SQL 문자열 이스케�
 
 - 캡차/로그인/차단 우회를 하지 않는다 — 일반 GET으로 받아지는 공개 HTML/API만 쓴다.
 - 네이버 요청 사이에는 `sleep`으로 딜레이를 두고, 연속 실패가 이어지면 중단한다(차단 의심).
+- OCR 결과는 낮은 신뢰도의 텍스트를 자동 반영하지 않는다. 가격표 이미지처럼 구조화가 어려운 값은
+  원본 근거와 함께 별도 검증하고, 확실하지 않으면 빈 값으로 둔다.
