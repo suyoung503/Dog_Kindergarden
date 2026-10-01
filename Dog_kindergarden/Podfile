@@ -7,3 +7,19 @@ target 'Dog_kindergarden' do
   pod 'KakaoSDKAuth'
   pod 'KakaoSDKUser'
 end
+
+# Xcode 27 rejects the older deployment targets declared by these SDKs.
+# Keep every Pod (including resource bundles) at least at the app's Podfile
+# minimum, without lowering a dependency that requires a newer iOS version.
+post_install do |installer|
+  minimum_ios_version = Gem::Version.new('16.0')
+
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      deployment_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if deployment_target.nil? || Gem::Version.new(deployment_target) < minimum_ios_version
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version.to_s
+      end
+    end
+  end
+end

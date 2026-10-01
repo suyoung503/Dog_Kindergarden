@@ -17,12 +17,16 @@ pod install
 open Dog_kindergarden.xcworkspace
 ```
 
+`KakaoSDKCommon`, `KakaoSDKUser`, `KakaoMapsSDK` 등에 `Unable to resolve module dependency`가 뜨면, 기존 `.xcodeproj` 창 대신 위 워크스페이스를 열어 실행하세요. 프로젝트만 열면 CocoaPods의 SDK 타깃이 함께 빌드되지 않습니다.
+
+Xcode 27에서는 오래된 SDK의 iOS 10/13 배포 대상 설정도 빌드 오류가 됩니다. `Podfile`의 `post_install`이 Pods의 최소 배포 대상을 iOS 16 이상으로 보정하므로, Xcode 업데이트 후에도 `pod install`을 실행하세요. 생성된 `Pods.xcodeproj`를 직접 수정할 필요는 없습니다.
+
 ### 2. API 키 설정 (필수)
 
-API 키는 git에서 제외된 `Base.lproj/Config/Create.xcconfig` 파일에 두고, `Info.plist`가 `$(변수)`로 참조합니다.
+API 키는 이 디렉터리 기준으로 git에서 제외된 `Base.lproj/Config/Create.xcconfig` 파일에 두고, `Info.plist`가 `$(변수)`로 참조합니다.
 이 파일이 없으면 지도·로그인이 동작하지 않습니다. (Xcode 빌드 설정의 `baseConfigurationReference`가 이 파일을 가리키므로 다른 이름·위치로 만들면 인식되지 않습니다.)
 
-`Dog_kindergarden/Base.lproj/Config/Create.xcconfig` 파일을 새로 만들고 아래 내용을 채워주세요.
+위에서 `cd Dog_kindergarden`을 실행했다면 `Base.lproj/Config/Create.xcconfig` 파일을 새로 만들고 아래 내용을 채워주세요.
 
 ```
 KAKAO_NATIVE_APP_KEY = 카카오_네이티브_앱_키
