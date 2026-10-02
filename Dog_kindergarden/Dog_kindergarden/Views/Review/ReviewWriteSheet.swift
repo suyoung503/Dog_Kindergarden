@@ -28,6 +28,7 @@ struct ReviewWriteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ReviewDraft()
     @State private var submitting = false
+    @State private var submitFailed = false
 
     var body: some View {
         NavigationStack {
@@ -81,6 +82,13 @@ struct ReviewWriteSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
                     }
                     .disabled(submitting)
+
+                    if submitFailed {
+                        Text("이용 내역을 다시 확인한 뒤 등록해주세요.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
                 }
                 .padding(20)
             }
@@ -112,11 +120,13 @@ struct ReviewWriteSheet: View {
 
     private func submit() {
         submitting = true
+        submitFailed = false
         Task {
             let ok = await onSubmit(draft)
             await MainActor.run {
                 submitting = false
                 if ok { dismiss() }
+                else { submitFailed = true }
             }
         }
     }

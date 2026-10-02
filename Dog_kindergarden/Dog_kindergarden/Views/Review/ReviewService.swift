@@ -8,6 +8,7 @@ let apiBaseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
 
 struct PetReview: Identifiable, Decodable {
     let id: Int
+    let verified: Int?
     let user_name: String?
     let rating: Double
     let revisit: Int
@@ -17,6 +18,22 @@ struct PetReview: Identifiable, Decodable {
     let separation_care: Int
     let content: String?
     let created_at: String?
+}
+
+struct ReviewEligibility: Decodable {
+    let eligible: Bool
+    let reason: String
+
+    var guidanceMessage: String {
+        switch reason {
+        case "already_reviewed":
+            return "이용 완료 건의 리뷰를 이미 작성했어요"
+        case "no_completed_reservation":
+            return "확정된 이용 완료 내역이 있어야 리뷰를 작성할 수 있어요"
+        default:
+            return eligible ? "이용 내역이 확인된 보호자예요" : "리뷰 작성 조건을 확인하지 못했어요"
+        }
+    }
 }
 
 struct ReviewSummary: Decodable {
@@ -106,6 +123,8 @@ final class ReviewService {
     var summary: ReviewSummary?
     var reviews: [PetReview] = []
     var isLoading = false
+    var eligibility: ReviewEligibility?
+    var isCheckingEligibility = false
 
     func storeKey(name: String, address: String = "") -> String {
         address.isEmpty ? name : "\(name)|\(address)"
@@ -131,15 +150,46 @@ final class ReviewService {
         }
     }
 
-    func submit(storeKey: String, storeName: String, userName: String, draft: ReviewDraft) async -> Bool {
+    func clearEligibility() {
+        eligibility = nil
+        isCheckingEligibility = false
+    }
+
+    func loadEligibility(storeKey: String, userId: Int) async {
+        isCheckingEligibility = true
+        defer { isCheckingEligibility = false }
+
+        guard var comps = URLComponents(string: "\(apiBaseURL)/api/pet-reviews/eligibility") else { return }
+        comps.queryItems = [
+            URLQueryItem(name: "storeKey", value: storeKey),
+            URLQueryItem(name: "userId", value: String(userId)),
+        ]
+        guard let url = comps.url else { return }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                eligibility = nil
+                return
+            }
+            eligibility = try JSONDecoder().decode(ReviewEligibility.self, from: data)
+        } catch {
+            eligibility = nil
+            #if DEBUG
+            print("⚠️ 리뷰 작성 자격 확인 실패: \(error)")
+            #endif
+        }
+    }
+
+    func submit(storeKey: String, storeName: String, userId: Int, draft: ReviewDraft) async -> Bool {
         guard let url = URL(string: "\(apiBaseURL)/api/pet-reviews") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = [
+            "user_id": userId,
             "store_key": storeKey,
             "store_name": storeName,
-            "user_name": userName,
             "rating": draft.rating,
             "revisit": draft.revisit,
             "cctv": draft.cctv,
@@ -150,9 +200,15 @@ final class ReviewService {
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await URLSession.shared.data(for: req)
             let ok = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
-            if ok { await load(storeKey: storeKey) }
+            if ok {
+                await load(storeKey: storeKey)
+                await loadEligibility(storeKey: storeKey, userId: userId)
+            } else if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      body["reason"] as? String != nil {
+                await loadEligibility(storeKey: storeKey, userId: userId)
+            }
             return ok
         } catch {
             #if DEBUG

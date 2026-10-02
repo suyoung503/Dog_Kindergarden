@@ -27,6 +27,8 @@ type ReservationBody = {
 };
 
 type PetReviewBody = {
+  user_id?: number;
+  userId?: number;
   store_key?: string;
   storeKey?: string;
   store_name?: string;
@@ -40,6 +42,12 @@ type PetReviewBody = {
   large_dog?: boolean;
   separation_care?: boolean;
   content?: string;
+};
+
+type ReviewEligibility = {
+  eligible: boolean;
+  reason: "eligible" | "already_reviewed" | "no_completed_reservation";
+  reservation_id: number | null;
 };
 
 type ChatMessageBody = {
@@ -1175,27 +1183,131 @@ app.get("/api/users/:id/notifications", async (c) => {
 
 // MARK: - 펫 특화 리뷰 (공공데이터 가게용, store_key = "이름|주소")
 
+// 현재 예약 상태에는 COMPLETED가 없으므로, 확정(CONFIRMED)된 예약 중 이용 종료일이
+// 한국 시간 기준 이용일이 지난 예약만 실제 이용 완료로 본다.
+async function getReviewEligibility(
+  db: D1Database,
+  userId: number,
+  storeKey: string,
+): Promise<ReviewEligibility> {
+  const available = await db
+    .prepare(
+      `
+      SELECT r.reservation_id
+      FROM reservations r
+      JOIN stores s ON s.store_id = r.store_id
+      LEFT JOIN pet_reviews pr ON pr.reservation_id = r.reservation_id
+      WHERE r.user_id = ?
+        AND s.store_key = ?
+        AND r.status = 'CONFIRMED'
+        AND date(substr(r.end_date, 1, 10)) < date('now', '+9 hours')
+        AND pr.id IS NULL
+      ORDER BY substr(r.end_date, 1, 10) DESC, r.reservation_id DESC
+      LIMIT 1
+      `,
+    )
+    .bind(userId, storeKey)
+    .first<{ reservation_id: number }>();
+
+  if (available) {
+    return {
+      eligible: true,
+      reason: "eligible",
+      reservation_id: available.reservation_id,
+    };
+  }
+
+  const completed = await db
+    .prepare(
+      `
+      SELECT 1 AS found
+      FROM reservations r
+      JOIN stores s ON s.store_id = r.store_id
+      WHERE r.user_id = ?
+        AND s.store_key = ?
+        AND r.status = 'CONFIRMED'
+        AND date(substr(r.end_date, 1, 10)) < date('now', '+9 hours')
+      LIMIT 1
+      `,
+    )
+    .bind(userId, storeKey)
+    .first<{ found: number }>();
+
+  return {
+    eligible: false,
+    reason: completed ? "already_reviewed" : "no_completed_reservation",
+    reservation_id: null,
+  };
+}
+
+// 리뷰 작성 버튼 노출 여부를 서버 데이터로 판단한다.
+app.get("/api/pet-reviews/eligibility", async (c) => {
+  const userId = Number(c.req.query("userId"));
+  const storeKey = (c.req.query("storeKey") ?? "").trim();
+  if (!Number.isInteger(userId) || userId <= 0 || !storeKey) {
+    return c.json({ message: "userId and storeKey are required" }, 400);
+  }
+
+  const eligibility = await getReviewEligibility(c.env.DB, userId, storeKey);
+  return c.json({
+    eligible: eligibility.eligible,
+    reason: eligibility.reason,
+  });
+});
+
 app.post("/api/pet-reviews", async (c) => {
   const body = await c.req.json<PetReviewBody>();
+  const userId = Number(body.user_id ?? body.userId);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
-  if (!storeKey) return c.json({ message: "store_key is required" }, 400);
+  if (!Number.isInteger(userId) || userId <= 0 || !storeKey) {
+    return c.json({ message: "user_id and store_key are required" }, 400);
+  }
 
   const storeName = body.store_name ?? body.storeName ?? "";
-  const userName = body.user_name ?? body.userName ?? "익명";
   const rating = Number(body.rating ?? 5);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    return c.json({ message: "rating must be between 1 and 5" }, 400);
+  }
+
+  const eligibility = await getReviewEligibility(c.env.DB, userId, storeKey);
+  if (!eligibility.eligible || !eligibility.reservation_id) {
+    const status = eligibility.reason === "already_reviewed" ? 409 : 403;
+    return c.json(
+      {
+        message:
+          eligibility.reason === "already_reviewed"
+            ? "review already submitted for completed reservations"
+            : "a completed reservation is required",
+        reason: eligibility.reason,
+      },
+      status,
+    );
+  }
+
+  // 표시 이름은 클라이언트 입력을 신뢰하지 않고 가입 계정에서 가져온다.
+  const user = await c.env.DB.prepare(
+    `SELECT nickname FROM users WHERE user_id = ?`,
+  )
+    .bind(userId)
+    .first<{ nickname: string | null }>();
+  if (!user) return c.json({ message: "user not found" }, 404);
+
   const b = (v: unknown) => (v ? 1 : 0);
 
   const result = await c.env.DB.prepare(
     `
     INSERT INTO pet_reviews
-      (store_key, store_name, user_name, rating, revisit, cctv, pickup, large_dog, separation_care, content)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (store_key, store_name, user_id, reservation_id, user_name, rating,
+       revisit, cctv, pickup, large_dog, separation_care, content)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   )
     .bind(
       storeKey,
       storeName,
-      userName,
+      userId,
+      eligibility.reservation_id,
+      user.nickname ?? body.user_name ?? body.userName ?? "보호자",
       rating,
       b(body.revisit),
       b(body.cctv),
@@ -1206,7 +1318,13 @@ app.post("/api/pet-reviews", async (c) => {
     )
     .run();
 
-  return c.json({ id: result.meta.last_row_id }, 201);
+  return c.json(
+    {
+      id: result.meta.last_row_id,
+      verified: true,
+    },
+    201,
+  );
 });
 
 // 특정 가게 리뷰 목록 + 요약(집계)
@@ -1217,8 +1335,11 @@ app.get("/api/pet-reviews", async (c) => {
   const { results } = await c.env.DB.prepare(
     `
     SELECT id, store_key, store_name, user_name, rating, revisit,
-           cctv, pickup, large_dog, separation_care, content, created_at
-    FROM pet_reviews WHERE store_key = ? ORDER BY id DESC
+           cctv, pickup, large_dog, separation_care, content, created_at,
+           1 AS verified
+    FROM pet_reviews
+    WHERE store_key = ? AND reservation_id IS NOT NULL
+    ORDER BY id DESC
   `,
   )
     .bind(storeKey)
@@ -1229,7 +1350,7 @@ app.get("/api/pet-reviews", async (c) => {
     SELECT COUNT(*) AS count, AVG(rating) AS avg_rating,
            SUM(cctv) AS cctv, SUM(pickup) AS pickup,
            SUM(large_dog) AS large_dog, SUM(separation_care) AS separation_care
-    FROM pet_reviews WHERE store_key = ?
+    FROM pet_reviews WHERE store_key = ? AND reservation_id IS NOT NULL
   `,
   )
     .bind(storeKey)
@@ -1246,7 +1367,9 @@ app.get("/api/pet-reviews/tags", async (c) => {
            COUNT(*) AS count, AVG(rating) AS avg_rating,
            SUM(cctv) AS cctv, SUM(pickup) AS pickup,
            SUM(large_dog) AS large_dog, SUM(separation_care) AS separation_care
-    FROM pet_reviews GROUP BY store_key
+    FROM pet_reviews
+    WHERE reservation_id IS NOT NULL
+    GROUP BY store_key
   `,
   ).all();
   return c.json(results);

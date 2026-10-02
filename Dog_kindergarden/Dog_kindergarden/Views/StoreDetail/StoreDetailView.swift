@@ -4,7 +4,6 @@ private let typeTagColor = Color(hex: "#FFE6CC")
 
 struct StoreDetailView: View {
     @Environment(AppRouter.self) private var router
-    @Environment(UserProfile.self) private var userProfile
     @Environment(AuthSession.self) private var authSession
     @State private var reviewService = ReviewService()
     @State private var blogService = NaverBlogService()
@@ -17,6 +16,7 @@ struct StoreDetailView: View {
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
     private var storeKey: String { pin?.storeKey ?? router.selectedStore }
+    private var reviewEligibilityTaskID: String { "\(storeKey)|\(authSession.userId ?? 0)" }
 
     // 카카오 우선, 없으면 공공데이터(마스킹) 폴백
     private var displayAddress: String {
@@ -47,6 +47,13 @@ struct StoreDetailView: View {
             bottomBar
         }
         .task(id: storeKey) { await reviewService.load(storeKey: storeKey) }
+        .task(id: reviewEligibilityTaskID) {
+            guard let uid = authSession.userId else {
+                reviewService.clearEligibility()
+                return
+            }
+            await reviewService.loadEligibility(storeKey: storeKey, userId: uid)
+        }
         .task(id: storeKey) {
             storeDetail = (try? await APIClient.shared.fetchStoreDetail(storeKey: storeKey)) ?? nil
         }
@@ -85,10 +92,12 @@ struct StoreDetailView: View {
         }
         .sheet(isPresented: $showWriteSheet) {
             ReviewWriteSheet(storeName: storeName) { draft in
-                await reviewService.submit(
+                guard let uid = authSession.userId,
+                      reviewService.eligibility?.eligible == true else { return false }
+                return await reviewService.submit(
                     storeKey: storeKey,
                     storeName: storeName,
-                    userName: userProfile.name,
+                    userId: uid,
                     draft: draft
                 )
             }
@@ -110,7 +119,7 @@ struct StoreDetailView: View {
                     }
                     FlowTags(tags: confirmedTags(s))
                 } else {
-                    Text("아직 리뷰가 없어요. 첫 보호자가 되어주세요")
+                    Text("아직 이용 인증 리뷰가 없어요")
                         .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
                 }
 
@@ -122,16 +131,40 @@ struct StoreDetailView: View {
                 // 작성 버튼
                 Button(action: { showWriteSheet = true }) {
                     HStack(spacing: 6) {
-                        Image(systemName: "square.and.pencil").font(.system(size: 13))
-                        Text("리뷰 쓰기").font(.system(size: 13, weight: .bold))
+                        Image(systemName: canWriteReview ? "checkmark.seal.fill" : "lock.fill")
+                            .font(.system(size: 13))
+                        Text(reviewButtonTitle).font(.system(size: 13, weight: .bold))
                     }
-                    .foregroundStyle(Color.brandOrange)
+                    .foregroundStyle(canWriteReview ? Color.brandOrange : Color.brandBrownLight)
                     .frame(maxWidth: .infinity).frame(height: 40)
-                    .background(Color(hex: "#FFF1DC"))
+                    .background(canWriteReview ? Color(hex: "#FFF1DC") : Color.white.opacity(0.65))
                     .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                 }
+                .disabled(!canWriteReview)
+
+                Text(reviewEligibilityMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.brandBrownMid)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+
+    private var canWriteReview: Bool {
+        authSession.userId != nil && reviewService.eligibility?.eligible == true
+    }
+
+    private var reviewButtonTitle: String {
+        if reviewService.isCheckingEligibility { return "이용 내역 확인 중…" }
+        return canWriteReview ? "이용 인증 리뷰 쓰기" : "리뷰 작성 잠김"
+    }
+
+    private var reviewEligibilityMessage: String {
+        guard authSession.userId != nil else {
+            return "로그인 후 이용 내역이 확인된 보호자만 작성할 수 있어요"
+        }
+        if reviewService.isCheckingEligibility { return "확정된 이용 완료 내역을 확인하고 있어요" }
+        return reviewService.eligibility?.guidanceMessage ?? "리뷰 작성 자격을 불러오지 못했어요"
     }
 
     // 절반 이상 보호자가 동의한 태그만 노출
@@ -153,6 +186,15 @@ struct StoreDetailView: View {
                         .font(.system(size: 9)).foregroundStyle(Color.brandOrange)
                 }
                 Text(r.user_name ?? "익명").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.brandBrownMid)
+                if r.verified == 1 {
+                    Text("이용 인증")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(hex: "#2c6b4a"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.brandGreenLight)
+                        .clipShape(Capsule())
+                }
             }
             if let c = r.content, !c.isEmpty {
                 Text(c).font(.system(size: 12)).foregroundStyle(Color.brandBrown)
