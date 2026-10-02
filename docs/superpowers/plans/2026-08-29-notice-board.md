@@ -14,12 +14,12 @@
 - 마이그레이션 파일은 `backend-cloudflare/migrations/0017_notices.sql`이다. 이 계획 작성 시점(2026-08-29) 기준 최신 마이그레이션은 `0016_stores_category.sql`이라 0017이 다음 번호다 — 실행 직전 `ls backend-cloudflare/migrations | sort | tail -3`로 번호가 바뀌지 않았는지 재확인한다.
 - 작성/수정/삭제 라우트는 만들지 않는다(YAGNI — DB 직접 INSERT로 운영하기로 결정됨).
 - `GET /api/notices`는 목록용으로 `id, title, created_at`만 반환(본문 제외), `created_at DESC` 정렬. `GET /api/notices/:id`는 `id, title, body, created_at` 전체를 반환하고, 없으면 404.
-- iOS는 `NavigationStack`을 쓰지 않는다 — 기존 `AppRouter.stack` 전역 스택 패턴만 사용한다(CLAUDE.md).
+- iOS는 `NavigationStack`을 쓰지 않는다 — 기존 `AppRouter.stack` 전역 스택 패턴만 사용한다(docs/ARCHITECTURE.md).
 - 화면당 파일 하나 관례를 따른다: `NoticeListView.swift`, `NoticeDetailView.swift`로 분리한다(기존 `ChatListView.swift`/`ChatRoomView.swift`와 동일한 관례).
 - 커밋은 **실행자가 직접 `git add`/`git commit`을 실행하지 않는다** — 각 커밋 단계에서 정확한 명령어를 사용자에게 보여주고, 사용자가 자신의 터미널에서 직접 실행하도록 한다(이 프로젝트에서 확립된 규칙 — 서브에이전트의 git commit은 이 환경의 권한 시스템이 실제로 거부한다).
-- iOS 빌드는 워크스페이스로: `xcodebuild -workspace Dog_kindergarden.xcworkspace -scheme Dog_kindergarden -destination 'platform=iOS Simulator,id=797D6EB2-6339-4855-B755-09EB8815A147' -derivedDataPath build build` (`Dog_kindergarden/` 디렉터리에서 실행, `.xcodeproj`가 아닌 워크스페이스로 열 것 — CLAUDE.md). 이 destination(iPhone 17, OS 26.5)이 없으면 `xcrun simctl list devices available | rg "iPhone"`로 사용 가능한 iPhone 시뮬레이터의 UDID를 확인해 대체한다.
+- iOS 빌드는 워크스페이스로: `xcodebuild -workspace Dog_kindergarden.xcworkspace -scheme Dog_kindergarden -destination 'platform=iOS Simulator,id=797D6EB2-6339-4855-B755-09EB8815A147' -derivedDataPath build build` (`Dog_kindergarden/` 디렉터리에서 실행, `.xcodeproj`가 아닌 워크스페이스로 열 것 — docs/ARCHITECTURE.md). 이 destination(iPhone 17, OS 26.5)이 없으면 `xcrun simctl list devices available | rg "iPhone"`로 사용 가능한 iPhone 시뮬레이터의 UDID를 확인해 대체한다.
 - 시뮬레이터 터치 자동화(osascript/System Events)는 이 환경에서 신뢰할 수 없는 것으로 이전 세션에서 확인됨 — 콜드 런치 시점에 보이는 화면은 스크린샷만으로 검증 가능하지만, 탭 이동이 필요한 화면(마이페이지 → 공지사항 → 목록 → 상세)은 사람이 시뮬레이터에서 직접 탭한 뒤 스크린샷으로 확인해야 한다. 자동 검증이 불가능한 단계는 그렇다고 명시하고 사람에게 확인을 요청한다.
-- 백엔드 테스트/린트 인프라는 없음 — 타입 검사는 `npx tsc --noEmit`(backend-cloudflare/에서), 기능 검증은 수동 curl로 한다(CLAUDE.md).
+- 백엔드 테스트/린트 인프라는 없음 — 타입 검사는 `npx tsc --noEmit`(backend-cloudflare/에서), 기능 검증은 수동 curl로 한다(docs/ARCHITECTURE.md).
 
 ---
 
@@ -520,7 +520,7 @@ Simulator.app이 열리면 사람이 직접: 로그인 → 홈 사이드바(FAB)
 확인용 스크린샷이 필요하면:
 
 ```bash
-xcrun simctl io 797D6EB2-6339-4855-B755-09EB8815A147 screenshot /private/tmp/claude-501/-Users-suyoung-Documents-Dog-Kindergarden/2385f993-de78-45f8-881a-05b38f9180cd/scratchpad/notice-board.png
+xcrun simctl io 797D6EB2-6339-4855-B755-09EB8815A147 screenshot /private/tmp/notice-board.png
 ```
 
 - [ ] **Step 9: 커밋 (실행자는 명령어만 제시, 직접 실행하지 않음)**

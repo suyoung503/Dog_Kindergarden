@@ -68,4 +68,4 @@ xcodebuild -workspace Dog_kindergarden.xcworkspace -scheme Dog_kindergarden \
 
 - 화면 전환은 `NavigationStack`이 아니라 `AppRouter.stack`(화면 enum 배열)을 `RootView`가 switch로 렌더링하는 커스텀 방식입니다.
 - 상태는 `@Observable` 클래스(`AppRouter`, `BoardingStore`, `TagStore`, `UserProfile`, `AuthSession`)로 `RootView`에서 주입됩니다.
-- 자세한 아키텍처 규칙은 저장소 루트의 [`CLAUDE.md`](../CLAUDE.md)에 정리되어 있습니다.
+- 자세한 아키텍처 규칙은 저장소 루트의 [아키텍처 가이드](../docs/ARCHITECTURE.md)에 정리되어 있습니다.

@@ -106,7 +106,7 @@
 | ~~푸시 알림~~ | 중간 | ✅ 완료 (2026-07-23) — 서버 통합 알림 피드(`GET /api/users/:id/notifications`, opaque 커서) + iOS 로컬 알림(`UNUserNotificationCenter`) 방식으로 구현(포그라운드 30초 폴링 + 백그라운드 `BGAppRefreshTask`, 탭 시 채팅방/예약 내역/받은 예약 요청으로 딥링크). **원격 푸시(APNs/FCM)는 유료 Apple Developer 멤버십 확보 후 v2**로 미룸 — 당초 계획한 FCM 연동 방식은 폐기 |
 | 실시간 채팅 (WebSocket) | 높음 | 현재는 polling |
 | 결제 시스템 | 높음 | PG사 연동 |
-| AI 리뷰 요약 | 중간 | Claude API |
+| AI 리뷰 요약 | 중간 | AI 요약 API |
 
 ---
 

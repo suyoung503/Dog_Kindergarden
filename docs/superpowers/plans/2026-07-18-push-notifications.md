@@ -762,7 +762,7 @@ git commit -m "feat: BGAppRefreshTask 백그라운드 알림 폴링 — 백그�
 ### Task 6: 종단 검증 + 문서 갱신
 
 **Files:**
-- Modify: `docs/PROGRESS.md`, `docs/FEATURES.md`, `docs/PLAN.md`, `CLAUDE.md`
+- Modify: `docs/PROGRESS.md`, `docs/FEATURES.md`, `docs/PLAN.md`, `docs/ARCHITECTURE.md`
 
 **Interfaces:**
 - Consumes: Task 1~5 완료 상태
@@ -778,11 +778,11 @@ Expected: 전부 통과. 실패 항목은 해당 Task로 돌아가 수정.
 - `docs/PROGRESS.md` — 완료 항목 추가(구현 요약 + 검증 방법), 장기 계획 푸시 알림 항목 체크(`FCM` 표기는 "로컬 알림+피드 방식으로 대체(유료 멤버십 부재), 원격 푸시는 v2"로 수정), 마지막 업데이트 날짜.
 - `docs/PLAN.md` — 장기 표의 "푸시 알림 | 중간 | FCM 연동" → ✅ 완료(피드+로컬 알림 방식, 원격 푸시는 유료 멤버십 확보 후 v2).
 - `docs/FEATURES.md` — 알림 기능 섹션 추가(4종 이벤트, 포그라운드 30초/BG, 딥링크, 1회 원칙) + §11 API 표에 notifications 라우트.
-- `CLAUDE.md` — 핵심 도메인 설계에 알림 피드 한 줄(중복 방지 불변식: 채팅 메시지를 남기는 이벤트는 채팅 축으로만) + 미완성 영역에 "원격 푸시(APNs) — 유료 멤버십 확보 후" 추가.
+- `docs/ARCHITECTURE.md` — 핵심 도메인 설계에 알림 피드 한 줄(중복 방지 불변식: 채팅 메시지를 남기는 이벤트는 채팅 축으로만) + 미완성 영역에 "원격 푸시(APNs) — 유료 멤버십 확보 후" 추가.
 
 - [ ] **Step 3: 커밋 명령 제시 (사용자 실행)**
 
 ```bash
-git add docs/PROGRESS.md docs/FEATURES.md docs/PLAN.md CLAUDE.md docs/superpowers/plans/2026-07-18-push-notifications.md
+git add docs/PROGRESS.md docs/FEATURES.md docs/PLAN.md docs/ARCHITECTURE.md docs/superpowers/plans/2026-07-18-push-notifications.md
 git commit -m "docs: 푸시 알림(피드+로컬 알림) 반영 — 기능 명세·진행상황·계획 갱신"
 ```
