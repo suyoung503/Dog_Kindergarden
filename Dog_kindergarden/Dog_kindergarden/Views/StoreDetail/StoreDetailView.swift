@@ -12,6 +12,8 @@ struct StoreDetailView: View {
     @State private var storeDetail: StoreDetailResponse? = nil // DB 크롤링 보강 정보
     @State private var favoriteStoreId: Int? = nil     // nil이 아니면 찜한 가게 (해제용 store_id)
     @State private var isMyStore = false                // 사장님 계정: 이 가게가 내 가게로 등록됨
+    @State private var showImageGallery = false
+    @State private var selectedImageIndex = 0
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
@@ -101,6 +103,12 @@ struct StoreDetailView: View {
                     draft: draft
                 )
             }
+        }
+        .fullScreenCover(isPresented: $showImageGallery) {
+            StoreImageGalleryView(
+                imageURLs: galleryImageUrls,
+                selectedIndex: $selectedImageIndex
+            )
         }
     }
 
@@ -211,7 +219,7 @@ struct StoreDetailView: View {
 
     private var heroSection: some View {
         ZStack(alignment: .top) {
-            if let imageURL = storeDetail?.imageUrl, let url = URL(string: imageURL), !imageURL.isEmpty {
+            if let imageURL = representativeImageUrl, let url = URL(string: imageURL) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -228,6 +236,8 @@ struct StoreDetailView: View {
                     LinearGradient(colors: [.black.opacity(0.35), .clear],
                                    startPoint: .bottom, endPoint: .top)
                 )
+                .contentShape(Rectangle())
+                .onTapGesture { openImageGallery(at: 0) }
             } else {
                 heroGradient
             }
@@ -386,9 +396,10 @@ struct StoreDetailView: View {
                                 Text("영업시간")
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(Color.brandBrown)
-                                Text(openTime)
+                                Text(formattedDetailText(openTime))
                                     .font(.system(size: 12))
                                     .foregroundStyle(Color.brandBrownMid)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -402,9 +413,10 @@ struct StoreDetailView: View {
                                 Text("가격")
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(Color.brandBrown)
-                                Text(price)
+                                Text(formattedDetailText(price))
                                     .font(.system(size: 12))
                                     .foregroundStyle(Color.brandBrownMid)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -413,21 +425,27 @@ struct StoreDetailView: View {
                             .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
                         }
 
-                        if !extraImageUrls.isEmpty {
+                        if !galleryImageUrls.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
-                                    ForEach(extraImageUrls.prefix(4), id: \.self) { raw in
+                                    ForEach(Array(galleryImageUrls.enumerated()), id: \.offset) { index, raw in
                                         if let url = URL(string: raw) {
-                                            AsyncImage(url: url) { phase in
-                                                switch phase {
-                                                case .success(let image):
-                                                    image.resizable().scaledToFill()
-                                                default:
-                                                    Color(hex: "#FFE6CC")
+                                            Button {
+                                                openImageGallery(at: index)
+                                            } label: {
+                                                AsyncImage(url: url) { phase in
+                                                    switch phase {
+                                                    case .success(let image):
+                                                        image.resizable().scaledToFill()
+                                                    default:
+                                                        Color(hex: "#FFE6CC")
+                                                    }
                                                 }
+                                                .frame(width: 88, height: 88)
+                                                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                                             }
-                                            .frame(width: 88, height: 88)
-                                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("가게 이미지 \(index + 1) 크게 보기")
                                         }
                                     }
                                 }
@@ -463,10 +481,43 @@ struct StoreDetailView: View {
         return tags
     }
 
-    private var extraImageUrls: [String] {
-        (storeDetail?.images ?? [])
-            .compactMap { $0.imageUrl }
-            .filter { !$0.isEmpty && $0 != (storeDetail?.imageUrl ?? "") }
+    private var galleryImageUrls: [String] {
+        let detailImages = (storeDetail?.images ?? [])
+            .sorted {
+                if ($0.sortOrder ?? 0) == ($1.sortOrder ?? 0) {
+                    return ($0.imageId ?? 0) < ($1.imageId ?? 0)
+                }
+                return ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0)
+            }
+            .compactMap { $0.imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var result: [String] = []
+        for raw in [storeDetail?.imageUrl ?? ""] + detailImages where !raw.isEmpty {
+            if !result.contains(raw) { result.append(raw) }
+        }
+        return result
+    }
+
+    private var representativeImageUrl: String? {
+        let storedRepresentative = storeDetail?.imageUrl?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let storedRepresentative, !storedRepresentative.isEmpty {
+            return storedRepresentative
+        }
+        return galleryImageUrls.first
+    }
+
+    private func openImageGallery(at index: Int) {
+        guard galleryImageUrls.indices.contains(index) else { return }
+        selectedImageIndex = index
+        showImageGallery = true
+    }
+
+    private func formattedDetailText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: " / ", with: "\n")
     }
 
     // MARK: - 블로그 후기 (네이버)

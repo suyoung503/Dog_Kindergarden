@@ -75,6 +75,7 @@ return URL(string: saved ?? "https://matgyeomung-api.<your-subdomain>.workers.de
 
 스케줄러
 - Cron `0 9 * * *`(매일 KST 18시) — 이용일 다음날 확정 예약의 채팅방에 리뷰 요청 자동 메시지
+- Cron `17 */4 * * *`(4시간마다) — `details_checked_at`이 오래된 큐레이션 가게 8곳의 네이버 플레이스 영업시간·업체 이미지를 갱신해 전체를 약 1주일 주기로 순환 (`src/storeDetailRefresh.ts`)
 - `POST /api/internal/review-requests` — 위 배치의 데모·테스트용 수동 트리거
 
 리뷰

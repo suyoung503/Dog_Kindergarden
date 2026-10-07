@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { refreshStaleStoreDetails } from "./storeDetailRefresh";
+
+const REVIEW_REQUEST_CRON = "0 9 * * *";
+const STORE_DETAIL_REFRESH_CRON = "17 */4 * * *";
 
 type ReservationBody = {
   user_id?: number;
@@ -1664,10 +1668,18 @@ app.post("/api/internal/vision-price-ocr", async (c) => {
 export default {
   fetch: app.fetch,
   scheduled: async (
-    _event: ScheduledEvent,
+    event: ScheduledEvent,
     env: Bindings,
     _ctx: ExecutionContext,
   ) => {
-    await sendReviewRequests(env.DB);
+    if (event.cron === STORE_DETAIL_REFRESH_CRON) {
+      const result = await refreshStaleStoreDetails(env.DB, 8);
+      console.log("weekly store detail refresh", result);
+      return;
+    }
+
+    if (event.cron === REVIEW_REQUEST_CRON) {
+      await sendReviewRequests(env.DB);
+    }
   },
 };

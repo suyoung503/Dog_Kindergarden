@@ -91,13 +91,13 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 - 이 패턴을 깨는 변경(예약마다 방 생성, 이름만으로 가게 식별 등)은 하지 않는다.
 - iOS에서 서버가 보강한 `store_key`로 화면을 다시 그릴 때(`FavoritesView` 등)는 `MapPin.storeKeyOverride`에 원본 키를 담아 재계산으로 키가 어긋나지 않게 한다.
 
-### 백엔드 — 단일 파일 Hono 앱
+### 백엔드 — Hono 앱 + 가게 상세 갱신 모듈
 
-`src/index.ts` 하나에 모든 라우트가 있다 (`/api/stores`, `/api/reservations`, `/api/reservations/:id/diaries`, `/api/chatrooms/*`, `/api/pet-reviews`, `/api/favorites`, `/api/auth/kakao`, `/api/users/*`, `/api/pets/*` 등).
+모든 HTTP 라우트는 `src/index.ts`에 있고(`/api/stores`, `/api/reservations`, `/api/reservations/:id/diaries`, `/api/chatrooms/*`, `/api/pet-reviews`, `/api/favorites`, `/api/auth/kakao`, `/api/users/*`, `/api/pets/*` 등), 네이버 플레이스 상세정보 순환 갱신은 `src/storeDetailRefresh.ts`로 분리돼 있다.
 
 - 요청 바디 타입은 iOS가 snake_case/camelCase를 혼용하므로 **두 형태 모두 optional로 받는 타입**을 정의한다 (`ReservationBody` 참고). `any` 사용 금지.
 - D1 바인딩 이름은 `DB` (`wrangler.toml`).
-- Cron Trigger(`wrangler.toml` crons, 매일 09:00 UTC = KST 18시)가 `scheduled` 핸들러로 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방에 리뷰 요청 자동 메시지를 보낸다 — 중복 방지는 `reservations.review_requested`, 데모용 수동 트리거는 `POST /api/internal/review-requests`. export가 `{ fetch: app.fetch, scheduled }` 형태이므로 `export default app`으로 되돌리지 말 것. `start_date`는 연도 포함 형식 — 시간권은 `"2026-07-12 (일) 14:00"`, 종일권·하루 숙박권은 날짜만 `"2026-07-12 (일)"` (iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림, 날짜만이면 캘린더에 종일 일정) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다. 예약 유형은 시간권(시간당 ₩5,000)·종일권·하루 숙박권 3종뿐이고 정기권은 가게 상세 체크리스트에서 가게 문의로 안내한다.
+- Cron Trigger는 두 개다. `0 9 * * *`(매일 09:00 UTC = KST 18시)는 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방에 리뷰 요청 자동 메시지를 보내며, 중복은 `reservations.review_requested`로 막고 데모용 수동 트리거는 `POST /api/internal/review-requests`다. `17 */4 * * *`는 4시간마다 `details_checked_at`이 가장 오래된 큐레이션 가게 8곳의 네이버 플레이스 영업시간·업체 이미지(최대 5장)를 갱신해 약 1주일에 전체를 순환한다. export가 `{ fetch: app.fetch, scheduled }` 형태이므로 `export default app`으로 되돌리지 말 것. `start_date`는 연도 포함 형식 — 시간권은 `"2026-07-12 (일) 14:00"`, 종일권·하루 숙박권은 날짜만 `"2026-07-12 (일)"` (iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림, 날짜만이면 캘린더에 종일 일정) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다. 예약 유형은 시간권(시간당 ₩5,000)·종일권·하루 숙박권 3종뿐이고 정기권은 가게 상세 체크리스트에서 가게 문의로 안내한다.
 
 ## 현재 미완성 영역 (작업 시 주의)
 
