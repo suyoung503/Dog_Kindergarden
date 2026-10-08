@@ -1,9 +1,6 @@
 import Foundation
 import Observation
 
-// ⚠️ 배포된 Cloudflare Worker 주소. wrangler deploy 후 실제 URL로 맞추세요.
-let apiBaseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
-
 // MARK: - 모델
 
 struct PetReview: Identifiable, Decodable {
@@ -103,9 +100,9 @@ final class TagStore {
     var tagsByKey: [String: StoreTags] = [:]
 
     func load() async {
-        guard let url = URL(string: "\(apiBaseURL)/api/pet-reviews/tags") else { return }
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews/tags")
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             let list = try JSONDecoder().decode([StoreTags].self, from: data)
             await MainActor.run {
                 self.tagsByKey = Dictionary(uniqueKeysWithValues: list.map { ($0.store_key, $0) })
@@ -133,11 +130,11 @@ final class ReviewService {
     func load(storeKey: String) async {
         isLoading = true
         defer { isLoading = false }
-        guard var comps = URLComponents(string: "\(apiBaseURL)/api/pet-reviews") else { return }
+        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews"), resolvingAgainstBaseURL: false) else { return }
         comps.queryItems = [URLQueryItem(name: "storeKey", value: storeKey)]
         guard let url = comps.url else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             let decoded = try JSONDecoder().decode(ReviewListResponse.self, from: data)
             await MainActor.run {
                 self.summary = decoded.summary
@@ -159,7 +156,7 @@ final class ReviewService {
         isCheckingEligibility = true
         defer { isCheckingEligibility = false }
 
-        guard var comps = URLComponents(string: "\(apiBaseURL)/api/pet-reviews/eligibility") else { return }
+        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews/eligibility"), resolvingAgainstBaseURL: false) else { return }
         comps.queryItems = [
             URLQueryItem(name: "storeKey", value: storeKey),
             URLQueryItem(name: "userId", value: String(userId)),
@@ -167,11 +164,7 @@ final class ReviewService {
         guard let url = comps.url else { return }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                eligibility = nil
-                return
-            }
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             eligibility = try JSONDecoder().decode(ReviewEligibility.self, from: data)
         } catch {
             eligibility = nil
@@ -182,9 +175,8 @@ final class ReviewService {
     }
 
     func submit(storeKey: String, storeName: String, userId: Int, draft: ReviewDraft) async -> Bool {
-        guard let url = URL(string: "\(apiBaseURL)/api/pet-reviews") else { return false }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews")
+        var req = APITransport.request(url: url, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = [
             "user_id": userId,
@@ -200,16 +192,10 @@ final class ReviewService {
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            let ok = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
-            if ok {
-                await load(storeKey: storeKey)
-                await loadEligibility(storeKey: storeKey, userId: userId)
-            } else if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      body["reason"] as? String != nil {
-                await loadEligibility(storeKey: storeKey, userId: userId)
-            }
-            return ok
+            _ = try await APITransport.data(for: req)
+            await load(storeKey: storeKey)
+            await loadEligibility(storeKey: storeKey, userId: userId)
+            return true
         } catch {
             #if DEBUG
             print("⚠️ 리뷰 작성 실패: \(error)")

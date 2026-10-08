@@ -78,11 +78,19 @@ type ChatRoomBody = {
 };
 
 type KakaoAuthBody = {
-  kakao_id: string;
-  nickname: string;
-  email?: string;
+  access_token?: string;
+  accessToken?: string;
   is_owner?: boolean;
   isOwner?: boolean;
+};
+
+type DevAuthBody = {
+  nickname?: string;
+  identity?: string;
+  is_owner?: boolean;
+  isOwner?: boolean;
+  is_admin?: boolean;
+  isAdmin?: boolean;
 };
 
 type FavoriteBody = {
@@ -166,10 +174,169 @@ type Bindings = {
   DB: D1Database;
   APP_NAME: string;
   AI: WorkersAiBinding;
+  INTERNAL_API_KEY?: string;
+  ALLOW_DEV_AUTH?: string;
 };
 
-const app = new Hono<{ Bindings: Bindings }>();
-app.use("*", cors());
+type Variables = {
+  authUserId: number;
+  authIsOwner: boolean;
+  authIsAdmin: boolean;
+  authTokenHash: string;
+};
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+app.use(
+  "*",
+  cors({
+    allowHeaders: ["Content-Type", "Authorization", "X-Internal-Key"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }),
+);
+
+const SESSION_DAYS = 30;
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+}
+
+async function hashToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function createSession(
+  db: D1Database,
+  userId: number,
+): Promise<{ token: string; expiresAt: string }> {
+  const random = new Uint8Array(32);
+  crypto.getRandomValues(random);
+  const token = toBase64Url(random);
+  const tokenHash = await hashToken(token);
+  const expiresAt = new Date(
+    Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  await db
+    .prepare(
+      `INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)`,
+    )
+    .bind(tokenHash, userId, expiresAt)
+    .run();
+  return { token, expiresAt };
+}
+
+function isPublicAPI(method: string, path: string): boolean {
+  if (method === "OPTIONS") return true;
+  if (method === "POST" && path === "/api/auth/kakao") return true;
+  if (method === "POST" && path === "/api/auth/dev") return true;
+  if (method !== "GET") return false;
+  if (path === "/api/stores" || path === "/api/stores/detail") return true;
+  if (path === "/api/notices" || /^\/api\/notices\/\d+$/.test(path)) return true;
+  if (path === "/api/pet-reviews" || path === "/api/pet-reviews/tags") return true;
+  return false;
+}
+
+function isInternalAPI(path: string): boolean {
+  return path.startsWith("/api/internal/") || path.startsWith("/api/admin/");
+}
+
+app.use("/api/*", async (c, next) => {
+  const path = c.req.path;
+  const method = c.req.method.toUpperCase();
+
+  if (isPublicAPI(method, path)) {
+    await next();
+    return;
+  }
+
+  if (isInternalAPI(path)) {
+    const configured = c.env.INTERNAL_API_KEY;
+    const supplied = c.req.header("X-Internal-Key");
+    if (!configured) return c.json({ message: "internal API is disabled" }, 503);
+    if (!supplied || supplied !== configured)
+      return c.json({ message: "unauthorized" }, 401);
+    await next();
+    return;
+  }
+
+  const authorization = c.req.header("Authorization") ?? "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match) return c.json({ message: "authentication required" }, 401);
+
+  const tokenHash = await hashToken(match[1]);
+  const session = await c.env.DB.prepare(
+    `SELECT s.user_id, u.is_owner, u.is_admin
+     FROM auth_sessions s
+     JOIN users u ON u.user_id = s.user_id
+     WHERE s.token_hash = ? AND unixepoch(s.expires_at) > unixepoch('now')`,
+  )
+    .bind(tokenHash)
+    .first<{
+      user_id: number;
+      is_owner: number | null;
+      is_admin: number | null;
+    }>();
+  if (!session) return c.json({ message: "invalid or expired session" }, 401);
+
+  c.set("authUserId", session.user_id);
+  c.set("authIsOwner", (session.is_owner ?? 0) === 1);
+  c.set("authIsAdmin", (session.is_admin ?? 0) === 1);
+  c.set("authTokenHash", tokenHash);
+  await next();
+});
+
+function sameUser(authUserId: number, requestedUserId: number): boolean {
+  return Number.isInteger(requestedUserId) && requestedUserId === authUserId;
+}
+
+async function canAccessRoom(
+  db: D1Database,
+  roomId: number,
+  userId: number,
+): Promise<boolean> {
+  const room = await db.prepare(
+    `SELECT 1 AS allowed
+     FROM chat_rooms r
+     LEFT JOIN stores s ON s.store_id = r.store_id
+     WHERE r.room_id = ? AND (r.user_id = ? OR s.owner_id = ?)
+     LIMIT 1`,
+  )
+    .bind(roomId, userId, userId)
+    .first<{ allowed: number }>();
+  return Boolean(room);
+}
+
+async function reservationAccess(
+  db: D1Database,
+  reservationId: number,
+  userId: number,
+): Promise<{ isCustomer: boolean; isStoreOwner: boolean; status: string } | null> {
+  const row = await db.prepare(
+    `SELECT r.user_id, r.status, s.owner_id
+     FROM reservations r
+     LEFT JOIN stores s ON s.store_id = r.store_id
+     WHERE r.reservation_id = ?`,
+  )
+    .bind(reservationId)
+    .first<{ user_id: number; status: string; owner_id: number | null }>();
+  if (!row) return null;
+  return {
+    isCustomer: row.user_id === userId,
+    isStoreOwner: row.owner_id === userId,
+    status: row.status,
+  };
+}
 
 // MARK: - 채팅방 공용 헬퍼
 
@@ -389,12 +556,17 @@ app.post("/api/admin/stores/import", async (c) => {
   return c.json({ store_id: storeId, imported: true, image_count: allImages.length }, 201);
 });
 
-// 사장님-가게 연결: 가게 상세의 "내 가게로 등록" — store_key 업서트 후 owner_id 지정
+// 사장님 가게 등록 요청. owner_id는 여기서 바꾸지 않고 운영자 승인 시에만 연결한다.
 app.post("/api/stores/claim", async (c) => {
   const body = await c.req.json<StoreClaimBody>();
-  const userId = body.user_id ?? body.userId;
+  const userId = c.get("authUserId");
+  const requestedUserId = body.user_id ?? body.userId;
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
-  if (!userId || !storeKey)
+  if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
+    return c.json({ message: "forbidden" }, 403);
+  if (!c.get("authIsOwner"))
+    return c.json({ message: "owner role required" }, 403);
+  if (!storeKey)
     return c.json({ message: "user_id/store_key is required" }, 400);
 
   const storeId = await resolveStoreId(c.env.DB, {
@@ -410,16 +582,200 @@ app.post("/api/stores/claim", async (c) => {
     .first<{ owner_id: number | null }>();
   if (store?.owner_id && store.owner_id !== userId)
     return c.json({ message: "already claimed by another owner" }, 409);
+  if (store?.owner_id === userId)
+    return c.json({ store_id: storeId, owner_id: userId, status: "APPROVED" });
 
-  await c.env.DB.prepare(`UPDATE stores SET owner_id = ? WHERE store_id = ?`)
+  const existing = await c.env.DB.prepare(
+    `SELECT application_id, status
+     FROM store_owner_applications
+     WHERE user_id = ? AND store_id = ? AND status = 'PENDING'
+     LIMIT 1`,
+  )
+    .bind(userId, storeId)
+    .first<{ application_id: number; status: string }>();
+  if (existing) {
+    return c.json({
+      application_id: existing.application_id,
+      store_id: storeId,
+      owner_id: null,
+      status: existing.status,
+    });
+  }
+
+  const otherPending = await c.env.DB.prepare(
+    `SELECT application_id FROM store_owner_applications
+     WHERE store_id = ? AND status = 'PENDING' LIMIT 1`,
+  )
+    .bind(storeId)
+    .first<{ application_id: number }>();
+  if (otherPending)
+    return c.json({ message: "store approval is already pending" }, 409);
+
+  const inserted = await c.env.DB.prepare(
+    `INSERT INTO store_owner_applications (user_id, store_id) VALUES (?, ?)`,
+  )
     .bind(userId, storeId)
     .run();
-  return c.json({ store_id: storeId, owner_id: userId }, 201);
+  return c.json(
+    {
+      application_id: inserted.meta.last_row_id,
+      store_id: storeId,
+      owner_id: null,
+      status: "PENDING",
+    },
+    201,
+  );
+});
+
+// 사장님 본인의 가게 등록 요청 이력
+app.get("/api/users/:id/store-owner-applications", async (c) => {
+  const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
+  const { results } = await c.env.DB.prepare(
+    `SELECT a.application_id, a.user_id, a.store_id, a.status,
+            a.applied_at, a.reviewed_at,
+            s.store_key, s.name AS store_name, s.address AS store_address
+     FROM store_owner_applications a
+     JOIN stores s ON s.store_id = a.store_id
+     WHERE a.user_id = ?
+     ORDER BY a.application_id DESC`,
+  )
+    .bind(userId)
+    .all();
+  return c.json(results);
+});
+
+// 운영자 전용: 가게 등록 요청 목록. 사용자 연락처는 이 응답에서만 노출한다.
+app.get("/api/owner-applications", async (c) => {
+  if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const requestedStatus = (c.req.query("status") ?? "PENDING").toUpperCase();
+  const status = ["PENDING", "APPROVED", "REJECTED"].includes(requestedStatus)
+    ? requestedStatus
+    : "PENDING";
+  const { results } = await c.env.DB.prepare(
+    `SELECT a.application_id, a.user_id, a.store_id, a.status,
+            a.applied_at, a.reviewed_at,
+            u.nickname, u.email, u.phone, u.address, u.is_owner,
+            s.store_key, s.name AS store_name, s.address AS store_address
+     FROM store_owner_applications a
+     JOIN users u ON u.user_id = a.user_id
+     JOIN stores s ON s.store_id = a.store_id
+     WHERE a.status = ?
+     ORDER BY a.application_id ASC`,
+  )
+    .bind(status)
+    .all();
+  return c.json(results);
+});
+
+app.get("/api/owner-applications/pending-count", async (c) => {
+  if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM store_owner_applications WHERE status = 'PENDING'`,
+  ).first<{ count: number }>();
+  return c.json({ count: row?.count ?? 0 });
+});
+
+app.patch("/api/owner-applications/:id/approve", async (c) => {
+  if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const applicationId = Number(c.req.param("id"));
+  const application = await c.env.DB.prepare(
+    `SELECT a.user_id, a.store_id, a.status, u.is_owner, s.owner_id
+     FROM store_owner_applications a
+     JOIN users u ON u.user_id = a.user_id
+     JOIN stores s ON s.store_id = a.store_id
+     WHERE a.application_id = ?`,
+  )
+    .bind(applicationId)
+    .first<{
+      user_id: number;
+      store_id: number;
+      status: string;
+      is_owner: number;
+      owner_id: number | null;
+    }>();
+  if (!application) return c.json({ message: "application not found" }, 404);
+  if (application.status === "APPROVED")
+    return c.json({ ok: true, unchanged: true });
+  if (application.status !== "PENDING")
+    return c.json({ message: "application is not pending" }, 409);
+  if ((application.is_owner ?? 0) !== 1)
+    return c.json({ message: "applicant is not an owner account" }, 409);
+  if (application.owner_id && application.owner_id !== application.user_id)
+    return c.json({ message: "store already has another owner" }, 409);
+
+  const [storeUpdate, applicationUpdate] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE stores SET owner_id = ?
+       WHERE store_id = ?
+         AND (owner_id IS NULL OR owner_id = ?)
+         AND EXISTS (
+           SELECT 1 FROM store_owner_applications
+           WHERE application_id = ? AND status = 'PENDING'
+         )`,
+    ).bind(
+      application.user_id,
+      application.store_id,
+      application.user_id,
+      applicationId,
+    ),
+    c.env.DB.prepare(
+      `UPDATE store_owner_applications
+       SET status = 'APPROVED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+       WHERE application_id = ?
+         AND status = 'PENDING'
+         AND EXISTS (
+           SELECT 1 FROM stores
+           WHERE store_id = ? AND owner_id = ?
+         )`,
+    ).bind(
+      c.get("authUserId"),
+      applicationId,
+      application.store_id,
+      application.user_id,
+    ),
+  ]);
+  if ((storeUpdate.meta.changes ?? 0) === 0 || (applicationUpdate.meta.changes ?? 0) === 0)
+    return c.json({ message: "approval state changed" }, 409);
+  return c.json({
+    ok: true,
+    application_id: applicationId,
+    store_id: application.store_id,
+    owner_id: application.user_id,
+    status: "APPROVED",
+  });
+});
+
+app.patch("/api/owner-applications/:id/reject", async (c) => {
+  if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const applicationId = Number(c.req.param("id"));
+  const rejected = await c.env.DB.prepare(
+    `UPDATE store_owner_applications
+     SET status = 'REJECTED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+     WHERE application_id = ? AND status = 'PENDING'`,
+  )
+    .bind(c.get("authUserId"), applicationId)
+    .run();
+  if ((rejected.meta.changes ?? 0) === 0) {
+    const existing = await c.env.DB.prepare(
+      `SELECT status FROM store_owner_applications WHERE application_id = ?`,
+    )
+      .bind(applicationId)
+      .first<{ status: string }>();
+    if (!existing) return c.json({ message: "application not found" }, 404);
+    if (existing.status === "REJECTED")
+      return c.json({ ok: true, unchanged: true });
+    return c.json({ message: "application is not pending" }, 409);
+  }
+  return c.json({ ok: true, status: "REJECTED" });
 });
 
 // 사장님이 등록한 내 가게 목록
 app.get("/api/owners/:id/stores", async (c) => {
   const ownerId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `SELECT store_id, store_key, name, address FROM stores WHERE owner_id = ? ORDER BY store_id DESC`,
   )
@@ -432,6 +788,8 @@ app.get("/api/owners/:id/stores", async (c) => {
 app.delete("/api/owners/:id/stores/:storeId", async (c) => {
   const ownerId = Number(c.req.param("id"));
   const storeId = Number(c.req.param("storeId"));
+  if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
   await c.env.DB.prepare(
     `UPDATE stores SET owner_id = NULL WHERE store_id = ? AND owner_id = ?`,
   )
@@ -443,6 +801,8 @@ app.delete("/api/owners/:id/stores/:storeId", async (c) => {
 // 사장님 문의함: 내 가게로 온 채팅방 목록 (메시지가 1개 이상 있는 방만, 손님 닉네임 포함)
 app.get("/api/owners/:id/chatrooms", async (c) => {
   const ownerId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.room_id, r.store_id, s.name AS store_name,
@@ -465,10 +825,12 @@ app.get("/api/owners/:id/chatrooms", async (c) => {
 
 app.post("/api/reservations", async (c) => {
   const body = await c.req.json<ReservationBody>();
-  // 값 누락 시 user 1로 조용히 귀속되던 폴백 제거 — 사용자별 데이터 분리
-  const userId = body.user_id ?? body.userId;
+  const userId = c.get("authUserId");
+  const requestedUserId = body.user_id ?? body.userId;
   const petId = body.pet_id ?? body.petId;
-  if (!userId || !petId)
+  if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
+    return c.json({ message: "forbidden" }, 403);
+  if (!petId)
     return c.json({ message: "user_id/pet_id is required" }, 400);
   const startDate = body.start_date ?? body.startDate;
   const endDate = body.end_date ?? body.endDate;
@@ -481,6 +843,13 @@ app.post("/api/reservations", async (c) => {
 
   if (!startDate || !endDate)
     return c.json({ message: "start_date/end_date is required" }, 400);
+
+  const ownedPet = await c.env.DB.prepare(
+    `SELECT 1 AS found FROM pets WHERE pet_id = ? AND user_id = ?`,
+  )
+    .bind(petId, userId)
+    .first<{ found: number }>();
+  if (!ownedPet) return c.json({ message: "pet does not belong to user" }, 403);
 
   // 1) 가게번호 + 2) 방번호 확정 (공용 헬퍼)
   const storeId = await resolveStoreId(c.env.DB, {
@@ -541,6 +910,8 @@ app.post("/api/reservations", async (c) => {
 // 내 예약 목록 (최신순, 가게 이름 포함)
 app.get("/api/users/:id/reservations", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
@@ -574,11 +945,31 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
     .catch(() => ({}) as ReservationCancelBody);
   const byOwner = body.by_owner ?? body.byOwner ?? false;
 
-  await c.env.DB.prepare(
-    `UPDATE reservations SET status = 'CANCELED', canceled_at = CURRENT_TIMESTAMP, canceled_by = ? WHERE reservation_id = ?`,
+  const access = await reservationAccess(
+    c.env.DB,
+    reservationId,
+    c.get("authUserId"),
+  );
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (byOwner) {
+    if (!c.get("authIsOwner") || !access.isStoreOwner)
+      return c.json({ message: "forbidden" }, 403);
+  } else if (!access.isCustomer) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+  if (access.status === "CANCELED") return c.json({ ok: true, unchanged: true });
+  if (access.status !== "REQUEST" && access.status !== "CONFIRMED")
+    return c.json({ message: "invalid reservation status" }, 409);
+
+  const canceled = await c.env.DB.prepare(
+    `UPDATE reservations
+     SET status = 'CANCELED', canceled_at = CURRENT_TIMESTAMP, canceled_by = ?
+     WHERE reservation_id = ? AND status IN ('REQUEST', 'CONFIRMED')`,
   )
     .bind(byOwner ? "OWNER" : "USER", reservationId)
     .run();
+  if ((canceled.meta.changes ?? 0) === 0)
+    return c.json({ message: "reservation state changed" }, 409);
 
   if (byOwner) {
     const target = await c.env.DB.prepare(
@@ -613,6 +1004,8 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
 // 사장님이 받은 예약 요청 — 내 가게(owner_id)로 온 REQUEST만
 app.get("/api/owners/:id/reservations/pending", async (c) => {
   const ownerId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
@@ -637,6 +1030,8 @@ app.get("/api/owners/:id/reservations/pending", async (c) => {
 // 사장님 알림장 — 내 가게(owner_id)로 온 확정(CONFIRMED) 예약(맡은 아이들)
 app.get("/api/owners/:id/reservations/confirmed", async (c) => {
   const ownerId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
@@ -661,11 +1056,28 @@ app.get("/api/owners/:id/reservations/confirmed", async (c) => {
 // 예약 확정 — 상태 변경 + 고객 채팅방에 확정 안내 자동 메시지
 app.patch("/api/reservations/:id/confirm", async (c) => {
   const reservationId = Number(c.req.param("id"));
-  await c.env.DB.prepare(
-    `UPDATE reservations SET status = 'CONFIRMED', confirmed_at = CURRENT_TIMESTAMP WHERE reservation_id = ?`,
+  const access = await reservationAccess(
+    c.env.DB,
+    reservationId,
+    c.get("authUserId"),
+  );
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
+  if (access.status === "CONFIRMED")
+    return c.json({ ok: true, unchanged: true });
+  if (access.status !== "REQUEST")
+    return c.json({ message: "only requested reservations can be confirmed" }, 409);
+
+  const confirmed = await c.env.DB.prepare(
+    `UPDATE reservations
+     SET status = 'CONFIRMED', confirmed_at = CURRENT_TIMESTAMP
+     WHERE reservation_id = ? AND status = 'REQUEST'`,
   )
     .bind(reservationId)
     .run();
+  if ((confirmed.meta.changes ?? 0) === 0)
+    return c.json({ message: "reservation state changed" }, 409);
 
   const target = await c.env.DB.prepare(
     `
@@ -710,6 +1122,14 @@ type DiaryPhotoOut = { photo_id: number; url: string };
 // 타임라인 조회 — 엔트리를 시간순으로, 각 엔트리에 사진 배열을 매달아 반환
 app.get("/api/reservations/:id/diaries", async (c) => {
   const reservationId = Number(c.req.param("id"));
+  const access = await reservationAccess(
+    c.env.DB,
+    reservationId,
+    c.get("authUserId"),
+  );
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!access.isCustomer && !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
   const { results: entries } = await c.env.DB.prepare(
     `SELECT diary_id, reservation_id, store_id, content, created_at
      FROM diaries WHERE reservation_id = ? ORDER BY diary_id ASC`,
@@ -741,6 +1161,16 @@ app.get("/api/reservations/:id/diaries", async (c) => {
 // 엔트리 생성 — 성공 시 보호자 채팅방에 새 알림장 도착 자동 메시지(sender 0)
 app.post("/api/reservations/:id/diaries", async (c) => {
   const reservationId = Number(c.req.param("id"));
+  const access = await reservationAccess(
+    c.env.DB,
+    reservationId,
+    c.get("authUserId"),
+  );
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
+  if (access.status !== "CONFIRMED")
+    return c.json({ message: "confirmed reservation required" }, 409);
   const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
   const content = body.content?.trim();
   if (!content) return c.json({ message: "content is required" }, 400);
@@ -798,6 +1228,19 @@ app.post("/api/reservations/:id/diaries", async (c) => {
 // 엔트리 수정 — 글만 갱신(자동 메시지 없음). 사진 편집은 R2 도입 시 추가.
 app.patch("/api/diaries/:diaryId", async (c) => {
   const diaryId = Number(c.req.param("diaryId"));
+  const diary = await c.env.DB.prepare(
+    `SELECT reservation_id FROM diaries WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<{ reservation_id: number }>();
+  if (!diary) return c.json({ message: "diary not found" }, 404);
+  const access = await reservationAccess(
+    c.env.DB,
+    diary.reservation_id,
+    c.get("authUserId"),
+  );
+  if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
   const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
   const content = body.content?.trim();
   if (!content) return c.json({ message: "content is required" }, 400);
@@ -818,6 +1261,19 @@ app.patch("/api/diaries/:diaryId", async (c) => {
 // 엔트리 삭제(자동 메시지 없음) — 사진 행도 함께 정리(R2 객체 삭제는 R2 도입 시 추가)
 app.delete("/api/diaries/:diaryId", async (c) => {
   const diaryId = Number(c.req.param("diaryId"));
+  const diary = await c.env.DB.prepare(
+    `SELECT reservation_id FROM diaries WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<{ reservation_id: number }>();
+  if (!diary) return c.json({ message: "diary not found" }, 404);
+  const access = await reservationAccess(
+    c.env.DB,
+    diary.reservation_id,
+    c.get("authUserId"),
+  );
+  if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
   await c.env.DB.prepare(`DELETE FROM diary_photos WHERE diary_id = ?`)
     .bind(diaryId)
     .run();
@@ -829,6 +1285,8 @@ app.delete("/api/diaries/:diaryId", async (c) => {
 
 app.get("/api/users/:id/pets", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT pet_id, user_id, name, breed, age, weight, gender, note, image_url
@@ -842,6 +1300,8 @@ app.get("/api/users/:id/pets", async (c) => {
 
 app.get("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
+  if (!(await canAccessRoom(c.env.DB, roomId, c.get("authUserId"))))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT message_id, room_id, sender_id, sender_name, message_type, content, created_at
@@ -856,11 +1316,20 @@ app.get("/api/chatrooms/:id/messages", async (c) => {
 app.post("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
   const body = await c.req.json<ChatMessageBody>();
+  const authUserId = c.get("authUserId");
+  if (!(await canAccessRoom(c.env.DB, roomId, authUserId)))
+    return c.json({ message: "forbidden" }, 403);
 
-  const senderId = body.sender_id ?? body.senderId;
-  if (senderId === undefined)
-    return c.json({ message: "sender_id is required" }, 400);
-  const senderName = body.sender_name ?? body.senderName ?? "나";
+  const requestedSenderId = body.sender_id ?? body.senderId;
+  if (requestedSenderId !== undefined && requestedSenderId !== authUserId)
+    return c.json({ message: "forbidden" }, 403);
+  const senderId = authUserId;
+  const user = await c.env.DB.prepare(
+    `SELECT nickname FROM users WHERE user_id = ?`,
+  )
+    .bind(authUserId)
+    .first<{ nickname: string | null }>();
+  const senderName = user?.nickname ?? "나";
   const messageType = body.message_type ?? body.messageType ?? "TEXT";
   const content = body.content?.trim();
 
@@ -892,6 +1361,8 @@ app.get("/api/chatrooms/lookup", async (c) => {
   const rawUserId = c.req.query("user_id");
   if (!rawUserId) return c.json({ message: "user_id is required" }, 400);
   const userId = Number(rawUserId);
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const storeKey = c.req.query("store_key") ?? "";
   const roomId = await findRoomId(c.env.DB, userId, storeKey);
   return c.json({ room_id: roomId });
@@ -900,8 +1371,10 @@ app.get("/api/chatrooms/lookup", async (c) => {
 // 문의 방 get-or-create (첫 메시지 전송 시 호출) — 자동 메시지 없음
 app.post("/api/chatrooms", async (c) => {
   const body = await c.req.json<ChatRoomBody>();
-  const userId = body.user_id ?? body.userId;
-  if (!userId) return c.json({ message: "user_id is required" }, 400);
+  const userId = c.get("authUserId");
+  const requestedUserId = body.user_id ?? body.userId;
+  if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
+    return c.json({ message: "forbidden" }, 403);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   const storeName = body.store_name ?? body.storeName ?? "";
   const storeAddress = body.store_address ?? body.storeAddress ?? "";
@@ -923,6 +1396,8 @@ app.post("/api/chatrooms", async (c) => {
 // 내 채팅방 목록 (메시지가 1개 이상 있는 방만)
 app.get("/api/users/:id/chatrooms", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT r.room_id, r.store_id, s.name AS store_name, s.store_type,
@@ -953,8 +1428,12 @@ type ChatReadBody = {
 app.post("/api/chatrooms/:id/read", async (c) => {
   const roomId = Number(c.req.param("id"));
   const body = await c.req.json<ChatReadBody>();
-  const userId = body.user_id ?? body.userId;
-  if (!userId) return c.json({ message: "user_id is required" }, 400);
+  const userId = c.get("authUserId");
+  const requestedUserId = body.user_id ?? body.userId;
+  if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
+    return c.json({ message: "forbidden" }, 403);
+  if (!(await canAccessRoom(c.env.DB, roomId, userId)))
+    return c.json({ message: "forbidden" }, 403);
 
   await c.env.DB.prepare(
     `
@@ -973,6 +1452,8 @@ app.post("/api/chatrooms/:id/read", async (c) => {
 // 합산한다(자동 메시지 sender 0은 사장님 화면에선 내 말풍선이라 사장님 몫에선 제외)
 app.get("/api/users/:id/unread-count", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const user = await c.env.DB.prepare(
     `SELECT is_owner FROM users WHERE user_id = ?`,
   )
@@ -1036,6 +1517,8 @@ type NotificationItem = {
 app.get("/api/users/:id/notifications", async (c) => {
   const userId = Number(c.req.param("id"));
   if (!userId) return c.json({ message: "user id required" }, 400);
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const rawCursor = c.req.query("cursor");
 
   const user = await c.env.DB.prepare(`SELECT is_owner FROM users WHERE user_id = ?`)
@@ -1251,6 +1734,8 @@ app.get("/api/pet-reviews/eligibility", async (c) => {
   if (!Number.isInteger(userId) || userId <= 0 || !storeKey) {
     return c.json({ message: "userId and storeKey are required" }, 400);
   }
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
 
   const eligibility = await getReviewEligibility(c.env.DB, userId, storeKey);
   return c.json({
@@ -1266,6 +1751,8 @@ app.post("/api/pet-reviews", async (c) => {
   if (!Number.isInteger(userId) || userId <= 0 || !storeKey) {
     return c.json({ message: "user_id and store_key are required" }, 400);
   }
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
 
   const storeName = body.store_name ?? body.storeName ?? "";
   const rating = Number(body.rating ?? 5);
@@ -1381,60 +1868,166 @@ app.get("/api/pet-reviews/tags", async (c) => {
 
 // MARK: - 인증
 
-// 카카오 로그인: kakao_id로 기존 유저 조회 또는 신규 생성
-app.post("/api/auth/kakao", async (c) => {
-  const body = await c.req.json<KakaoAuthBody>();
-  const { kakao_id, nickname, email } = body;
-  const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
+type AuthUserRow = {
+  user_id: number;
+  kakao_id: string;
+  nickname: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  is_owner: number | null;
+  is_admin: number | null;
+};
 
-  if (!kakao_id || !nickname)
-    return c.json({ message: "kakao_id and nickname are required" }, 400);
-
-  const existing = await c.env.DB.prepare(
-    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner FROM users WHERE kakao_id = ?`,
+async function findOrCreateUser(
+  db: D1Database,
+  kakaoId: string,
+  nickname: string,
+  email: string | null,
+  isOwner: number,
+): Promise<{ user: AuthUserRow; created: boolean; roleConflict: boolean }> {
+  const existing = await db.prepare(
+    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner, is_admin
+     FROM users WHERE kakao_id = ?`,
   )
-    .bind(kakao_id)
-    .first<{
-      user_id: number;
-      kakao_id: string;
-      nickname: string;
-      email: string | null;
-      phone: string | null;
-      address: string | null;
-      is_owner: number | null;
-    }>();
-
+    .bind(kakaoId)
+    .first<AuthUserRow>();
   if (existing) {
-    // 역할은 최초 가입 시 계정에 귀속 — 같은 카카오 계정으로 다른 역할 가입 불가 (탈퇴 전까지)
-    if ((existing.is_owner ?? 0) !== isOwner)
-      return c.json(
-        {
-          message: "already registered with a different role",
-          is_owner: existing.is_owner ?? 0,
-        },
-        409,
-      );
-    return c.json(existing);
+    return {
+      user: existing,
+      created: false,
+      roleConflict: (existing.is_owner ?? 0) !== isOwner,
+    };
   }
 
-  const result = await c.env.DB.prepare(
+  const result = await db.prepare(
     `INSERT INTO users (kakao_id, nickname, email, is_owner) VALUES (?, ?, ?, ?)`,
   )
-    .bind(kakao_id, nickname, email ?? null, isOwner)
+    .bind(kakaoId, nickname, email, isOwner)
     .run();
-
-  const created = await c.env.DB.prepare(
-    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner FROM users WHERE user_id = ?`,
+  const created = await db.prepare(
+    `SELECT user_id, kakao_id, nickname, email, phone, address, is_owner, is_admin
+     FROM users WHERE user_id = ?`,
   )
     .bind(result.meta.last_row_id)
-    .first();
+    .first<AuthUserRow>();
+  if (!created) throw new Error("failed to create user");
+  return { user: created, created: true, roleConflict: false };
+}
 
-  return c.json(created, 201);
+async function authResponse(
+  db: D1Database,
+  user: AuthUserRow,
+): Promise<Record<string, unknown>> {
+  await db
+    .prepare(`DELETE FROM auth_sessions WHERE unixepoch(expires_at) <= unixepoch('now')`)
+    .run();
+  const session = await createSession(db, user.user_id);
+  return {
+    ...user,
+    session_token: session.token,
+    session_expires_at: session.expiresAt,
+  };
+}
+
+// 카카오 액세스 토큰은 서버가 카카오 사용자 API로 직접 검증한다.
+app.post("/api/auth/kakao", async (c) => {
+  const body = await c.req.json<KakaoAuthBody>();
+  const accessToken = (body.access_token ?? body.accessToken ?? "").trim();
+  const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
+  if (!accessToken) return c.json({ message: "access_token is required" }, 400);
+
+  const kakaoResponse = await fetch("https://kapi.kakao.com/v2/user/me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!kakaoResponse.ok)
+    return c.json({ message: "invalid kakao access token" }, 401);
+
+  const kakaoUser = await kakaoResponse.json<{
+    id?: number;
+    properties?: { nickname?: string };
+    kakao_account?: {
+      email?: string;
+      profile?: { nickname?: string };
+    };
+  }>();
+  if (!kakaoUser.id) return c.json({ message: "kakao user id missing" }, 401);
+
+  const nickname =
+    kakaoUser.kakao_account?.profile?.nickname ??
+    kakaoUser.properties?.nickname ??
+    "보호자";
+  const result = await findOrCreateUser(
+    c.env.DB,
+    String(kakaoUser.id),
+    nickname,
+    kakaoUser.kakao_account?.email ?? null,
+    isOwner,
+  );
+  if (result.roleConflict)
+    return c.json(
+      {
+        message: "already registered with a different role",
+        is_owner: result.user.is_owner ?? 0,
+      },
+      409,
+    );
+
+  return c.json(
+    await authResponse(c.env.DB, result.user),
+    result.created ? 201 : 200,
+  );
+});
+
+// 로컬 wrangler에서만 사용하는 개발 계정. 운영에는 ALLOW_DEV_AUTH를 설정하지 않는다.
+app.post("/api/auth/dev", async (c) => {
+  if (c.env.ALLOW_DEV_AUTH !== "true")
+    return c.json({ message: "not found" }, 404);
+  const body = await c.req.json<DevAuthBody>().catch(() => ({}) as DevAuthBody);
+  const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
+  const isAdmin = (body.is_admin ?? body.isAdmin ?? false) ? 1 : 0;
+  const identity =
+    body.identity?.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) ||
+    (isOwner ? "owner" : "guardian");
+  const result = await findOrCreateUser(
+    c.env.DB,
+    `dev-local-${identity}`,
+    body.nickname?.trim() || (isOwner ? "테스트사장님" : "테스트"),
+    null,
+    isOwner,
+  );
+  if (result.roleConflict)
+    return c.json(
+      {
+        message: "already registered with a different role",
+        is_owner: result.user.is_owner ?? 0,
+      },
+      409,
+    );
+  if ((result.user.is_admin ?? 0) !== isAdmin) {
+    await c.env.DB.prepare(`UPDATE users SET is_admin = ? WHERE user_id = ?`)
+      .bind(isAdmin, result.user.user_id)
+      .run();
+    result.user.is_admin = isAdmin;
+  }
+  return c.json(
+    await authResponse(c.env.DB, result.user),
+    result.created ? 201 : 200,
+  );
+});
+
+app.post("/api/auth/logout", async (c) => {
+  await c.env.DB.prepare(`DELETE FROM auth_sessions WHERE token_hash = ?`)
+    .bind(c.get("authTokenHash"))
+    .run();
+  return c.json({ ok: true });
 });
 
 // 유저 프로필 수정 (닉네임, 전화번호, 주소)
 app.put("/api/users/:id", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const body = await c.req.json<UpdateUserBody>();
 
   const fields: string[] = [];
@@ -1467,6 +2060,8 @@ app.put("/api/users/:id", async (c) => {
 // 강아지 등록
 app.post("/api/users/:id/pets", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const body = await c.req.json<CreatePetBody>();
 
   if (!body.name) return c.json({ message: "name is required" }, 400);
@@ -1498,7 +2093,13 @@ app.post("/api/users/:id/pets", async (c) => {
 // 강아지 삭제
 app.delete("/api/pets/:petId", async (c) => {
   const petId = Number(c.req.param("petId"));
-  await c.env.DB.prepare(`DELETE FROM pets WHERE pet_id = ?`).bind(petId).run();
+  const deleted = await c.env.DB.prepare(
+    `DELETE FROM pets WHERE pet_id = ? AND user_id = ?`,
+  )
+    .bind(petId, c.get("authUserId"))
+    .run();
+  if ((deleted.meta.changes ?? 0) === 0)
+    return c.json({ message: "pet not found" }, 404);
   return c.json({ ok: true });
 });
 
@@ -1508,9 +2109,11 @@ app.delete("/api/pets/:petId", async (c) => {
 // 찜 시점에 알게 된 전화·유형·좌표는 비어 있는 컬럼만 채움 (기존 값 보존)
 app.post("/api/favorites", async (c) => {
   const body = await c.req.json<FavoriteBody>();
-  const userId = body.user_id ?? body.userId;
+  const userId = c.get("authUserId");
+  const requestedUserId = body.user_id ?? body.userId;
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
-  if (!userId) return c.json({ message: "user_id is required" }, 400);
+  if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
+    return c.json({ message: "forbidden" }, 403);
   if (!storeKey) return c.json({ message: "store_key is required" }, 400);
 
   const storeId = await resolveStoreId(c.env.DB, {
@@ -1551,6 +2154,8 @@ app.post("/api/favorites", async (c) => {
 app.delete("/api/users/:userId/favorites/:storeId", async (c) => {
   const userId = Number(c.req.param("userId"));
   const storeId = Number(c.req.param("storeId"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   await c.env.DB.prepare(
     `DELETE FROM favorites WHERE user_id = ? AND store_id = ?`,
   )
@@ -1562,6 +2167,8 @@ app.delete("/api/users/:userId/favorites/:storeId", async (c) => {
 // 찜 목록 (최근 찜한 순)
 app.get("/api/users/:id/favorites", async (c) => {
   const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
     `
     SELECT s.store_id, s.store_key, s.name, s.address, s.phone,

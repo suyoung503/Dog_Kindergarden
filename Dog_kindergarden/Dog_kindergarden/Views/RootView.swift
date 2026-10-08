@@ -41,6 +41,10 @@ struct RootView: View {
                 if let link, authSession.userId != nil { consumeDeepLink(link) }
             }
             .onChange(of: authSession.userId) { uid in
+                if uid == nil {
+                    router.reset(to: .start)
+                    return
+                }
                 if let link = notificationService.pendingDeepLink, uid != nil { consumeDeepLink(link) }
             }
     }
@@ -86,6 +90,7 @@ struct RootView: View {
         case .diary:       DiaryTimelineView()
         case .noticeList:  NoticeListView()
         case .noticeDetail: NoticeDetailView()
+        case .ownerApplications: OwnerApplicationAdminView()
         }
     }
 }

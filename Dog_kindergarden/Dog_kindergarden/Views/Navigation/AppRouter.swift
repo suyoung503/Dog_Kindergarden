@@ -21,6 +21,7 @@ enum AppScreen {
     case diary
     case noticeList
     case noticeDetail
+    case ownerApplications
 }
 
 // 알림장 화면 전달 컨텍스트 — 어느 예약의 알림장인지 + 작성 권한(사장님) 여부

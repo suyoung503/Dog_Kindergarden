@@ -9,18 +9,31 @@ import KakaoSDKUser
 final class AuthSession {
     var userId: Int?
     var nickname: String = ""
-    var isOwner: Bool = false      // 보호자 겸 사장님 여부 — 계정에 귀속되도록 영속 저장
+    var isOwner: Bool = false
+    var isAdmin: Bool = false
     var isLoading = false
     var errorMessage: String?
+    private var sessionInvalidationTask: Task<Void, Never>?
 
-    var isLoggedIn: Bool { userId != nil }
-
-    private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
+    var isLoggedIn: Bool { userId != nil && AuthTokenStore.load() != nil }
 
     init() {
-        userId   = UserDefaults.standard.value(forKey: "auth_user_id") as? Int
-        nickname = UserDefaults.standard.string(forKey: "auth_nickname") ?? ""
-        isOwner  = UserDefaults.standard.bool(forKey: "auth_is_owner")
+        if AuthTokenStore.load() != nil {
+            userId = UserDefaults.standard.value(forKey: "auth_user_id") as? Int
+            nickname = UserDefaults.standard.string(forKey: "auth_nickname") ?? ""
+            isOwner = UserDefaults.standard.bool(forKey: "auth_is_owner")
+            isAdmin = UserDefaults.standard.bool(forKey: "auth_is_admin")
+        } else {
+            clearLocalSession()
+        }
+
+        sessionInvalidationTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .apiSessionInvalidated) {
+                guard let self else { return }
+                self.clearLocalSession()
+                self.errorMessage = "로그인이 만료되었어요. 다시 로그인해주세요."
+            }
+        }
     }
 
     func loginWithKakao(profile: UserProfile? = nil, asOwner: Bool) async {
@@ -29,116 +42,166 @@ final class AuthSession {
         defer { isLoading = false }
 
         do {
-            // 카카오톡 앱 로그인 or 웹 로그인
-            let _: OAuthToken = try await withCheckedThrowingContinuation { cont in
+            let oauthToken: OAuthToken = try await withCheckedThrowingContinuation { continuation in
                 if UserApi.isKakaoTalkLoginAvailable() {
                     UserApi.shared.loginWithKakaoTalk { token, error in
-                        if let error { cont.resume(throwing: error); return }
-                        guard let token else { return }
-                        cont.resume(returning: token)
+                        if let error { continuation.resume(throwing: error); return }
+                        guard let token else {
+                            continuation.resume(throwing: URLError(.userAuthenticationRequired))
+                            return
+                        }
+                        continuation.resume(returning: token)
                     }
                 } else {
                     UserApi.shared.loginWithKakaoAccount { token, error in
-                        if let error { cont.resume(throwing: error); return }
-                        guard let token else { return }
-                        cont.resume(returning: token)
+                        if let error { continuation.resume(throwing: error); return }
+                        guard let token else {
+                            continuation.resume(throwing: URLError(.userAuthenticationRequired))
+                            return
+                        }
+                        continuation.resume(returning: token)
                     }
                 }
             }
 
-            // 카카오 사용자 정보 조회
-            let kakaoUser: KakaoSDKUser.User = try await withCheckedThrowingContinuation { cont in
-                UserApi.shared.me { user, error in
-                    if let error { cont.resume(throwing: error); return }
-                    guard let user else { return }
-                    cont.resume(returning: user)
-                }
-            }
-
-            let kakaoId = "\(kakaoUser.id ?? 0)"
-            let name    = kakaoUser.kakaoAccount?.profile?.nickname ?? "보호자"
-
-            try await registerWithBackend(kakaoId: kakaoId, nickname: name, asOwner: asOwner, profile: profile)
+            try await registerWithBackend(
+                kakaoAccessToken: oauthToken.accessToken,
+                asOwner: asOwner,
+                profile: profile
+            )
         } catch {
-            // 사용자가 로그인 창을 직접 닫은 경우(취소)는 실패로 표시하지 않는다
             if case let SdkError.ClientFailed(reason, _) = error, reason == .Cancelled { return }
             errorMessage = "로그인에 실패했어요. 다시 시도해주세요."
         }
     }
 
     func logout() {
+        let sessionToken = AuthTokenStore.load()
         UserApi.shared.logout { _ in }
-        userId   = nil
-        nickname = ""
-        isOwner  = false
-        errorMessage = nil
-        UserDefaults.standard.removeObject(forKey: "auth_user_id")
-        UserDefaults.standard.removeObject(forKey: "auth_nickname")
-        UserDefaults.standard.removeObject(forKey: "auth_is_owner")
+        clearLocalSession()
+
+        // 로컬 상태를 먼저 지워 즉시 로그아웃하고, 서버 세션 폐기는 best-effort로 처리한다.
+        if let sessionToken {
+            Task {
+                let url = APIEnvironment.apiBaseURL.appendingPathComponent("auth/logout")
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+                _ = try? await URLSession.shared.data(for: request)
+            }
+        }
     }
 
 #if DEBUG
-    // 시뮬레이터 개발자 진입 — 역할별 고정 kakao_id로 실제 유저 행을 만들어
-    // 견주/사장님을 별개 계정으로 테스트할 수 있게 함
-    func loginAsDeveloper(profile: UserProfile? = nil, asOwner: Bool) async {
+    // 로컬 wrangler에서 ALLOW_DEV_AUTH=true일 때만 사용한다. 운영 Worker에서는 항상 404다.
+    func loginAsDeveloper(profile: UserProfile? = nil, asOwner: Bool, asAdmin: Bool = false) async {
         errorMessage = nil
+        guard APIEnvironment.isLocalDevelopment else {
+            errorMessage = "개발자 진입은 로컬 API에서만 사용할 수 있어요."
+            return
+        }
+
         do {
-            try await registerWithBackend(
-                kakaoId: asOwner ? "dev-simulator-owner" : "dev-simulator",
-                nickname: asOwner ? "테스트사장님" : "테스트",
-                asOwner: asOwner,
+            let url = APIEnvironment.apiBaseURL.appendingPathComponent("auth/dev")
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "nickname": asOwner ? "테스트사장님" : "테스트",
+                "is_owner": asOwner,
+                "is_admin": asAdmin,
+            ])
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try applyLoginResponse(
+                data: data,
+                response: response,
+                fallbackNickname: asOwner ? "테스트사장님" : "테스트",
                 profile: profile
             )
         } catch {
-            // user 1 행세 폴백은 실계정 데이터 혼입 위험이 있어 제거 — 서버 없이는 로그인 불가로 처리
-            errorMessage = "개발자 로그인 실패 — 서버에 연결할 수 없어요."
+            errorMessage = "개발자 로그인 실패 — 로컬 서버 설정을 확인해주세요."
         }
     }
 #endif
 
-    // 프로필 수정 저장 후 세션 닉네임도 함께 갱신
     func updateNickname(_ name: String) {
         nickname = name
         UserDefaults.standard.set(name, forKey: "auth_nickname")
     }
 
-    private func registerWithBackend(kakaoId: String, nickname: String, asOwner: Bool, profile: UserProfile?) async throws {
-        guard let url = URL(string: "\(baseURL)/api/auth/kakao") else { return }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "kakao_id": kakaoId,
-            "nickname": nickname,
-            "is_owner": asOwner
+    private func registerWithBackend(
+        kakaoAccessToken: String,
+        asOwner: Bool,
+        profile: UserProfile?
+    ) async throws {
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("auth/kakao")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "access_token": kakaoAccessToken,
+            "is_owner": asOwner,
         ])
 
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try applyLoginResponse(
+            data: data,
+            response: response,
+            fallbackNickname: "보호자",
+            profile: profile
+        )
+    }
 
-        // 역할은 최초 가입 시 계정에 귀속 — 같은 카카오 계정으로 다른 역할 로그인 불가 (409)
-        if (response as? HTTPURLResponse)?.statusCode == 409 {
+    private func applyLoginResponse(
+        data: Data,
+        response: URLResponse,
+        fallbackNickname: String,
+        profile: UserProfile?
+    ) throws {
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let http = response as? HTTPURLResponse else { throw APIError.badStatus }
+
+        if http.statusCode == 409 {
             let registeredAsOwner = (json?["is_owner"] as? Int) == 1
             errorMessage = "이미 \(registeredAsOwner ? "보호자 · 사장님" : "보호자") 계정으로 가입된 카카오 계정이에요.\n해당 역할을 선택해 로그인해주세요."
             return
         }
-
-        if let id = json?["user_id"] as? Int {
-            self.userId   = id
-            self.nickname = json?["nickname"] as? String ?? nickname
-            self.isOwner  = (json?["is_owner"] as? Int) == 1
-            UserDefaults.standard.set(id, forKey: "auth_user_id")
-            UserDefaults.standard.set(self.nickname, forKey: "auth_nickname")
-            UserDefaults.standard.set(self.isOwner, forKey: "auth_is_owner")
-
-            // 서버에 저장된 프로필(닉네임·연락처·주소)을 로컬 UserProfile에 반영.
-            // 무조건 덮어써야 계정 전환 시 이전 계정의 연락처·주소가 남지 않는다 (서버가 비어 있으면 초기화)
-            if let profile {
-                profile.name = self.nickname
-                profile.phone = (json?["phone"] as? String) ?? ""
-                profile.address = (json?["address"] as? String) ?? ""
-            }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpStatus(http.statusCode)
         }
+        guard let id = json?["user_id"] as? Int,
+              let sessionToken = json?["session_token"] as? String,
+              !sessionToken.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        AuthTokenStore.save(sessionToken)
+        userId = id
+        nickname = json?["nickname"] as? String ?? fallbackNickname
+        isOwner = (json?["is_owner"] as? Int) == 1
+        isAdmin = (json?["is_admin"] as? Int) == 1
+        UserDefaults.standard.set(id, forKey: "auth_user_id")
+        UserDefaults.standard.set(nickname, forKey: "auth_nickname")
+        UserDefaults.standard.set(isOwner, forKey: "auth_is_owner")
+        UserDefaults.standard.set(isAdmin, forKey: "auth_is_admin")
+
+        if let profile {
+            profile.name = nickname
+            profile.phone = (json?["phone"] as? String) ?? ""
+            profile.address = (json?["address"] as? String) ?? ""
+        }
+    }
+
+    private func clearLocalSession() {
+        userId = nil
+        nickname = ""
+        isOwner = false
+        isAdmin = false
+        errorMessage = nil
+        AuthTokenStore.clear()
+        UserDefaults.standard.removeObject(forKey: "auth_user_id")
+        UserDefaults.standard.removeObject(forKey: "auth_nickname")
+        UserDefaults.standard.removeObject(forKey: "auth_is_owner")
+        UserDefaults.standard.removeObject(forKey: "auth_is_admin")
     }
 }

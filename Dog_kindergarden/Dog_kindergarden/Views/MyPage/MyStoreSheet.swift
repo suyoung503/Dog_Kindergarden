@@ -1,12 +1,13 @@
 import SwiftUI
 
-// 사장님 '내 가게' 관리 — 등록된 가게 확인·해제 + 공공데이터 상호명 검색으로 등록
+// 사장님 '내 가게' 관리 — 승인된 가게 확인·해제 + 공공데이터 상호명 검색으로 등록 요청
 struct MyStoreSheet: View {
     @Environment(BoardingStore.self) private var boarding
     @Environment(AuthSession.self) private var authSession
     @Environment(\.dismiss) private var dismiss
 
     @State private var myStores: [OwnerStoreResponse] = []
+    @State private var applications: [StoreOwnerApplication] = []
     @State private var query = ""
     @State private var errorMessage: String?
     @State private var pendingClaim: MapPin?
@@ -23,6 +24,7 @@ struct MyStoreSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     registeredSection
+                    pendingSection
                     searchSection
                     if let error = errorMessage {
                         Text(error)
@@ -45,13 +47,13 @@ struct MyStoreSheet: View {
                 }
             }
             .task { await load() }
-            .alert("내 가게로 등록할까요?", isPresented: Binding(get: { pendingClaim != nil }, set: { if !$0 { pendingClaim = nil } })) {
+            .alert("가게 등록을 요청할까요?", isPresented: Binding(get: { pendingClaim != nil }, set: { if !$0 { pendingClaim = nil } })) {
                 Button("취소", role: .cancel) {}
-                Button("등록") {
+                Button("요청") {
                     if let pin = pendingClaim { claim(pin) }
                 }
             } message: {
-                Text("\(pendingClaim?.name ?? "")\n등록하면 이 가게로 온 문의가 채팅 목록 '받은 문의'에 보여요.")
+                Text("\(pendingClaim?.name ?? "")\n운영자 확인이 끝나면 내 가게로 연결되고 사장님 기능을 사용할 수 있어요.")
             }
         }
     }
@@ -64,7 +66,7 @@ struct MyStoreSheet: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(Color.brandBrownMid)
             if myStores.isEmpty {
-                Text("아직 등록한 가게가 없어요. 아래에서 상호명으로 검색해 등록해주세요.")
+                Text("아직 승인된 가게가 없어요. 아래에서 상호명으로 검색해 등록을 요청해주세요.")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.brandBrownMid)
                     .padding(.vertical, 8)
@@ -98,6 +100,46 @@ struct MyStoreSheet: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+                }
+            }
+        }
+    }
+
+    // MARK: - 승인 대기
+
+    private var pendingApplications: [StoreOwnerApplication] {
+        applications.filter { $0.status == "PENDING" }
+    }
+
+    @ViewBuilder
+    private var pendingSection: some View {
+        if !pendingApplications.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("승인 대기")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.brandBrownMid)
+                ForEach(pendingApplications) { application in
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Color.brandOrange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(application.storeName ?? "가게")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.brandBrown)
+                            Text("운영자가 등록 정보를 확인하고 있어요.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.brandBrownMid)
+                        }
+                        Spacer()
+                        Text("대기 중")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.brandOrange)
                     }
                     .padding(12)
                     .background(.white)
@@ -163,9 +205,13 @@ struct MyStoreSheet: View {
                 Text("내 가게")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color(hex: "#2c6b4a"))
+            } else if isPending(pin) {
+                Text("승인 대기")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.brandOrange)
             } else {
                 Button(action: { pendingClaim = pin }) {
-                    Text("등록")
+                    Text("등록 요청")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 5)
@@ -187,9 +233,14 @@ struct MyStoreSheet: View {
         myStores.contains { ($0.storeKey ?? "") == pin.storeKey }
     }
 
+    private func isPending(_ pin: MapPin) -> Bool {
+        pendingApplications.contains { ($0.storeKey ?? "") == pin.storeKey }
+    }
+
     private func load() async {
         guard let uid = authSession.userId else { return }
         myStores = (try? await APIClient.shared.fetchOwnerStores(userId: uid)) ?? []
+        applications = (try? await APIClient.shared.fetchMyStoreOwnerApplications(userId: uid)) ?? []
     }
 
     private func claim(_ pin: MapPin) {
@@ -197,13 +248,13 @@ struct MyStoreSheet: View {
         errorMessage = nil
         Task {
             do {
-                try await APIClient.shared.claimStore(
+                _ = try await APIClient.shared.claimStore(
                     userId: uid, storeKey: pin.storeKey,
                     storeName: pin.name, storeAddress: pin.address
                 )
                 await load()
             } catch {
-                errorMessage = "등록에 실패했어요. 이미 다른 사장님의 가게일 수 있어요."
+                errorMessage = "요청에 실패했어요. 이미 다른 사장님이 등록했거나 승인 대기 중일 수 있어요."
             }
         }
     }

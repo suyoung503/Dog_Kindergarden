@@ -33,8 +33,6 @@ final class DogProfileViewModel {
     var allergy = ""
     var notes = ""
 
-    private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
-
     func reset() {
         dogName = ""; age = ""; weight = ""; breed = ""
         gender = "남"; sociability = "좋음"; allergy = ""; notes = ""
@@ -44,9 +42,9 @@ final class DogProfileViewModel {
     func loadPets(userId: Int) async {
         isLoading = true
         defer { isLoading = false }
-        guard let url = URL(string: "\(baseURL)/api/users/\(userId)/pets") else { return }
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/pets")
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             pets = try JSONDecoder().decode([Pet].self, from: data)
         } catch {
             errorMessage = "목록을 불러오지 못했어요."
@@ -71,17 +69,12 @@ final class DogProfileViewModel {
         if let ageInt = parseInt(age) { body["age"] = ageInt }
         if let weightVal = parseDouble(weight) { body["weight"] = weightVal }
 
-        guard let url = URL(string: "\(baseURL)/api/users/\(userId)/pets") else { return false }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/pets")
+        var req = APITransport.request(url: url, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 201 else {
-                errorMessage = "등록에 실패했어요."
-                return false
-            }
+            _ = try await APITransport.data(for: req)
             await loadPets(userId: userId)
             reset()
             return true
@@ -94,15 +87,10 @@ final class DogProfileViewModel {
     // 강아지 삭제
     func deletePet(petId: Int, userId: Int) async {
         errorMessage = nil
-        guard let url = URL(string: "\(baseURL)/api/pets/\(petId)") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "DELETE"
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("pets/\(petId)")
+        let req = APITransport.request(url: url, method: "DELETE")
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                errorMessage = "삭제에 실패했어요."
-                return
-            }
+            _ = try await APITransport.data(for: req)
             await loadPets(userId: userId)
         } catch {
             errorMessage = "삭제에 실패했어요."

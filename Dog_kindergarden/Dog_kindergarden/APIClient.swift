@@ -6,6 +6,104 @@
 //
 
 import Foundation
+import Security
+
+extension Notification.Name {
+    static let apiSessionInvalidated = Notification.Name("apiSessionInvalidated")
+}
+
+enum APIEnvironment {
+    private static let productionAPI = "https://matgyeomung-api.dog-kindergarden.workers.dev/api"
+
+    static var apiBaseURL: URL {
+        let raw = UserDefaults.standard.string(forKey: "API_BASE_URL") ?? productionAPI
+        var url = URL(string: raw) ?? URL(string: productionAPI)!
+        if url.lastPathComponent != "api" {
+            url.appendPathComponent("api")
+        }
+        return url
+    }
+
+    static var isLocalDevelopment: Bool {
+        guard let host = apiBaseURL.host else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+}
+
+enum AuthTokenStore {
+    private static let service = "net.suyoung.Dog-kindergarden.api-session"
+    private static let account = "current"
+
+    static func load() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func save(_ token: String) {
+        clear()
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: Data(token.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func clear() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+enum APITransport {
+    static func request(url: URL, method: String = "GET") -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = AuthTokenStore.load(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    static func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var authorized = request
+        if authorized.value(forHTTPHeaderField: "Authorization") == nil,
+           let token = AuthTokenStore.load(), !token.isEmpty {
+            authorized.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: authorized)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.badStatus
+        }
+        handleUnauthorized(http.statusCode)
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpStatus(http.statusCode)
+        }
+        return (data, http)
+    }
+
+    static func handleUnauthorized(_ statusCode: Int) {
+        guard statusCode == 401, AuthTokenStore.load() != nil else { return }
+        AuthTokenStore.clear()
+        NotificationCenter.default.post(name: .apiSessionInvalidated, object: nil)
+    }
+}
 
 final class APIClient {
     static let shared = APIClient()
@@ -16,8 +114,7 @@ final class APIClient {
 
     /// 시뮬레이터 기준 기본 주소입니다. 실제 기기에서는 Mac의 로컬 IP로 변경하세요.
     var baseURL: URL {
-        let saved = UserDefaults.standard.string(forKey: "API_BASE_URL")
-        return URL(string: saved ?? "https://matgyeomung-api.dog-kindergarden.workers.dev/api")!
+        APIEnvironment.apiBaseURL
     }
 
     private init(session: URLSession = .shared) {
@@ -126,6 +223,27 @@ final class APIClient {
         return try await request(path: "/stores/claim", method: "POST", body: body)
     }
 
+    func fetchMyStoreOwnerApplications(userId: Int) async throws -> [StoreOwnerApplication] {
+        try await request(path: "/users/\(userId)/store-owner-applications", method: "GET")
+    }
+
+    func fetchPendingStoreOwnerApplications() async throws -> [StoreOwnerApplication] {
+        try await request(path: "/owner-applications", method: "GET")
+    }
+
+    func fetchPendingStoreOwnerApplicationCount() async throws -> Int {
+        let response: PendingOwnerApplicationCount = try await request(path: "/owner-applications/pending-count", method: "GET")
+        return response.count
+    }
+
+    func approveStoreOwnerApplication(id: Int) async throws {
+        let _: StoreOwnerApplicationActionResponse = try await request(path: "/owner-applications/\(id)/approve", method: "PATCH")
+    }
+
+    func rejectStoreOwnerApplication(id: Int) async throws {
+        let _: StoreOwnerApplicationActionResponse = try await request(path: "/owner-applications/\(id)/reject", method: "PATCH")
+    }
+
     func fetchOwnerStores(userId: Int) async throws -> [OwnerStoreResponse] {
         try await request(path: "/owners/\(userId)/stores", method: "GET")
     }
@@ -175,9 +293,15 @@ final class APIClient {
     }
 
     private func perform<Response: Decodable>(_ request: URLRequest) async throws -> Response {
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            throw APIError.badStatus
+        var authorized = request
+        if let token = AuthTokenStore.load(), !token.isEmpty {
+            authorized.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await session.data(for: authorized)
+        guard let httpResponse = response as? HTTPURLResponse else { throw APIError.badStatus }
+        APITransport.handleUnauthorized(httpResponse.statusCode)
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw APIError.httpStatus(httpResponse.statusCode)
         }
         return try decoder.decode(Response.self, from: data)
     }
@@ -185,6 +309,7 @@ final class APIClient {
 
 enum APIError: Error {
     case badStatus
+    case httpStatus(Int)
 }
 
 struct PetProfile {
@@ -285,8 +410,37 @@ struct StoreClaimRequest: Encodable {
 }
 
 struct StoreClaimResponse: Decodable {
+    let applicationId: Int?
     let storeId: Int?
     let ownerId: Int?
+    let status: String?
+}
+
+struct StoreOwnerApplication: Decodable, Identifiable {
+    var id: Int { applicationId }
+    let applicationId: Int
+    let userId: Int
+    let storeId: Int
+    let status: String
+    let appliedAt: String?
+    let reviewedAt: String?
+    let storeKey: String?
+    let storeName: String?
+    let storeAddress: String?
+    let nickname: String?
+    let email: String?
+    let phone: String?
+    let address: String?
+    let isOwner: Int?
+}
+
+struct PendingOwnerApplicationCount: Decodable {
+    let count: Int
+}
+
+struct StoreOwnerApplicationActionResponse: Decodable {
+    let ok: Bool?
+    let status: String?
 }
 
 struct StoreUnclaimResponse: Decodable {

@@ -47,8 +47,6 @@ final class BookingViewModel {
         return formatter.string(from: startTime)
     }
 
-    private let baseURL = "https://matgyeomung-api.dog-kindergarden.workers.dev"
-
     var selectedPet: Pet? { pets.first { $0.pet_id == selectedPetId } }
 
     private func servicePrice(_ name: String) -> String {
@@ -76,9 +74,9 @@ final class BookingViewModel {
 
     // 강아지 목록 조회
     func loadPets(userId: Int) async {
-        guard let url = URL(string: "\(baseURL)/api/users/\(userId)/pets") else { return }
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/pets")
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             pets = try JSONDecoder().decode([Pet].self, from: data)
             if selectedPetId == nil { selectedPetId = pets.first?.pet_id }
         } catch {
@@ -108,15 +106,13 @@ final class BookingViewModel {
             "request_message": request,
         ]
 
-        guard let url = URL(string: "\(baseURL)/api/reservations") else { return nil }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("reservations")
+        var req = APITransport.request(url: url, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 201,
-                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let (data, _) = try await APITransport.data(for: req)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let rid = json["reservation_id"] as? Int,
                   let roomId = json["room_id"] as? Int else {
                 errorMessage = "예약에 실패했어요."

@@ -32,6 +32,7 @@ const checkpointPath = path.join(resultDir, "price-image-scan-progress.json");
 const outPath = path.join(resultDir, "price-image-scan-result.json");
 
 const VISION_ENDPOINT = "https://matgyeomung-api.dog-kindergarden.workers.dev/api/internal/vision-price-ocr";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 // llava-1.5-7b-hf는 프롬프트를 그대로 되풀이하거나 없는 가격을 지어내는 사례가 확인되어(2026-08-09) 교체.
 // llama-3.2-11b-vision-instruct는 같은 8장 재검증에서 오탐 0건.
 const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -121,9 +122,15 @@ async function main() {
 
 async function checkPriceImage(imageUrl) {
   try {
+    if (!INTERNAL_API_KEY) {
+      throw new Error("INTERNAL_API_KEY 환경변수가 필요합니다.");
+    }
     const res = await fetch(VISION_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Key": INTERNAL_API_KEY,
+      },
       body: JSON.stringify({ image_url: imageUrl, model: VISION_MODEL }),
     });
     if (!res.ok) return null;
@@ -156,4 +163,3 @@ function extractMenuImages(state) {
   if (!Array.isArray(menuImages)) return [];
   return menuImages.map((m) => m?.imageUrl).filter(Boolean);
 }
-

@@ -1,0 +1,3 @@
+# 로컬 개발 전용. 이 파일을 .dev.vars로 복사하고 실제 임의 문자열로 바꾸세요.
+ALLOW_DEV_AUTH=true
+INTERNAL_API_KEY=replace-with-a-long-random-local-key

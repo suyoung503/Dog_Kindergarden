@@ -13,6 +13,7 @@ struct MyPageView: View {
     @State private var chatCount: Int?
     @State private var favoriteCount: Int?
     @State private var myStores: [OwnerStoreResponse] = []   // 사장님: 등록한 내 가게
+    @State private var pendingOwnerApplicationCount: Int?
 
     var body: some View {
         ScrollView {
@@ -40,6 +41,9 @@ struct MyPageView: View {
             chatCount = await ChatService.unreadCount(userId: uid)
             favoriteCount = (try? await APIClient.shared.fetchFavorites(userId: uid))?.count
             await reloadMyStores()
+            if authSession.isAdmin {
+                pendingOwnerApplicationCount = try? await APIClient.shared.fetchPendingStoreOwnerApplicationCount()
+            }
         }
         .alert("로그아웃 하시겠어요?", isPresented: $showLogoutConfirm) {
             Button("취소", role: .cancel) {}
@@ -156,6 +160,14 @@ struct MyPageView: View {
 
     private var infoSection: some View {
         MyPageSection(title: "내 정보") {
+            if authSession.isAdmin {
+                MyPageItem(
+                    icon: "checkmark.shield",
+                    label: "가게 등록 요청",
+                    badge: pendingOwnerApplicationCount.flatMap { $0 > 0 ? String($0) : nil },
+                    bg: Color(hex: "#FFE0B8")
+                ) { router.go(.ownerApplications) }
+            }
             if authSession.isOwner {
                 MyPageItem(icon: "building.2",    label: "내 가게",      badge: myStoreBadge, bg: Color(hex: "#FFD9A8")) { showMyStoreSheet = true }
             }

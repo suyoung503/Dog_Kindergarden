@@ -160,14 +160,29 @@ struct StartView: View {
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
 #if DEBUG
-            Button("개발자 진입 (시뮬레이터용)") {
-                Task {
-                    await authSession.loginAsDeveloper(profile: userProfile, asOwner: selectedRole == .owner)
-                    if authSession.isLoggedIn { router.go(.home) }
+            if APIEnvironment.isLocalDevelopment {
+                Button("개발자 진입 (로컬 서버용)") {
+                    Task {
+                        await authSession.loginAsDeveloper(profile: userProfile, asOwner: selectedRole == .owner)
+                        if authSession.isLoggedIn { router.go(.home) }
+                    }
                 }
+                .font(.system(size: 11))
+                .foregroundStyle(Color.brandBrownLight)
+
+                Button("운영자 진입 (로컬 서버용)") {
+                    Task {
+                        await authSession.loginAsDeveloper(
+                            profile: userProfile,
+                            asOwner: false,
+                            asAdmin: true
+                        )
+                        if authSession.isLoggedIn { router.go(.home) }
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Color.brandBrownLight)
             }
-            .font(.system(size: 11))
-            .foregroundStyle(Color.brandBrownLight)
 #endif
         }
         .padding(.top, 12)

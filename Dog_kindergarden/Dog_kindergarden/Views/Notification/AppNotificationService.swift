@@ -50,13 +50,16 @@ final class AppNotificationService: NSObject {
 
     func pollOnce() async {
         guard let userId else { return }
-        var comps = URLComponents(string: "\(apiBaseURL)/api/users/\(userId)/notifications")!
+        var comps = URLComponents(
+            url: APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/notifications"),
+            resolvingAgainstBaseURL: false
+        )!
         let cursorKey = "notification_cursor_\(userId)"
         if let cursor = UserDefaults.standard.string(forKey: cursorKey) {
             comps.queryItems = [URLQueryItem(name: "cursor", value: cursor)]
         }
         guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(from: url),
+              let (data, _) = try? await APITransport.data(for: APITransport.request(url: url)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
         // 커서는 해석하지 않고 문자열 그대로 저장(opaque) — 다음 요청에 그대로 되돌려준다
