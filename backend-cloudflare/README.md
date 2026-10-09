@@ -129,6 +129,7 @@ UserDefaults.standard.set(
 사용자·강아지·찜·기타
 - `POST /api/auth/kakao` — 바디 `access_token`; 카카오 서버 검증 후 세션 발급. 역할은 최초 가입 시 귀속, 반대 역할 로그인은 409
 - `POST /api/auth/logout` — 현재 세션 폐기
+- `DELETE /api/users/:id/account` — 본인 계정 탈퇴. 진행 예약이 없을 때 개인정보 삭제·운영 기록 익명화·전체 세션 폐기
 - `PUT /api/users/:id`
 - `GET /api/users/:id/pets`
 - `POST /api/users/:id/pets`

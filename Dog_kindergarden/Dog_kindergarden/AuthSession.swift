@@ -92,6 +92,14 @@ final class AuthSession {
         }
     }
 
+    // 서버 탈퇴가 완료된 뒤 카카오 앱 연결과 맡겨멍 로컬 인증정보를 함께 제거한다.
+    func completeAccountDeletion() {
+        UserApi.shared.unlink { error in
+            if error != nil { UserApi.shared.logout { _ in } }
+        }
+        clearLocalSession()
+    }
+
 #if DEBUG
     // 로컬 wrangler에서 ALLOW_DEV_AUTH=true일 때만 사용한다. 운영 Worker에서는 항상 404다.
     func loginAsDeveloper(profile: UserProfile? = nil, asOwner: Bool, asAdmin: Bool = false) async {

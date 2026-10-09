@@ -35,6 +35,16 @@ final class AppNotificationService: NSObject {
         self.userId = userId
     }
 
+    func clearAfterAccountDeletion(userId: Int) {
+        if self.userId == userId { self.userId = nil }
+        pendingDeepLink = nil
+        activeRoomId = nil
+        UserDefaults.standard.removeObject(forKey: "notification_cursor_\(userId)")
+        let center = UNUserNotificationCenter.current()
+        center.removeAllDeliveredNotifications()
+        center.removeAllPendingNotificationRequests()
+    }
+
     func requestPermission() async {
         _ = try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound])

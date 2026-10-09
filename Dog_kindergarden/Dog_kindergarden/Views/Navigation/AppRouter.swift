@@ -113,4 +113,10 @@ final class AppRouter {
         guard let activeUserId, let data = try? JSONEncoder().encode(recentPins) else { return }
         UserDefaults.standard.set(data, forKey: "recent_pins_\(activeUserId)")
     }
+
+    func clearAccountData(userId: Int) {
+        UserDefaults.standard.removeObject(forKey: "recent_pins_\(userId)")
+        if activeUserId == userId { activeUserId = nil }
+        reset(to: .start)
+    }
 }

@@ -65,6 +65,10 @@ enum CalendarService {
         setEventIdentifier(nil, for: reservationId)
     }
 
+    static func clearLocalMappings() {
+        UserDefaults.standard.removeObject(forKey: mappingKey)
+    }
+
     // 사용자가 캘린더 권한을 거부해 둔 상태인지 — iOS는 한 번 거부하면 시스템 알림을 다시 띄우지 않으므로
     // 이때는 앱이 직접 '설정 열기'로 안내해야 한다
     static var isAccessDenied: Bool {

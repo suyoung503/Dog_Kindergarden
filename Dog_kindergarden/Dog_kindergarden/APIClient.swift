@@ -193,6 +193,32 @@ final class APIClient {
         return try await request(path: "/users/\(userId)", method: "PUT", body: body)
     }
 
+    @discardableResult
+    func deleteAccount(userId: Int) async throws -> AccountDeletionResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("users/\(userId)/account"))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = AuthTokenStore.load(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.badStatus }
+        APITransport.handleUnauthorized(http.statusCode)
+        if http.statusCode == 409,
+           let blocked = try? decoder.decode(AccountDeletionBlockedResponse.self, from: data),
+           blocked.code == "ACTIVE_RESERVATIONS" {
+            throw AccountDeletionError.activeReservations(
+                customer: blocked.activeReservations,
+                owner: blocked.activeOwnedReservations
+            )
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpStatus(http.statusCode)
+        }
+        return try decoder.decode(AccountDeletionResponse.self, from: data)
+    }
+
     func fetchFavorites(userId: Int) async throws -> [FavoriteStoreResponse] {
         try await request(path: "/users/\(userId)/favorites", method: "GET")
     }
@@ -310,6 +336,21 @@ final class APIClient {
 enum APIError: Error {
     case badStatus
     case httpStatus(Int)
+}
+
+enum AccountDeletionError: Error {
+    case activeReservations(customer: Int, owner: Int)
+}
+
+struct AccountDeletionResponse: Decodable {
+    let ok: Bool
+    let deletedAt: String?
+}
+
+private struct AccountDeletionBlockedResponse: Decodable {
+    let code: String
+    let activeReservations: Int
+    let activeOwnedReservations: Int
 }
 
 struct PetProfile {

@@ -403,6 +403,288 @@ expect(
   200,
 );
 
+// ── 회원 탈퇴: 진행 예약 차단 → 개인정보 삭제/익명화 → 모든 세션 폐기 ──
+const deletingGuardianLogin = await request("POST", "/api/auth/dev", {
+  body: {
+    identity: `delete-guardian-${runId}`,
+    nickname: "탈퇴 테스트 보호자",
+    is_owner: false,
+  },
+});
+expect("탈퇴 테스트 보호자 로그인", deletingGuardianLogin.status, 201);
+const deletingGuardianId = deletingGuardianLogin.data.user_id;
+const deletingGuardianToken = deletingGuardianLogin.data.session_token;
+const deletingGuardianSecondLogin = await request("POST", "/api/auth/dev", {
+  body: {
+    identity: `delete-guardian-${runId}`,
+    nickname: "탈퇴 테스트 보호자",
+    is_owner: false,
+  },
+});
+expect("탈퇴 테스트 다른 기기 세션 발급", deletingGuardianSecondLogin.status, 200);
+const deletingGuardianSecondToken = deletingGuardianSecondLogin.data.session_token;
+
+expect(
+  "탈퇴 전 프로필 개인정보 저장",
+  (await request("PUT", `/api/users/${deletingGuardianId}`, {
+    token: deletingGuardianToken,
+    body: { nickname: "삭제될 이름", phone: "010-1234-5678", address: "삭제될 주소" },
+  })).status,
+  200,
+);
+const deletingPet = await request("POST", `/api/users/${deletingGuardianId}/pets`, {
+  token: deletingGuardianToken,
+  body: { name: "삭제될 강아지", note: "삭제될 메모" },
+});
+expect("탈퇴 전 강아지 저장", deletingPet.status, 201);
+expect(
+  "타인의 회원 탈퇴 요청 차단",
+  (await request("DELETE", `/api/users/${deletingGuardianId}/account`, {
+    token: ownerToken,
+  })).status,
+  403,
+);
+expect(
+  "탈퇴 전 찜 저장",
+  (await request("POST", "/api/favorites", {
+    token: deletingGuardianToken,
+    body: { user_id: deletingGuardianId, ...store },
+  })).status,
+  201,
+);
+
+const futureDeletionReservation = await request("POST", "/api/reservations", {
+  token: deletingGuardianToken,
+  body: {
+    user_id: deletingGuardianId,
+    pet_id: deletingPet.data.pet_id,
+    ...store,
+    start_date: "2099-12-30 (수)",
+    end_date: "2099-12-30 (수)",
+    reservation_type: "종일권",
+    request_message: "삭제 전 진행 예약",
+  },
+});
+expect("탈퇴 차단용 진행 예약 생성", futureDeletionReservation.status, 201);
+const blockedGuardianDeletion = await request(
+  "DELETE",
+  `/api/users/${deletingGuardianId}/account`,
+  { token: deletingGuardianToken },
+);
+expect("진행 예약이 있는 보호자 탈퇴 차단", blockedGuardianDeletion.status, 409);
+expect("보호자 탈퇴 차단 사유", blockedGuardianDeletion.data.code, "ACTIVE_RESERVATIONS");
+expect("보호자 진행 예약 수 반환", blockedGuardianDeletion.data.active_reservations, 1);
+expect(
+  "탈퇴 차단 후 세션 유지",
+  (await request("GET", `/api/users/${deletingGuardianId}/pets`, {
+    token: deletingGuardianToken,
+  })).status,
+  200,
+);
+expect(
+  "탈퇴 전 진행 예약 취소",
+  (await request("PATCH", `/api/reservations/${futureDeletionReservation.data.reservation_id}/cancel`, {
+    token: deletingGuardianToken,
+  })).status,
+  200,
+);
+
+// 완료 이용 후기와 예약은 익명 운영 기록으로 남고, 개인 데이터는 새 계정에 승계되지 않는다.
+const pastDeletionReservation = await request("POST", "/api/reservations", {
+  token: deletingGuardianToken,
+  body: {
+    user_id: deletingGuardianId,
+    pet_id: deletingPet.data.pet_id,
+    ...store,
+    start_date: "2000-01-01 (토)",
+    end_date: "2000-01-01 (토)",
+    reservation_type: "종일권",
+    request_message: "삭제될 요청 메모",
+  },
+});
+expect("탈퇴 전 완료 대상 예약 생성", pastDeletionReservation.status, 201);
+expect(
+  "탈퇴 전 완료 대상 예약 확정",
+  (await request("PATCH", `/api/reservations/${pastDeletionReservation.data.reservation_id}/confirm`, {
+    token: ownerToken,
+  })).status,
+  200,
+);
+expect(
+  "탈퇴 전 검증 리뷰 저장",
+  (await request("POST", "/api/pet-reviews", {
+    token: deletingGuardianToken,
+    body: {
+      user_id: deletingGuardianId,
+      store_key: store.store_key,
+      store_name: store.store_name,
+      rating: 5,
+      content: "익명으로 보존할 후기",
+    },
+  })).status,
+  201,
+);
+expect(
+  "탈퇴 전 개인 채팅 저장",
+  (await request("POST", `/api/chatrooms/${pastDeletionReservation.data.room_id}/messages`, {
+    token: deletingGuardianToken,
+    body: { content: "삭제될 개인 채팅" },
+  })).status,
+  201,
+);
+
+expect(
+  "보호자 계정 탈퇴 완료",
+  (await request("DELETE", `/api/users/${deletingGuardianId}/account`, {
+    token: deletingGuardianToken,
+  })).status,
+  200,
+);
+expect(
+  "탈퇴 요청 세션 즉시 폐기",
+  (await request("GET", `/api/users/${deletingGuardianId}/pets`, {
+    token: deletingGuardianToken,
+  })).status,
+  401,
+);
+expect(
+  "탈퇴 계정 다른 기기 세션도 폐기",
+  (await request("GET", `/api/users/${deletingGuardianId}/pets`, {
+    token: deletingGuardianSecondToken,
+  })).status,
+  401,
+);
+const publicReviewsAfterDeletion = await request(
+  "GET",
+  `/api/pet-reviews?storeKey=${encodeURIComponent(store.store_key)}`,
+);
+expect("탈퇴 후 리뷰 공개 조회", publicReviewsAfterDeletion.status, 200);
+expect(
+  "탈퇴 후 리뷰 작성자·본문 익명화",
+  publicReviewsAfterDeletion.data.reviews.some(
+    (review) => review.content === "" && review.user_name === "익명",
+  ),
+  true,
+);
+
+const recreatedGuardian = await request("POST", "/api/auth/dev", {
+  body: {
+    identity: `delete-guardian-${runId}`,
+    nickname: "재가입 보호자",
+    is_owner: false,
+  },
+});
+expect("탈퇴 후 재가입", recreatedGuardian.status, 201);
+expect("재가입은 새 사용자 번호 발급", recreatedGuardian.data.user_id !== deletingGuardianId, true);
+expect(
+  "재가입 계정에 강아지 데이터 없음",
+  (await request("GET", `/api/users/${recreatedGuardian.data.user_id}/pets`, {
+    token: recreatedGuardian.data.session_token,
+  })).data.length,
+  0,
+);
+expect(
+  "재가입 계정에 찜 데이터 없음",
+  (await request("GET", `/api/users/${recreatedGuardian.data.user_id}/favorites`, {
+    token: recreatedGuardian.data.session_token,
+  })).data.length,
+  0,
+);
+expect(
+  "재가입 계정에 예약 데이터 없음",
+  (await request("GET", `/api/users/${recreatedGuardian.data.user_id}/reservations`, {
+    token: recreatedGuardian.data.session_token,
+  })).data.length,
+  0,
+);
+
+// 사장님은 자신이 소유한 가게에 진행 예약이 있으면 탈퇴할 수 없고, 취소 후에는 연결이 해제된다.
+const deletingOwnerLogin = await request("POST", "/api/auth/dev", {
+  body: {
+    identity: `delete-owner-${runId}`,
+    nickname: "탈퇴 테스트 사장님",
+    is_owner: true,
+  },
+});
+expect("탈퇴 테스트 사장님 로그인", deletingOwnerLogin.status, 201);
+const deletingOwnerId = deletingOwnerLogin.data.user_id;
+const deletingOwnerToken = deletingOwnerLogin.data.session_token;
+const deletingOwnerStore = {
+  store_key: `delete-owner-store-${runId}`,
+  store_name: "탈퇴 안전 규칙 가게",
+  store_address: "서울 테스트구",
+  store_type: "유치원",
+};
+expect(
+  "탈퇴 테스트 사장님 가게 등록",
+  (await request("POST", "/api/admin/stores/import", {
+    body: deletingOwnerStore,
+    internal: internalKey,
+  })).status,
+  201,
+);
+const deletingOwnerApplication = await request("POST", "/api/stores/claim", {
+  body: { user_id: deletingOwnerId, ...deletingOwnerStore },
+  token: deletingOwnerToken,
+});
+expect("탈퇴 테스트 사장님 등록 요청", deletingOwnerApplication.status, 201);
+expect(
+  "탈퇴 테스트 사장님 등록 승인",
+  (await request("PATCH", `/api/owner-applications/${deletingOwnerApplication.data.application_id}/approve`, {
+    token: adminToken,
+  })).status,
+  200,
+);
+const recreatedPet = await request("POST", `/api/users/${recreatedGuardian.data.user_id}/pets`, {
+  token: recreatedGuardian.data.session_token,
+  body: { name: "사장님 탈퇴 차단 강아지" },
+});
+expect("사장님 탈퇴 차단용 강아지 생성", recreatedPet.status, 201);
+const ownerBlockingReservation = await request("POST", "/api/reservations", {
+  token: recreatedGuardian.data.session_token,
+  body: {
+    user_id: recreatedGuardian.data.user_id,
+    pet_id: recreatedPet.data.pet_id,
+    ...deletingOwnerStore,
+    start_date: "2099-12-31 (목)",
+    end_date: "2099-12-31 (목)",
+    reservation_type: "종일권",
+  },
+});
+expect("사장님 탈퇴 차단용 예약 생성", ownerBlockingReservation.status, 201);
+const blockedOwnerDeletion = await request("DELETE", `/api/users/${deletingOwnerId}/account`, {
+  token: deletingOwnerToken,
+});
+expect("가게 진행 예약이 있는 사장님 탈퇴 차단", blockedOwnerDeletion.status, 409);
+expect("가게 진행 예약 수 반환", blockedOwnerDeletion.data.active_owned_reservations, 1);
+expect(
+  "사장님 탈퇴 전 고객 예약 취소",
+  (await request("PATCH", `/api/reservations/${ownerBlockingReservation.data.reservation_id}/cancel`, {
+    token: recreatedGuardian.data.session_token,
+  })).status,
+  200,
+);
+expect(
+  "사장님 계정 탈퇴 완료",
+  (await request("DELETE", `/api/users/${deletingOwnerId}/account`, {
+    token: deletingOwnerToken,
+  })).status,
+  200,
+);
+expect(
+  "탈퇴 사장님 토큰 폐기",
+  (await request("GET", `/api/owners/${deletingOwnerId}/stores`, {
+    token: deletingOwnerToken,
+  })).status,
+  401,
+);
+const reclaimedAfterOwnerDeletion = await request("POST", "/api/stores/claim", {
+  body: { user_id: otherOwnerId, ...deletingOwnerStore },
+  token: otherOwnerToken,
+});
+expect("사장님 탈퇴 후 가게 연결 해제", reclaimedAfterOwnerDeletion.status, 201);
+expect("해제 가게는 새 승인 대기", reclaimedAfterOwnerDeletion.data.status, "PENDING");
+
 expect(
   "로그아웃 서버 세션 폐기",
   (await request("POST", "/api/auth/logout", { token: guardianToken })).status,

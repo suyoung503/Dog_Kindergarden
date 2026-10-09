@@ -279,7 +279,9 @@ app.use("/api/*", async (c, next) => {
     `SELECT s.user_id, u.is_owner, u.is_admin
      FROM auth_sessions s
      JOIN users u ON u.user_id = s.user_id
-     WHERE s.token_hash = ? AND unixepoch(s.expires_at) > unixepoch('now')`,
+     WHERE s.token_hash = ?
+       AND u.deleted_at IS NULL
+       AND unixepoch(s.expires_at) > unixepoch('now')`,
   )
     .bind(tokenHash)
     .first<{
@@ -2021,6 +2023,120 @@ app.post("/api/auth/logout", async (c) => {
     .bind(c.get("authTokenHash"))
     .run();
   return c.json({ ok: true });
+});
+
+// 회원 탈퇴 — 진행 중 예약이 없을 때만 개인정보를 삭제하고 보존 데이터는 익명화한다.
+// 예약/리뷰 식별용 숫자 user_id는 참조 무결성을 위해 남지만, 외부 계정 식별자와 프로필은 제거한다.
+app.delete("/api/users/:id/account", async (c) => {
+  const userId = Number(c.req.param("id"));
+  if (!sameUser(c.get("authUserId"), userId))
+    return c.json({ message: "forbidden" }, 403);
+
+  const activeAsCustomer = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM reservations
+     WHERE user_id = ?
+       AND status IN ('REQUEST', 'CONFIRMED')
+       AND (
+         date(substr(end_date, 1, 10)) >= date('now', '+9 hours')
+         OR date(substr(end_date, 1, 10)) IS NULL
+       )`,
+  )
+    .bind(userId)
+    .first<{ count: number }>();
+  const activeAsOwner = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM reservations r
+     JOIN stores s ON s.store_id = r.store_id
+     WHERE s.owner_id = ?
+       AND r.status IN ('REQUEST', 'CONFIRMED')
+       AND (
+         date(substr(r.end_date, 1, 10)) >= date('now', '+9 hours')
+         OR date(substr(r.end_date, 1, 10)) IS NULL
+       )`,
+  )
+    .bind(userId)
+    .first<{ count: number }>();
+  const customerCount = activeAsCustomer?.count ?? 0;
+  const ownerCount = activeAsOwner?.count ?? 0;
+  if (customerCount > 0 || ownerCount > 0) {
+    return c.json(
+      {
+        message: "active reservations must be completed or canceled before account deletion",
+        code: "ACTIVE_RESERVATIONS",
+        active_reservations: customerCount,
+        active_owned_reservations: ownerCount,
+      },
+      409,
+    );
+  }
+
+  const deletedAt = new Date().toISOString();
+  const results = await c.env.DB.batch([
+    // 보호자 데이터: 반려견·찜·알림장·개인 채팅은 삭제한다.
+    c.env.DB.prepare(
+      `DELETE FROM diary_photos
+       WHERE diary_id IN (
+         SELECT d.diary_id FROM diaries d
+         JOIN reservations r ON r.reservation_id = d.reservation_id
+         WHERE r.user_id = ?
+       )`,
+    ).bind(userId),
+    c.env.DB.prepare(
+      `DELETE FROM diaries
+       WHERE reservation_id IN (SELECT reservation_id FROM reservations WHERE user_id = ?)`,
+    ).bind(userId),
+    c.env.DB.prepare(
+      `DELETE FROM chat_room_reads
+       WHERE user_id = ?
+          OR room_id IN (SELECT room_id FROM chat_rooms WHERE user_id = ?)`,
+    ).bind(userId, userId),
+    c.env.DB.prepare(
+      `DELETE FROM chat_messages
+       WHERE room_id IN (SELECT room_id FROM chat_rooms WHERE user_id = ?)`,
+    ).bind(userId),
+    c.env.DB.prepare(`DELETE FROM chat_rooms WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(`DELETE FROM favorites WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(`DELETE FROM pets WHERE user_id = ?`).bind(userId),
+
+    // 거래·후기 이력은 개인정보와 연결되지 않도록 익명화해 최소 정보만 보존한다.
+    c.env.DB.prepare(
+      `UPDATE reservations SET request_message = NULL WHERE user_id = ?`,
+    ).bind(userId),
+    c.env.DB.prepare(
+      `UPDATE pet_reviews
+       SET user_id = NULL, user_name = '익명', content = ''
+       WHERE user_id = ?`,
+    ).bind(userId),
+    c.env.DB.prepare(
+      `UPDATE chat_messages
+       SET sender_name = '탈퇴한 사용자', content = '삭제된 메시지입니다.'
+       WHERE sender_id = ?`,
+    ).bind(userId),
+
+    // 사장님 탈퇴: 진행 예약이 없는 것이 확인된 뒤 가게 연결을 해제한다.
+    c.env.DB.prepare(`UPDATE stores SET owner_id = NULL WHERE owner_id = ?`).bind(userId),
+    c.env.DB.prepare(
+      `UPDATE store_owner_applications
+       SET status = 'REJECTED', reviewed_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND status = 'PENDING'`,
+    ).bind(userId),
+
+    // 현재 기기뿐 아니라 같은 계정의 모든 기기 세션을 즉시 폐기한다.
+    c.env.DB.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(
+      `UPDATE users
+       SET kakao_id = 'deleted:' || user_id || ':' || lower(hex(randomblob(16))),
+           nickname = '탈퇴한 사용자', email = NULL, phone = NULL, address = NULL,
+           is_owner = 0, is_admin = 0, deleted_at = ?
+       WHERE user_id = ? AND deleted_at IS NULL`,
+    ).bind(deletedAt, userId),
+  ]);
+
+  const userUpdate = results.at(-1);
+  if (!userUpdate || (userUpdate.meta.changes ?? 0) !== 1)
+    return c.json({ message: "user not found" }, 404);
+  return c.json({ ok: true, deleted_at: deletedAt });
 });
 
 // 유저 프로필 수정 (닉네임, 전화번호, 주소)

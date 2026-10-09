@@ -25,4 +25,13 @@ final class UserProfile {
         phone   = UserDefaults.standard.string(forKey: "profile_phone")   ?? ""
         address = UserDefaults.standard.string(forKey: "profile_address") ?? ""
     }
+
+    func clearAfterAccountDeletion() {
+        name = "보호자"
+        phone = ""
+        address = ""
+        UserDefaults.standard.removeObject(forKey: "profile_name")
+        UserDefaults.standard.removeObject(forKey: "profile_phone")
+        UserDefaults.standard.removeObject(forKey: "profile_address")
+    }
 }

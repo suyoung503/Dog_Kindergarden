@@ -8,6 +8,9 @@ struct MyPageView: View {
     @State private var showEditSheet = false
     @State private var showLogoutConfirm = false
     @State private var showMyStoreSheet = false
+    @State private var showAccountDeletionSheet = false
+    @State private var isDeletingAccount = false
+    @State private var accountDeletionError: String?
     @State private var reservationCount: Int?
     @State private var petCount: Int?
     @State private var chatCount: Int?
@@ -33,6 +36,13 @@ struct MyPageView: View {
         }
         .sheet(isPresented: $showMyStoreSheet, onDismiss: { Task { await reloadMyStores() } }) {
             MyStoreSheet()
+        }
+        .sheet(isPresented: $showAccountDeletionSheet) {
+            AccountDeletionSheet(
+                isDeleting: $isDeletingAccount,
+                errorMessage: $accountDeletionError,
+                onConfirm: { Task { await deleteAccount() } }
+            )
         }
         .task {
             guard let uid = authSession.userId else { return }
@@ -193,6 +203,35 @@ struct MyPageView: View {
             MyPageItem(icon: "bubble.left",       label: "1:1 문의") { openSupportChat() }
             MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
             MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
+            MyPageItem(icon: "person.crop.circle.badge.minus", label: "회원 탈퇴", bg: Color(hex: "#FFE3E3")) {
+                accountDeletionError = nil
+                showAccountDeletionSheet = true
+            }
+        }
+    }
+
+    @MainActor
+    private func deleteAccount() async {
+        guard let userId = authSession.userId, !isDeletingAccount else { return }
+        isDeletingAccount = true
+        accountDeletionError = nil
+        defer { isDeletingAccount = false }
+
+        do {
+            try await APIClient.shared.deleteAccount(userId: userId)
+            AppNotificationService.shared.clearAfterAccountDeletion(userId: userId)
+            CalendarService.clearLocalMappings()
+            userProfile.clearAfterAccountDeletion()
+            authSession.completeAccountDeletion()
+            showAccountDeletionSheet = false
+            router.clearAccountData(userId: userId)
+        } catch AccountDeletionError.activeReservations(let customer, let owner) {
+            var reasons: [String] = []
+            if customer > 0 { reasons.append("내 진행 예약 \(customer)건") }
+            if owner > 0 { reasons.append("내 가게 진행 예약 \(owner)건") }
+            accountDeletionError = "\(reasons.joined(separator: ", "))이 있어 탈퇴할 수 없어요. 예약을 완료하거나 취소한 뒤 다시 시도해주세요."
+        } catch {
+            accountDeletionError = "회원 탈퇴를 완료하지 못했어요. 잠시 후 다시 시도해주세요."
         }
     }
 
@@ -221,6 +260,87 @@ struct MyPageView: View {
             .font(.system(size: 10))
             .foregroundStyle(Color.brandBrownMid)
             .padding(.top, 24)
+    }
+}
+
+// MARK: - AccountDeletionSheet
+
+private struct AccountDeletionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var isDeleting: Bool
+    @Binding var errorMessage: String?
+    let onConfirm: () -> Void
+    @State private var showFinalConfirmation = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Label("탈퇴 전에 확인해주세요", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.red)
+
+                    deletionNotice("프로필, 반려견 정보, 찜, 개인 채팅과 알림 상태가 삭제돼요.")
+                    deletionNotice("완료된 예약과 리뷰는 서비스 운영을 위해 개인정보를 제거한 상태로 남을 수 있어요.")
+                    deletionNotice("진행 중인 내 예약이나 내 가게의 진행 예약이 있으면 먼저 완료하거나 취소해야 해요.")
+                    deletionNotice("탈퇴가 끝나면 모든 기기에서 로그아웃되며 되돌릴 수 없어요.")
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                    }
+
+                    Button(role: .destructive) {
+                        showFinalConfirmation = true
+                    } label: {
+                        HStack {
+                            if isDeleting { ProgressView().tint(.white) }
+                            Text(isDeleting ? "탈퇴 처리 중..." : "내용을 확인했으며 탈퇴할게요")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.red)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                    }
+                    .disabled(isDeleting)
+                }
+                .padding(20)
+            }
+            .background(Color.brandCream.ignoresSafeArea())
+            .navigationTitle("회원 탈퇴")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("닫기") { dismiss() }
+                        .disabled(isDeleting)
+                }
+            }
+            .interactiveDismissDisabled(isDeleting)
+            .alert("정말 탈퇴하시겠어요?", isPresented: $showFinalConfirmation) {
+                Button("취소", role: .cancel) {}
+                Button("회원 탈퇴", role: .destructive, action: onConfirm)
+            } message: {
+                Text("계정과 개인정보 삭제를 시작합니다. 이 작업은 되돌릴 수 없어요.")
+            }
+        }
+    }
+
+    private func deletionNotice(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.brandOrange)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.brandBrown)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

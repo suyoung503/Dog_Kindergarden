@@ -127,7 +127,7 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 - [ ] App Store Connect에서 제2절의 데이터 유형·연결·추적·목적을 동일하게 입력
 - [ ] 개인정보처리방침의 운영자 이메일 TODO 확정
 - [ ] 개인정보처리방침의 계정·예약·채팅·알림장·리뷰·백업 보유기간 TODO 확정
-- [ ] 회원 탈퇴와 서버 삭제·익명화 기능이 구현된 뒤 방침 문구를 실제 동작과 다시 대조
+- [x] 회원 탈퇴와 서버 삭제·익명화 기능을 실제 동작과 대조 — 진행 예약 차단, 개인정보 삭제, 운영 기록 익명화, 전 세션 폐기 반영
 - [ ] 공개 HTTPS URL에 최종 개인정보처리방침 게시
 - [ ] App Store Connect의 Privacy Policy URL 입력
 - [ ] 실제 iPhone에서 카카오 로그인, 캘린더 권한, 알림 권한과 거부 흐름 확인
@@ -137,9 +137,8 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 
 1. 운영자 이메일 미확정
 2. 개인정보 항목별 보유기간과 탈퇴 시 삭제·익명화 기준 미확정
-3. 앱 내 회원 탈퇴 및 서버 삭제 API 미구현
-4. 공개 Privacy Policy URL 미생성
-5. 실제 Archive Privacy Report 미생성
-6. App Store Connect App Privacy 미입력
+3. 공개 Privacy Policy URL 미생성
+4. 실제 Archive Privacy Report 미생성
+5. App Store Connect App Privacy 미입력
 
 따라서 이번 작업은 **코드·문서 준비 완료**이지, 개인정보 관련 출시 요건 전체 완료가 아니다.
