@@ -6,6 +6,8 @@
 
 **완료된 작업:** `docs/PROGRESS.md` 참고
 
+**에이전트 실행 현황:** `docs/PLAN_EXECUTION.md` 참고
+
 ---
 
 ## 0. 기본 원칙
