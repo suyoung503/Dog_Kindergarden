@@ -151,7 +151,7 @@
 |---|---|---|---|
 | N-01 | Minor | 눌러도 동작하지 않는 공유·채팅 `+`·강아지 사진 카메라가 실제 버튼처럼 노출됨. 채팅 웃는 얼굴도 기능처럼 보이지만 장식임 | `StoreDetailView.swift:254`, `ChatRoomView.swift:285`, `DogProfileView.swift:366` |
 | N-02 | Minor | 위치 권한 문구는 있지만 앱에서 CoreLocation을 사용하지 않아 “현재 위치”가 구현되지 않음 | `Info.plist:52-55`; CoreLocation 참조 없음 |
-| N-03 | Minor | 문서에서는 삭제 완료라고 적었지만 `Dog_kindergarden/All_data.csv` 367KB가 다시 존재하며 실행 경로에서는 사용되지 않음 | 파일 정리 필요 |
+| N-03 | Minor | 문서에서는 삭제 완료라고 적었지만 `Dog_kindergarden/All_data.csv` 367KB가 다시 존재하며 실행 경로에서는 사용되지 않음 | **2026-10-10 수정:** 참조·과거 삭제 기록 확인 후 제거 |
 | N-04 | Minor | Release 빌드 경고가 남아 있음. 특히 알림 서비스의 actor 경고는 Swift 6에서 오류로 전환됨 | `AppNotificationService.swift:102`; iOS 17/26 deprecated API 다수 |
 | U-01 | UX | 홈 지도에서 가까운 핀이 겹쳐 가게를 선택하기 어려움 | 클러스터링 또는 확대 단계별 표시 개선 필요 |
 
