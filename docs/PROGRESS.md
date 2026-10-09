@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### Privacy Manifest·개인정보처리방침 준비
+
+- [x] **앱 Privacy Manifest 작성** (2026-10-10) — 현재 코드에서 계정과 연결해 처리하는 이름·이메일·전화번호·주소·사용자 ID·채팅·기타 사용자 콘텐츠·제품 상호작용을 `PrivacyInfo.xcprivacy`에 선언하고, 추적하지 않음과 앱 기능 목적을 명시했다. 앱이 직접 사용하는 UserDefaults의 Required Reason API 사유 `CA92.1`도 기록했으며 plist 형식과 빌드 리소스 포함을 확인했다.
+- [x] **SDK·App Privacy 매핑과 공개 방침 초안** (2026-10-10) — Alamofire·Kakao SDK의 manifest 현황과 App Store Connect 입력 항목을 `APP_STORE_PRIVACY_CHECKLIST.md`에 정리하고, 실제 서버 스키마와 앱 기능을 기준으로 공개용 `PRIVACY_POLICY.md` 초안을 작성했다. 운영자 이메일·데이터별 보유기간·공개 HTTPS URL·실제 Archive Privacy Report·App Store Connect 입력은 사람이 확정해야 하므로 완료 처리하지 않았다.
+
 ### 출시 전 회귀 점검 자동화
 
 - [x] **격리된 Release Smoke 실행기** (2026-10-10) — `scripts/release-audit-smoke.sh`를 추가해 민감 파일 추적 여부, iOS 설정의 서버용 Secret, Worker 번들, 빈 임시 D1 전체 마이그레이션, 격리 Worker 기동, 인증·권한 회귀 검사, iOS Simulator Release 빌드와 최종 앱 번들을 한 명령으로 확인하도록 구성했다. 실행별 로그와 Markdown 결과를 `/tmp` 또는 지정 경로에 남기며 실제 iPhone·실계정·APNs·TestFlight 검사는 자동 성공으로 처리하지 않고 별도 수동 체크리스트와 결과 템플릿으로 분리했다.

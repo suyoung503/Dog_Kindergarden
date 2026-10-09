@@ -35,7 +35,7 @@
 9. [ ] 알림장 사진 업로드(R2) 구현
 10. [ ] APNs 원격 Push 구현
 11. [ ] 미연결 버튼·UX·권한 전체 정리
-12. [ ] Privacy Manifest·개인정보처리방침·App Privacy 준비
+12. [ ] Privacy Manifest·개인정보처리방침·App Privacy 준비 — 앱 manifest와 공개용 방침 초안·입력 체크리스트 작성 완료, 운영자 이메일·보유기간·공개 URL·Archive Privacy Report·App Store Connect 입력 대기
 13. [ ] 실제 iPhone Release 빌드 전체 테스트
 14. [ ] TestFlight 소규모 테스트
 15. [ ] 실제 애견유치원 1곳 이상 파일럿
@@ -331,38 +331,38 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 ### 12.1 Privacy Manifest
 
 - [ ] 최종 Archive 전 Xcode Privacy Report 생성
-- [ ] 앱 자체 `PrivacyInfo.xcprivacy` 추가 필요 여부 확인 및 작성
-- [ ] Kakao SDK 등 모든 제3자 SDK의 Privacy Manifest와 서명 요건 확인
-- [ ] Required Reason API 사용 목록 검토
-- [ ] 실제 코드·SDK 동작과 App Store Connect App Privacy 선언 일치 확인
+- [x] 앱 자체 `PrivacyInfo.xcprivacy` 추가 필요 여부 확인 및 작성 — 앱 수집 데이터 8종, 추적 안 함, UserDefaults `CA92.1` 선언
+- [x] Kakao SDK 등 모든 제3자 SDK의 Privacy Manifest와 서명 요건 확인 — 설치된 Alamofire·KakaoMapsSDK·KakaoSDKCommon manifest와 Apple 필수 SDK 목록·현재 서명 상태 조사, 실제 Archive 서명 검증은 대기
+- [x] Required Reason API 사용 목록 검토 — 앱 UserDefaults와 SDK별 사유 코드를 [`APP_STORE_PRIVACY_CHECKLIST.md`](APP_STORE_PRIVACY_CHECKLIST.md)에 기록
+- [x] 실제 코드·SDK 동작과 App Store Connect App Privacy 선언 일치 확인 — 현재 코드 기준 매핑 초안 완료, 실제 Archive와 App Store Connect 수동 입력은 미완료
 
 검토할 데이터:
 
-- [ ] 닉네임
-- [ ] 전화번호
-- [ ] 주소
-- [ ] 현재 위치
-- [ ] 사용자 ID와 로그인 식별자
-- [ ] 채팅 내용
-- [ ] 반려견 정보
-- [ ] 예약·리뷰·알림장
-- [ ] 가게·강아지 사진
-- [ ] 진단·로그·기기 토큰
+- [x] 닉네임 — Name, 사용자 연결, 앱 기능
+- [x] 전화번호 — Phone Number, 사용자 연결, 앱 기능
+- [x] 주소 — Physical Address, 사용자 연결, 앱 기능
+- [x] 현재 위치 — 현재 코드에서 수집·전송하지 않음; 위치 기능 구현 시 재검토
+- [x] 사용자 ID와 로그인 식별자 — User ID, 사용자 연결, 앱 기능
+- [x] 채팅 내용 — Emails or Text Messages, 사용자 연결, 앱 기능
+- [x] 반려견 정보 — Other User Content, 사용자 연결, 앱 기능
+- [x] 예약·리뷰·알림장 — Product Interaction·Other User Content, 사용자 연결, 앱 기능
+- [x] 가게·강아지 사진 — 가게 사진은 사업자 데이터, 사용자 사진 업로드는 현재 미구현; 기능 추가 시 재검토
+- [x] 진단·로그·기기 토큰 — 현재 분석·광고·APNs 기기 토큰 수집 없음; SDK manifest의 Other Data Types만 반영
 
 참고: [Apple 제3자 SDK 요구사항](https://developer.apple.com/support/third-party-SDK-requirements/)
 
 ### 12.2 개인정보처리방침
 
 - [ ] 공개 URL로 개인정보처리방침 게시(Cloudflare Pages 또는 GitHub Pages 가능)
-- [ ] 서비스명과 운영자·문의 이메일
-- [ ] 수집 정보와 수집 방법
-- [ ] 이용 목적
-- [ ] 보유 기간과 파기 방법
-- [ ] 제3자 SDK·API·처리 위탁
-- [ ] 사진·채팅·반려견 정보 처리
-- [ ] 회원 탈퇴 방법
-- [ ] 이용자 권리와 문의 방법
-- [ ] 변경 고지 방식
+- [ ] 서비스명과 운영자·문의 이메일 — 서비스명·책임자 역할 작성, 운영자 이메일 TODO
+- [x] 수집 정보와 수집 방법 — 현재 코드·DB 기준 공개용 초안 작성
+- [x] 이용 목적 — 앱 기능·권한 흐름 기준 작성
+- [ ] 보유 기간과 파기 방법 — 세션 30일 외 계정·콘텐츠·백업 기간 TODO
+- [x] 제3자 SDK·API·처리 위탁 — Cloudflare·Kakao·Naver·Apple 사용 현황 작성, 출시 전 계약·국외처리 최종 확인 필요
+- [x] 사진·채팅·반려견 정보 처리 — 채팅·반려견 수집과 사진 업로드 미구현 상태를 구분해 작성
+- [ ] 회원 탈퇴 방법 — 미구현 사실과 출시 차단 상태를 명시, 구현 후 갱신 필요
+- [x] 이용자 권리와 문의 방법 — 권리·접수 경로 작성, 이메일 TODO
+- [x] 변경 고지 방식 — 앱 공지 또는 공개 웹페이지 고지 방식 작성
 - [ ] App Store Connect에 Privacy Policy URL과 App Privacy 등록
 
 참고: [App Store Connect App Privacy](https://developer.apple.com/help/app-store-connect/reference/app-information/app-privacy/)
