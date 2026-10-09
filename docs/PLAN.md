@@ -180,6 +180,8 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 
 ## 6. P0 — Sign in with Apple
 
+**사전 감사 완료:** 현재 카카오 종속 사용자 구조, Apple challenge·JWT·authorization code·refresh token, 명시적 계정 연결과 탈퇴 철회 정책을 [`APPLE_SIGN_IN_AUDIT.md`](APPLE_SIGN_IN_AUDIT.md)에 설계했다. 구현과 Apple Developer 설정은 아직 완료되지 않았다.
+
 - [ ] Apple Developer Program 가입 및 Sign in with Apple capability 설정
 - [ ] 로그인 화면에 `Apple로 로그인`과 `카카오로 로그인` 제공
 - [ ] Apple identity token을 서버에서 검증

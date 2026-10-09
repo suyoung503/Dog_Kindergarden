@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### Sign in with Apple 사전 감사
+
+- [x] **인증 구조·보안 흐름 설계** (2026-10-10) — `users.kakao_id`에 종속된 현재 구조를 복수 제공자 `auth_identities`로 전환하고, Apple challenge/state/nonce, 공개키 JWT 검증, authorization code 교환, refresh token 암호화 저장, 기존 30일 맡겨멍 세션 재사용 순서를 `APPLE_SIGN_IN_AUDIT.md`에 정리했다. 이메일 일치 자동 병합은 금지하고 로그인된 기존 계정에서 명시적으로 Apple identity를 연결하도록 결정했다.
+- [x] **로그아웃·탈퇴·외부 선행조건 분리** (2026-10-10) — Apple 일반 로그아웃과 권한 철회를 구분하고 credential 상태 확인, 서버 간 철회 이벤트, 회원 탈퇴 시 `/auth/revoke` 처리와 테스트 범위를 설계했다. Apple Developer Program, App ID capability, `.p8` 키, 실제 iPhone 검증은 외부 계정이 필요하므로 구현 완료로 표시하지 않았다.
+
 ### 데이터 출처·업체 유형 기술 감사
 
 - [x] **필드별 출처와 운영 노출 경로 감사** (2026-10-10) — 코드·마이그레이션·크롤러와 기본 로컬 D1을 기준으로 이름·주소·전화·좌표·영업시간·가격·대표/추가 이미지·편의정보의 출처 혼합을 조사했다. 네이버 CDN 이미지, 날짜가 포함된 영업시간, 크롤링 상세 공개 API, 고정 예약 가격과 실제 가격 불일치, 일반 업체 예약·채팅 허용을 출시 위험으로 분류하고 `DATA_PROVENANCE_AUDIT.md`에 기록했다.
