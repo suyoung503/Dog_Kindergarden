@@ -22,7 +22,7 @@
 | 3 | Avicenna | 2. Release Audit, 13. 실제 기기 전 단계 검증 | 진행 중 | 반복 가능한 자동 점검과 수동 실제 기기 체크리스트 분리 |
 | 4 | Erdos | 8.1~8.3 데이터 출처 감사 | 감사 진행 중 | 필드별 출처·노출 경로·권한 확인 항목·마이그레이션 설계 보고 |
 | 5 | Noether | 6. Sign in with Apple | 대기 | Apple 토큰 서버 검증·계정 연결·iOS 로그인·역할 귀속·테스트 |
-| 6 | Turing | 7. API Key·Secret 서버 이전 | 대기 | Naver/공공 API 프록시·iOS Secret 제거·로그 노출 검사 |
+| 6 | Turing | 7. API Key·Secret 서버 이전 | 사전 감사 완료·구현 대기 | Naver/공공 API 프록시·iOS Secret 제거·로그 노출 검사 |
 | 7 | Curie | 8.4~8.6 일반 업체/파트너 분리 | 대기 | 파트너 상태·기능 차단·기본 이미지·가격/예약 신뢰성 정리 |
 | 8 | Hopper | 9. 알림장 사진 R2 | 대기 | 소유자 전용 업로드·검증·정리·사진 UI·보유정책 |
 | 9 | Shannon | 10. APNs 원격 Push | 대기 | 토큰 수명주기·이벤트 Push·중복 방지·딥링크 |

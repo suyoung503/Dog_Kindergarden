@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### API Key·Secret 서버 이전 사전 감사
+
+- [x] **클라이언트 Secret·Git 이력 감사** (2026-10-10) — Release 앱 설정과 외부 API 호출 경로를 점검해 Naver Client ID/Secret, Kakao REST API Key, 공공데이터 Service Key가 클라이언트에 남는 위험을 확인했다. Kakao Native App Key는 클라이언트 공개 식별자로 분리했고, 과거 Git 이력에서 발견된 Kakao REST·공공데이터 키는 원문을 문서에 남기지 않은 채 교체 대상으로 분류했다.
+- [x] **Worker 이전·키 교체 순서 설계** (2026-10-10) — D1의 등록 가게만 조회하는 인증형 장소·블로그 보강 API, 캐시와 호출 제한, Secret 로그 방지, Release 번들 차단 검사를 `API_SECRET_AUDIT.md`에 정리했다. 새 키 발급·운영 Worker Secret 등록·기존 키 폐기는 공급자와 Cloudflare 콘솔 작업이 필요하므로 완료로 표시하지 않았다.
+
 ### Sign in with Apple 사전 감사
 
 - [x] **인증 구조·보안 흐름 설계** (2026-10-10) — `users.kakao_id`에 종속된 현재 구조를 복수 제공자 `auth_identities`로 전환하고, Apple challenge/state/nonce, 공개키 JWT 검증, authorization code 교환, refresh token 암호화 저장, 기존 30일 맡겨멍 세션 재사용 순서를 `APPLE_SIGN_IN_AUDIT.md`에 정리했다. 이메일 일치 자동 병합은 금지하고 로그인된 기존 계정에서 명시적으로 Apple identity를 연결하도록 결정했다.

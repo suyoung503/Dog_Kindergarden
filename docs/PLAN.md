@@ -197,6 +197,8 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 
 ## 7. P0 — API 키와 Secret 서버 이전
 
+**사전 감사 완료:** Release 앱에 포함되는 Naver Client ID/Secret, Kakao REST API Key, 공공데이터 Service Key와 과거 Git 이력을 점검하고 Worker 중계 구조·키 교체 순서·번들 차단 기준을 [`API_SECRET_AUDIT.md`](API_SECRET_AUDIT.md)에 기록했다. 서버 이전과 공급자 콘솔의 키 교체는 아직 완료되지 않았다.
+
 - [ ] iOS `Info.plist`/빌드 설정에서 `NAVER_CLIENT_SECRET` 제거
 - [ ] `iPhone → Naver API` 호출을 `iPhone → Cloudflare Worker → Naver API`로 전환
 - [ ] Naver Client ID/Secret을 Cloudflare Worker Secret으로 저장
