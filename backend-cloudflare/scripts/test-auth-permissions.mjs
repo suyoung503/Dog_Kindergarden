@@ -111,6 +111,13 @@ const store = {
   store_name: "권한 회귀 테스트 가게",
   store_address: "서울 테스트구",
   store_type: "유치원",
+  open_time: "09:00 / 18:00",
+  price_info: "종일권 35,000원",
+  image_url: "https://example.com/partner-main.jpg",
+  image_urls: ["https://example.com/partner-sub.jpg"],
+  pickup: true,
+  playground: true,
+  large_dog: true,
 };
 expect(
   "내부 키 없는 관리자 API 차단",
@@ -132,6 +139,27 @@ expect(
     internal: internalKey,
   })).status,
   201,
+);
+const generalStoreDetail = await request(
+  "GET",
+  `/api/stores/detail?storeKey=${encodeURIComponent(store.store_key)}`,
+);
+expect("일반 업체 상세 조회", generalStoreDetail.status, 200);
+expect("일반 업체 파트너 표시 차단", generalStoreDetail.data.is_partner, false);
+expect("일반 업체 예약 capability 차단", generalStoreDetail.data.can_book, false);
+expect("일반 업체 채팅 capability 차단", generalStoreDetail.data.can_chat, false);
+expect("일반 업체 리뷰 capability 차단", generalStoreDetail.data.can_review, false);
+expect("일반 업체 크롤링 영업시간 숨김", generalStoreDetail.data.open_time, null);
+expect("일반 업체 크롤링 가격 숨김", generalStoreDetail.data.price_info, null);
+expect("일반 업체 크롤링 대표 이미지 숨김", generalStoreDetail.data.image_url, null);
+expect("일반 업체 크롤링 추가 이미지 숨김", generalStoreDetail.data.images.length, 0);
+expect(
+  "일반 업체 채팅방 생성 차단",
+  (await request("POST", "/api/chatrooms", {
+    body: { user_id: guardianId, ...store },
+    token: guardianToken,
+  })).status,
+  403,
 );
 expect(
   "보호자 가게 소유권 등록 차단",
@@ -191,6 +219,27 @@ expect(
   ownerStoresAfterApproval.data.some((item) => item.store_key === store.store_key),
   true,
 );
+const partnerStoreDetail = await request(
+  "GET",
+  `/api/stores/detail?storeKey=${encodeURIComponent(store.store_key)}`,
+);
+expect("승인 업체 파트너 표시", partnerStoreDetail.data.is_partner, true);
+expect("승인 업체 예약 capability", partnerStoreDetail.data.can_book, true);
+expect("승인 업체 채팅 capability", partnerStoreDetail.data.can_chat, true);
+expect("승인 업체 알림장 capability", partnerStoreDetail.data.can_diary, true);
+expect("승인 업체 리뷰 capability", partnerStoreDetail.data.can_review, true);
+expect("승인 업체도 미검증 영업시간 숨김", partnerStoreDetail.data.open_time, null);
+expect("승인 업체도 미검증 가격 숨김", partnerStoreDetail.data.price_info, null);
+expect("승인 업체도 미검증 대표 이미지 숨김", partnerStoreDetail.data.image_url, null);
+expect("승인 업체도 미검증 이미지 갤러리 숨김", partnerStoreDetail.data.images.length, 0);
+expect(
+  "승인 업체 채팅방 생성 허용",
+  (await request("POST", "/api/chatrooms", {
+    body: { user_id: guardianId, ...store },
+    token: guardianToken,
+  })).status,
+  201,
+);
 expect(
   "다른 사장님의 승인 완료 가게 등록 차단",
   (await request("POST", "/api/stores/claim", {
@@ -234,6 +283,12 @@ expect(
   otherOwnerStores.data.some((item) => item.store_key === rejectedStore.store_key),
   false,
 );
+const rejectedStoreDetail = await request(
+  "GET",
+  `/api/stores/detail?storeKey=${encodeURIComponent(rejectedStore.store_key)}`,
+);
+expect("거절 업체 파트너 비활성", rejectedStoreDetail.data.is_partner, false);
+expect("거절 업체 예약 비활성", rejectedStoreDetail.data.can_book, false);
 
 const guardianPet = await request("POST", `/api/users/${guardianId}/pets`, {
   body: { name: "보호자 강아지" },
@@ -254,6 +309,21 @@ expect(
   "타인 강아지 삭제 차단",
   (await request("DELETE", `/api/pets/${guardianPet.data.pet_id}`, { token: ownerToken })).status,
   404,
+);
+expect(
+  "일반 업체 예약 생성 차단",
+  (await request("POST", "/api/reservations", {
+    body: {
+      user_id: guardianId,
+      pet_id: guardianPet.data.pet_id,
+      ...rejectedStore,
+      start_date: "2026-10-10 (토)",
+      end_date: "2026-10-10 (토)",
+      reservation_type: "종일권",
+    },
+    token: guardianToken,
+  })).status,
+  403,
 );
 
 const reservation = {
@@ -684,6 +754,12 @@ const reclaimedAfterOwnerDeletion = await request("POST", "/api/stores/claim", {
 });
 expect("사장님 탈퇴 후 가게 연결 해제", reclaimedAfterOwnerDeletion.status, 201);
 expect("해제 가게는 새 승인 대기", reclaimedAfterOwnerDeletion.data.status, "PENDING");
+const releasedStoreDetail = await request(
+  "GET",
+  `/api/stores/detail?storeKey=${encodeURIComponent(deletingOwnerStore.store_key)}`,
+);
+expect("사장님 탈퇴 후 파트너 비활성", releasedStoreDetail.data.is_partner, false);
+expect("사장님 탈퇴 후 예약 비활성", releasedStoreDetail.data.can_book, false);
 
 expect(
   "로그아웃 서버 세션 폐기",

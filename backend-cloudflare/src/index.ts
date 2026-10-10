@@ -50,7 +50,11 @@ type PetReviewBody = {
 
 type ReviewEligibility = {
   eligible: boolean;
-  reason: "eligible" | "already_reviewed" | "no_completed_reservation";
+  reason:
+    | "eligible"
+    | "already_reviewed"
+    | "no_completed_reservation"
+    | "partner_required";
   reservation_id: number | null;
 };
 
@@ -176,6 +180,8 @@ type Bindings = {
   AI: WorkersAiBinding;
   INTERNAL_API_KEY?: string;
   ALLOW_DEV_AUTH?: string;
+  NAVER_PLACE_REFRESH_ENABLED?: string;
+  EXPOSE_UNVERIFIED_STORE_DETAILS?: string;
 };
 
 type Variables = {
@@ -302,6 +308,60 @@ function sameUser(authUserId: number, requestedUserId: number): boolean {
   return Number.isInteger(requestedUserId) && requestedUserId === authUserId;
 }
 
+type StoreCapabilityRow = {
+  store_id: number;
+  owner_id: number | null;
+  partner_status: string;
+  is_partner: number;
+  can_book: number;
+  can_chat: number;
+  can_diary: number;
+  can_review: number;
+};
+
+async function findStoreCapabilities(
+  db: D1Database,
+  opts: { storeId?: number; storeKey?: string },
+): Promise<StoreCapabilityRow | null> {
+  const storeId = opts.storeId;
+  const storeKey = (opts.storeKey ?? "").trim();
+  if (!storeId && !storeKey) return null;
+  return db.prepare(
+    `SELECT s.store_id, s.owner_id, s.partner_status,
+            c.is_partner, c.can_book, c.can_chat, c.can_diary, c.can_review
+     FROM stores s
+     JOIN store_capabilities c ON c.store_id = s.store_id
+     WHERE ${storeId ? "s.store_id = ?" : "s.store_key = ?"}
+     LIMIT 1`,
+  )
+    .bind(storeId ?? storeKey)
+    .first<StoreCapabilityRow>();
+}
+
+function storeAPIResponse(
+  row: Record<string, unknown>,
+  images: unknown[] = [],
+  exposeUnverifiedDetails = false,
+): Record<string, unknown> {
+  const isPartner = Number(row.is_partner ?? 0) === 1;
+  const canExposeDetails = isPartner && exposeUnverifiedDetails;
+  return {
+    ...row,
+    open_time: canExposeDetails ? row.open_time : null,
+    pickup: canExposeDetails ? row.pickup : null,
+    playground: canExposeDetails ? row.playground : null,
+    large_dog: canExposeDetails ? row.large_dog : null,
+    price_info: canExposeDetails ? row.price_info : null,
+    image_url: canExposeDetails ? row.image_url : null,
+    images: canExposeDetails ? images : [],
+    is_partner: isPartner,
+    can_book: Number(row.can_book ?? 0) === 1,
+    can_chat: Number(row.can_chat ?? 0) === 1,
+    can_diary: Number(row.can_diary ?? 0) === 1,
+    can_review: Number(row.can_review ?? 0) === 1,
+  };
+}
+
 async function canAccessRoom(
   db: D1Database,
   roomId: number,
@@ -310,8 +370,11 @@ async function canAccessRoom(
   const room = await db.prepare(
     `SELECT 1 AS allowed
      FROM chat_rooms r
-     LEFT JOIN stores s ON s.store_id = r.store_id
-     WHERE r.room_id = ? AND (r.user_id = ? OR s.owner_id = ?)
+     JOIN stores s ON s.store_id = r.store_id
+     WHERE r.room_id = ?
+       AND s.partner_status = 'ACTIVE'
+       AND s.owner_id IS NOT NULL
+       AND (r.user_id = ? OR s.owner_id = ?)
      LIMIT 1`,
   )
     .bind(roomId, userId, userId)
@@ -323,20 +386,31 @@ async function reservationAccess(
   db: D1Database,
   reservationId: number,
   userId: number,
-): Promise<{ isCustomer: boolean; isStoreOwner: boolean; status: string } | null> {
+): Promise<{
+  isCustomer: boolean;
+  isStoreOwner: boolean;
+  isActivePartner: boolean;
+  status: string;
+} | null> {
   const row = await db.prepare(
-    `SELECT r.user_id, r.status, s.owner_id
+    `SELECT r.user_id, r.status, s.owner_id, s.partner_status
      FROM reservations r
      LEFT JOIN stores s ON s.store_id = r.store_id
      WHERE r.reservation_id = ?`,
   )
     .bind(reservationId)
-    .first<{ user_id: number; status: string; owner_id: number | null }>();
+    .first<{
+      user_id: number;
+      status: string;
+      owner_id: number | null;
+      partner_status: string;
+    }>();
   if (!row) return null;
   return {
     isCustomer: row.user_id === userId,
-    isStoreOwner: row.owner_id === userId,
+    isStoreOwner: row.owner_id === userId && row.partner_status === "ACTIVE",
     status: row.status,
+    isActivePartner: row.partner_status === "ACTIVE" && row.owner_id !== null,
   };
 }
 
@@ -398,7 +472,10 @@ async function findRoomId(
   if (!key) return null;
 
   const store = await db
-    .prepare(`SELECT store_id FROM stores WHERE store_key = ?`)
+    .prepare(
+      `SELECT store_id FROM stores
+       WHERE store_key = ? AND partner_status = 'ACTIVE' AND owner_id IS NOT NULL`,
+    )
     .bind(key)
     .first<{ store_id: number }>();
   if (!store) return null;
@@ -436,14 +513,21 @@ app.get("/api/notices/:id", async (c) => {
 app.get("/api/stores", async (c) => {
   const { results } = await c.env.DB.prepare(
     `
-    SELECT store_id, store_key, name, address, phone, status, latitude, longitude,
-           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category
-    FROM stores
+    SELECT s.store_id, store_key, name, address, phone, status, latitude, longitude,
+           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category,
+           partner_status, c.is_partner, c.can_book, c.can_chat, c.can_diary, c.can_review
+    FROM stores s
+    JOIN store_capabilities c ON c.store_id = s.store_id
     WHERE is_curated = 1
-    ORDER BY store_id DESC
+    ORDER BY s.store_id DESC
   `,
   ).all();
-  return c.json(results);
+  const exposeUnverifiedDetails = c.env.EXPOSE_UNVERIFIED_STORE_DETAILS === "true";
+  return c.json(
+    results.map((row) =>
+      storeAPIResponse(row as Record<string, unknown>, [], exposeUnverifiedDetails),
+    ),
+  );
 });
 
 // 가게 상세 보강 정보 조회 — 앱 상세 화면에서 store_key로 호출
@@ -453,9 +537,11 @@ app.get("/api/stores/detail", async (c) => {
 
   const store = await c.env.DB.prepare(
     `
-    SELECT store_id, store_key, name, address, phone, status, latitude, longitude,
-           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category
-    FROM stores
+    SELECT s.store_id, store_key, name, address, phone, status, latitude, longitude,
+           open_time, pickup, playground, large_dog, price_info, image_url, store_type, category,
+           partner_status, c.is_partner, c.can_book, c.can_chat, c.can_diary, c.can_review
+    FROM stores s
+    JOIN store_capabilities c ON c.store_id = s.store_id
     WHERE store_key = ?
   `,
   )
@@ -464,18 +550,26 @@ app.get("/api/stores/detail", async (c) => {
 
   if (!store) return c.json(null);
 
-  const { results: images } = await c.env.DB.prepare(
-    `
-    SELECT image_id, image_url, sort_order
-    FROM store_images
-    WHERE store_id = ?
-    ORDER BY sort_order ASC, image_id ASC
-  `,
-  )
-    .bind((store as { store_id: number }).store_id)
-    .all();
+  const exposeUnverifiedDetails = c.env.EXPOSE_UNVERIFIED_STORE_DETAILS === "true";
+  const images = Number((store as Record<string, unknown>).is_partner ?? 0) === 1
+    && exposeUnverifiedDetails
+    ? (await c.env.DB.prepare(
+      `SELECT image_id, image_url, sort_order
+       FROM store_images
+       WHERE store_id = ?
+       ORDER BY sort_order ASC, image_id ASC`,
+    )
+      .bind((store as { store_id: number }).store_id)
+      .all()).results
+    : [];
 
-  return c.json({ ...store, images });
+  return c.json(
+    storeAPIResponse(
+      store as Record<string, unknown>,
+      images,
+      exposeUnverifiedDetails,
+    ),
+  );
 });
 
 function flagValue(value: boolean | number | undefined): number | null {
@@ -596,6 +690,12 @@ app.post("/api/stores/claim", async (c) => {
     .bind(userId, storeId)
     .first<{ application_id: number; status: string }>();
   if (existing) {
+    await c.env.DB.prepare(
+      `UPDATE stores SET partner_status = 'PENDING'
+       WHERE store_id = ? AND owner_id IS NULL AND partner_status <> 'ACTIVE'`,
+    )
+      .bind(storeId)
+      .run();
     return c.json({
       application_id: existing.application_id,
       store_id: storeId,
@@ -613,11 +713,17 @@ app.post("/api/stores/claim", async (c) => {
   if (otherPending)
     return c.json({ message: "store approval is already pending" }, 409);
 
-  const inserted = await c.env.DB.prepare(
-    `INSERT INTO store_owner_applications (user_id, store_id) VALUES (?, ?)`,
-  )
-    .bind(userId, storeId)
-    .run();
+  const [inserted] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO store_owner_applications (user_id, store_id) VALUES (?, ?)`,
+    ).bind(userId, storeId),
+    c.env.DB.prepare(
+      `UPDATE stores SET partner_status = 'PENDING',
+                         partner_approved_at = NULL,
+                         partner_approved_by = NULL
+       WHERE store_id = ? AND owner_id IS NULL`,
+    ).bind(storeId),
+  ]);
   return c.json(
     {
       application_id: inserted.meta.last_row_id,
@@ -709,7 +815,9 @@ app.patch("/api/owner-applications/:id/approve", async (c) => {
 
   const [storeUpdate, applicationUpdate] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `UPDATE stores SET owner_id = ?
+      `UPDATE stores
+       SET owner_id = ?, partner_status = 'ACTIVE',
+           partner_approved_at = CURRENT_TIMESTAMP, partner_approved_by = ?
        WHERE store_id = ?
          AND (owner_id IS NULL OR owner_id = ?)
          AND EXISTS (
@@ -718,6 +826,7 @@ app.patch("/api/owner-applications/:id/approve", async (c) => {
          )`,
     ).bind(
       application.user_id,
+      c.get("authUserId"),
       application.store_id,
       application.user_id,
       applicationId,
@@ -770,6 +879,15 @@ app.patch("/api/owner-applications/:id/reject", async (c) => {
       return c.json({ ok: true, unchanged: true });
     return c.json({ message: "application is not pending" }, 409);
   }
+  await c.env.DB.prepare(
+    `UPDATE stores
+     SET partner_status = 'NONE', partner_approved_at = NULL, partner_approved_by = NULL
+     WHERE store_id = (
+       SELECT store_id FROM store_owner_applications WHERE application_id = ?
+     ) AND owner_id IS NULL AND partner_status = 'PENDING'`,
+  )
+    .bind(applicationId)
+    .run();
   return c.json({ ok: true, status: "REJECTED" });
 });
 
@@ -779,7 +897,10 @@ app.get("/api/owners/:id/stores", async (c) => {
   if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
     return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
-    `SELECT store_id, store_key, name, address FROM stores WHERE owner_id = ? ORDER BY store_id DESC`,
+    `SELECT store_id, store_key, name, address, partner_status
+     FROM stores
+     WHERE owner_id = ? AND partner_status = 'ACTIVE'
+     ORDER BY store_id DESC`,
   )
     .bind(ownerId)
     .all();
@@ -792,11 +913,16 @@ app.delete("/api/owners/:id/stores/:storeId", async (c) => {
   const storeId = Number(c.req.param("storeId"));
   if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
     return c.json({ message: "forbidden" }, 403);
-  await c.env.DB.prepare(
-    `UPDATE stores SET owner_id = NULL WHERE store_id = ? AND owner_id = ?`,
+  const released = await c.env.DB.prepare(
+    `UPDATE stores
+     SET owner_id = NULL, partner_status = 'TERMINATED',
+         partner_approved_at = NULL, partner_approved_by = NULL
+     WHERE store_id = ? AND owner_id = ? AND partner_status = 'ACTIVE'`,
   )
     .bind(storeId, ownerId)
     .run();
+  if ((released.meta.changes ?? 0) === 0)
+    return c.json({ message: "active partner store not found" }, 404);
   return c.json({ ok: true });
 });
 
@@ -811,7 +937,8 @@ app.get("/api/owners/:id/chatrooms", async (c) => {
            u.nickname AS customer_name,
            m.content AS last_message, m.created_at AS last_time
     FROM chat_rooms r
-    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
     LEFT JOIN users u ON u.user_id = r.user_id
     LEFT JOIN chat_messages m ON m.message_id = (
       SELECT MAX(message_id) FROM chat_messages WHERE room_id = r.room_id
@@ -841,7 +968,6 @@ app.post("/api/reservations", async (c) => {
   const requestMessage = body.request_message ?? body.requestMessage ?? "";
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   const storeName = body.store_name ?? body.storeName ?? "";
-  const storeAddress = body.store_address ?? body.storeAddress ?? "";
 
   if (!startDate || !endDate)
     return c.json({ message: "start_date/end_date is required" }, 400);
@@ -853,13 +979,17 @@ app.post("/api/reservations", async (c) => {
     .first<{ found: number }>();
   if (!ownedPet) return c.json({ message: "pet does not belong to user" }, 403);
 
-  // 1) 가게번호 + 2) 방번호 확정 (공용 헬퍼)
-  const storeId = await resolveStoreId(c.env.DB, {
+  // 일반 업체는 서버에서 예약 생성을 차단한다. 클라이언트 UI 우회도 허용하지 않는다.
+  const storeAccess = await findStoreCapabilities(c.env.DB, {
     storeId: body.store_id ?? body.storeId,
     storeKey,
-    storeName,
-    storeAddress,
   });
+  if (!storeAccess || storeAccess.can_book !== 1)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
+  const storeId = storeAccess.store_id;
   const roomId = await getOrCreateRoom(c.env.DB, userId, storeId);
 
   // 가게 유형(호텔/유치원) — 비어 있는 경우에만 채움 (기존 값 보존)
@@ -1017,7 +1147,8 @@ app.get("/api/owners/:id/reservations/pending", async (c) => {
            u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
-    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
     LEFT JOIN pets p ON p.pet_id = r.pet_id
     LEFT JOIN users u ON u.user_id = r.user_id
     WHERE r.status = 'REQUEST'
@@ -1043,7 +1174,8 @@ app.get("/api/owners/:id/reservations/confirmed", async (c) => {
            u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
-    JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
     LEFT JOIN pets p ON p.pet_id = r.pet_id
     LEFT JOIN users u ON u.user_id = r.user_id
     WHERE r.status = 'CONFIRMED'
@@ -1130,6 +1262,11 @@ app.get("/api/reservations/:id/diaries", async (c) => {
     c.get("authUserId"),
   );
   if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!access.isActivePartner)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
   if (!access.isCustomer && !access.isStoreOwner)
     return c.json({ message: "forbidden" }, 403);
   const { results: entries } = await c.env.DB.prepare(
@@ -1366,6 +1503,12 @@ app.get("/api/chatrooms/lookup", async (c) => {
   if (!sameUser(c.get("authUserId"), userId))
     return c.json({ message: "forbidden" }, 403);
   const storeKey = c.req.query("store_key") ?? "";
+  const storeAccess = await findStoreCapabilities(c.env.DB, { storeKey });
+  if (!storeAccess || storeAccess.can_chat !== 1)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
   const roomId = await findRoomId(c.env.DB, userId, storeKey);
   return c.json({ room_id: roomId });
 });
@@ -1379,14 +1522,17 @@ app.post("/api/chatrooms", async (c) => {
     return c.json({ message: "forbidden" }, 403);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   const storeName = body.store_name ?? body.storeName ?? "";
-  const storeAddress = body.store_address ?? body.storeAddress ?? "";
 
-  const storeId = await resolveStoreId(c.env.DB, {
+  const storeAccess = await findStoreCapabilities(c.env.DB, {
     storeId: body.store_id ?? body.storeId,
     storeKey,
-    storeName,
-    storeAddress,
   });
+  if (!storeAccess || storeAccess.can_chat !== 1)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
+  const storeId = storeAccess.store_id;
   const roomId = await getOrCreateRoom(c.env.DB, userId, storeId);
 
   return c.json(
@@ -1405,7 +1551,8 @@ app.get("/api/users/:id/chatrooms", async (c) => {
     SELECT r.room_id, r.store_id, s.name AS store_name, s.store_type,
            m.content AS last_message, m.created_at AS last_time
     FROM chat_rooms r
-    LEFT JOIN stores s ON s.store_id = r.store_id
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
     LEFT JOIN chat_messages m ON m.message_id = (
       SELECT MAX(message_id) FROM chat_messages WHERE room_id = r.room_id
     )
@@ -1467,6 +1614,8 @@ app.get("/api/users/:id/unread-count", async (c) => {
     SELECT COUNT(*) AS unread
     FROM chat_messages m
     JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
     LEFT JOIN chat_room_reads rd ON rd.room_id = m.room_id AND rd.user_id = ?
     WHERE m.sender_id != ?
       AND m.message_id > COALESCE(rd.last_read_message_id, 0)
@@ -1482,7 +1631,8 @@ app.get("/api/users/:id/unread-count", async (c) => {
       SELECT COUNT(*) AS unread
       FROM chat_messages m
       JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id != ?
-      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      JOIN stores s ON s.store_id = r.store_id
+        AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN chat_room_reads rd ON rd.room_id = m.room_id AND rd.user_id = ?
       WHERE m.sender_id != ? AND m.sender_id != 0
         AND m.message_id > COALESCE(rd.last_read_message_id, 0)
@@ -1565,7 +1715,8 @@ app.get("/api/users/:id/notifications", async (c) => {
            COUNT(*) AS cnt, MAX(m.message_id) AS last_id
     FROM chat_messages m
     JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
-    LEFT JOIN stores s ON s.store_id = r.store_id
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
     WHERE m.sender_id != ? AND m.message_id > ?
     GROUP BY m.room_id
   `,
@@ -1598,7 +1749,8 @@ app.get("/api/users/:id/notifications", async (c) => {
              COUNT(*) AS cnt, MAX(m.message_id) AS last_id
       FROM chat_messages m
       JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id != ?
-      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      JOIN stores s ON s.store_id = r.store_id
+        AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN users u ON u.user_id = r.user_id
       WHERE m.sender_id != ? AND m.sender_id != 0 AND m.message_id > ?
       GROUP BY m.room_id
@@ -1624,7 +1776,8 @@ app.get("/api/users/:id/notifications", async (c) => {
       SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
              p.name AS pet_name, r.reservation_type
       FROM reservations r
-      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      JOIN stores s ON s.store_id = r.store_id
+        AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN pets p ON p.pet_id = r.pet_id
       WHERE r.status = 'REQUEST' AND r.reservation_id > ?
       ORDER BY r.reservation_id
@@ -1649,7 +1802,8 @@ app.get("/api/users/:id/notifications", async (c) => {
       SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
              p.name AS pet_name, r.start_date
       FROM reservations r
-      JOIN stores s ON s.store_id = r.store_id AND s.owner_id = ?
+      JOIN stores s ON s.store_id = r.store_id
+        AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN pets p ON p.pet_id = r.pet_id
       WHERE r.canceled_by = 'USER' AND r.canceled_at IS NOT NULL AND r.canceled_at > ?
       ORDER BY r.canceled_at
@@ -1679,6 +1833,14 @@ async function getReviewEligibility(
   userId: number,
   storeKey: string,
 ): Promise<ReviewEligibility> {
+  const capabilities = await findStoreCapabilities(db, { storeKey });
+  if (!capabilities || capabilities.can_review !== 1) {
+    return {
+      eligible: false,
+      reason: "partner_required",
+      reservation_id: null,
+    };
+  }
   const available = await db
     .prepare(
       `
@@ -1688,6 +1850,8 @@ async function getReviewEligibility(
       LEFT JOIN pet_reviews pr ON pr.reservation_id = r.reservation_id
       WHERE r.user_id = ?
         AND s.store_key = ?
+        AND s.partner_status = 'ACTIVE'
+        AND s.owner_id IS NOT NULL
         AND r.status = 'CONFIRMED'
         AND date(substr(r.end_date, 1, 10)) < date('now', '+9 hours')
         AND pr.id IS NULL
@@ -1714,6 +1878,8 @@ async function getReviewEligibility(
       JOIN stores s ON s.store_id = r.store_id
       WHERE r.user_id = ?
         AND s.store_key = ?
+        AND s.partner_status = 'ACTIVE'
+        AND s.owner_id IS NOT NULL
         AND r.status = 'CONFIRMED'
         AND date(substr(r.end_date, 1, 10)) < date('now', '+9 hours')
       LIMIT 1
@@ -1770,7 +1936,9 @@ app.post("/api/pet-reviews", async (c) => {
         message:
           eligibility.reason === "already_reviewed"
             ? "review already submitted for completed reservations"
-            : "a completed reservation is required",
+            : eligibility.reason === "partner_required"
+              ? "partner store required"
+              : "a completed reservation is required",
         reason: eligibility.reason,
       },
       status,
@@ -1827,12 +1995,14 @@ app.get("/api/pet-reviews", async (c) => {
 
   const { results } = await c.env.DB.prepare(
     `
-    SELECT id, store_key, store_name, user_name, rating, revisit,
-           cctv, pickup, large_dog, separation_care, content, created_at,
+    SELECT pr.id, pr.store_key, pr.store_name, pr.user_name, pr.rating, pr.revisit,
+           pr.cctv, pr.pickup, pr.large_dog, pr.separation_care, pr.content, pr.created_at,
            1 AS verified
-    FROM pet_reviews
-    WHERE store_key = ? AND reservation_id IS NOT NULL
-    ORDER BY id DESC
+    FROM pet_reviews pr
+    JOIN stores s ON s.store_key = pr.store_key
+    WHERE pr.store_key = ? AND pr.reservation_id IS NOT NULL
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
+    ORDER BY pr.id DESC
   `,
   )
     .bind(storeKey)
@@ -1840,10 +2010,13 @@ app.get("/api/pet-reviews", async (c) => {
 
   const summary = await c.env.DB.prepare(
     `
-    SELECT COUNT(*) AS count, AVG(rating) AS avg_rating,
-           SUM(cctv) AS cctv, SUM(pickup) AS pickup,
-           SUM(large_dog) AS large_dog, SUM(separation_care) AS separation_care
-    FROM pet_reviews WHERE store_key = ? AND reservation_id IS NOT NULL
+    SELECT COUNT(*) AS count, AVG(pr.rating) AS avg_rating,
+           SUM(pr.cctv) AS cctv, SUM(pr.pickup) AS pickup,
+           SUM(pr.large_dog) AS large_dog, SUM(pr.separation_care) AS separation_care
+    FROM pet_reviews pr
+    JOIN stores s ON s.store_key = pr.store_key
+    WHERE pr.store_key = ? AND pr.reservation_id IS NOT NULL
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
   `,
   )
     .bind(storeKey)
@@ -1856,13 +2029,15 @@ app.get("/api/pet-reviews", async (c) => {
 app.get("/api/pet-reviews/tags", async (c) => {
   const { results } = await c.env.DB.prepare(
     `
-    SELECT store_key,
-           COUNT(*) AS count, AVG(rating) AS avg_rating,
-           SUM(cctv) AS cctv, SUM(pickup) AS pickup,
-           SUM(large_dog) AS large_dog, SUM(separation_care) AS separation_care
-    FROM pet_reviews
-    WHERE reservation_id IS NOT NULL
-    GROUP BY store_key
+    SELECT pr.store_key,
+           COUNT(*) AS count, AVG(pr.rating) AS avg_rating,
+           SUM(pr.cctv) AS cctv, SUM(pr.pickup) AS pickup,
+           SUM(pr.large_dog) AS large_dog, SUM(pr.separation_care) AS separation_care
+    FROM pet_reviews pr
+    JOIN stores s ON s.store_key = pr.store_key
+    WHERE pr.reservation_id IS NOT NULL
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
+    GROUP BY pr.store_key
   `,
   ).all();
   return c.json(results);
@@ -2049,6 +2224,7 @@ app.delete("/api/users/:id/account", async (c) => {
      FROM reservations r
      JOIN stores s ON s.store_id = r.store_id
      WHERE s.owner_id = ?
+       AND s.partner_status = 'ACTIVE'
        AND r.status IN ('REQUEST', 'CONFIRMED')
        AND (
          date(substr(r.end_date, 1, 10)) >= date('now', '+9 hours')
@@ -2115,7 +2291,12 @@ app.delete("/api/users/:id/account", async (c) => {
     ).bind(userId),
 
     // 사장님 탈퇴: 진행 예약이 없는 것이 확인된 뒤 가게 연결을 해제한다.
-    c.env.DB.prepare(`UPDATE stores SET owner_id = NULL WHERE owner_id = ?`).bind(userId),
+    c.env.DB.prepare(
+      `UPDATE stores
+       SET owner_id = NULL, partner_status = 'TERMINATED',
+           partner_approved_at = NULL, partner_approved_by = NULL
+       WHERE owner_id = ?`,
+    ).bind(userId),
     c.env.DB.prepare(
       `UPDATE store_owner_applications
        SET status = 'REJECTED', reviewed_at = CURRENT_TIMESTAMP
@@ -2329,6 +2510,8 @@ async function sendReviewRequests(db: D1Database): Promise<number> {
     JOIN stores s ON s.store_id = r.store_id
     JOIN chat_rooms c ON c.user_id = r.user_id AND c.store_id = r.store_id
     WHERE r.status = 'CONFIRMED'
+      AND s.partner_status = 'ACTIVE'
+      AND s.owner_id IS NOT NULL
       AND r.review_requested = 0
       AND (r.start_date LIKE ? OR r.start_date LIKE ?)
   `,
@@ -2396,6 +2579,10 @@ export default {
     _ctx: ExecutionContext,
   ) => {
     if (event.cron === STORE_DETAIL_REFRESH_CRON) {
+      if (env.NAVER_PLACE_REFRESH_ENABLED !== "true") {
+        console.log("store detail refresh disabled pending source-rights review");
+        return;
+      }
       const result = await refreshStaleStoreDetails(env.DB, 8);
       console.log("weekly store detail refresh", result);
       return;

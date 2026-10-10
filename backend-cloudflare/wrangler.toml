@@ -4,11 +4,13 @@ compatibility_date = "2026-05-20"
 
 [vars]
 APP_NAME = "맡겨멍 API"
+NAVER_PLACE_REFRESH_ENABLED = "false"
+EXPOSE_UNVERIFIED_STORE_DETAILS = "false"
 
-# 이용일 다음날 리뷰 요청(09:00 UTC) + 가게 상세정보 순환 갱신(4시간마다 8곳)
-# 8곳 × 하루 6회 = 48곳/일이므로 서울 큐레이션 전체를 약 1주일에 한 번 확인한다.
+# 이용일 다음날 리뷰 요청(09:00 UTC)만 실행한다.
+# 네이버 상세정보 자동 수집은 출처·권리 검토가 끝날 때까지 트리거에서 제거하고 서버에서도 비활성화한다.
 [triggers]
-crons = ["0 9 * * *", "17 */4 * * *"]
+crons = ["0 9 * * *"]
 
 [[d1_databases]]
 binding = "DB"

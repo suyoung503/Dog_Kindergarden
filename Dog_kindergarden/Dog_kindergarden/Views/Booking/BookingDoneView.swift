@@ -80,7 +80,7 @@ struct BookingDoneView: View {
             dashedDivider
             summaryRow("일정",    booking?.schedule ?? "-")
             dashedDivider
-            summaryRow("결제 예정", booking?.price ?? "-")
+            summaryRow("가격 안내", booking?.price ?? "-")
         }
         .padding(20)
         .background(.white)

@@ -97,7 +97,7 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 
 - 요청 바디 타입은 iOS가 snake_case/camelCase를 혼용하므로 **두 형태 모두 optional로 받는 타입**을 정의한다 (`ReservationBody` 참고). `any` 사용 금지.
 - D1 바인딩 이름은 `DB` (`wrangler.toml`).
-- Cron Trigger는 두 개다. `0 9 * * *`(매일 09:00 UTC = KST 18시)는 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방에 리뷰 요청 자동 메시지를 보내며, 중복은 `reservations.review_requested`로 막고 데모용 수동 트리거는 `POST /api/internal/review-requests`다. `17 */4 * * *`는 4시간마다 `details_checked_at`이 가장 오래된 큐레이션 가게 8곳의 네이버 플레이스 영업시간·업체 이미지(최대 5장)를 갱신해 약 1주일에 전체를 순환한다. export가 `{ fetch: app.fetch, scheduled }` 형태이므로 `export default app`으로 되돌리지 말 것. `start_date`는 연도 포함 형식 — 시간권은 `"2026-07-12 (일) 14:00"`, 종일권·하루 숙박권은 날짜만 `"2026-07-12 (일)"` (iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림, 날짜만이면 캘린더에 종일 일정) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다. 예약 유형은 시간권(시간당 ₩5,000)·종일권·하루 숙박권 3종뿐이고 정기권은 가게 상세 체크리스트에서 가게 문의로 안내한다.
+- 활성 Cron Trigger는 `0 9 * * *` 하나다. 매일 09:00 UTC(KST 18시)에 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방으로 리뷰 요청 자동 메시지를 보내며, 중복은 `reservations.review_requested`로 막고 데모용 수동 트리거는 `POST /api/internal/review-requests`다. 네이버 플레이스 상세정보 순환 갱신은 출처·권리 검토 전까지 Cron에서 제거했고 `NAVER_PLACE_REFRESH_ENABLED=false`로 서버에서도 차단한다. `EXPOSE_UNVERIFIED_STORE_DETAILS=false`는 일반·파트너 모두의 기존 미검증 가격·영업시간·이미지·편의정보를 공개 응답에서 숨긴다. export는 `{ fetch: app.fetch, scheduled }` 형태를 유지한다. `start_date`는 연도 포함 형식 — 시간권은 `"2026-07-12 (일) 14:00"`, 종일권·하루 숙박권은 날짜만 `"2026-07-12 (일)"` (iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림, 날짜만이면 캘린더에 종일 일정) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다. 예약 유형은 시간권·종일권·하루 숙박권 3종이며, 업체별 가격 등록 전에는 앱이 총액을 계산하지 않고 예약 확정 전에 업체와 확인하도록 안내한다.
 
 ## 현재 미완성 영역 (작업 시 주의)
 

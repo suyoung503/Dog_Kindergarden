@@ -27,6 +27,8 @@ struct ReviewEligibility: Decodable {
             return "이용 완료 건의 리뷰를 이미 작성했어요"
         case "no_completed_reservation":
             return "확정된 이용 완료 내역이 있어야 리뷰를 작성할 수 있어요"
+        case "partner_required":
+            return "맡겨멍 파트너 업체에서만 리뷰를 작성할 수 있어요"
         default:
             return eligible ? "이용 내역이 확인된 보호자예요" : "리뷰 작성 조건을 확인하지 못했어요"
         }
@@ -150,6 +152,12 @@ final class ReviewService {
     func clearEligibility() {
         eligibility = nil
         isCheckingEligibility = false
+    }
+
+    func clear() {
+        summary = nil
+        reviews = []
+        clearEligibility()
     }
 
     func loadEligibility(storeKey: String, userId: Int) async {

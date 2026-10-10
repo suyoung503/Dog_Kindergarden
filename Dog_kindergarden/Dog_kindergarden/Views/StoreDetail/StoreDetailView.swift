@@ -14,19 +14,28 @@ struct StoreDetailView: View {
     @State private var isMyStore = false                // 사장님 계정: 이 가게가 내 가게로 등록됨
     @State private var showImageGallery = false
     @State private var selectedImageIndex = 0
+    @State private var isStoreDetailLoading = true
+    @State private var storeDetailLoadFailed = false
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
     private var storeKey: String { pin?.storeKey ?? router.selectedStore }
-    private var reviewEligibilityTaskID: String { "\(storeKey)|\(authSession.userId ?? 0)" }
+    private var isPartner: Bool { storeDetail?.isPartner == true }
+    private var canBook: Bool { storeDetail?.canBook == true }
+    private var canChat: Bool { storeDetail?.canChat == true }
+    private var canReviewStore: Bool { storeDetail?.canReview == true }
+    private var reviewTaskID: String { "\(storeKey)|\(canReviewStore)" }
+    private var reviewEligibilityTaskID: String {
+        "\(storeKey)|\(authSession.userId ?? 0)|\(canReviewStore)"
+    }
 
     // 카카오 우선, 없으면 공공데이터(마스킹) 폴백
     private var displayAddress: String {
-        if let k = kakaoPlace, !k.best.isEmpty { return k.best }
+        if isPartner, let k = kakaoPlace, !k.best.isEmpty { return k.best }
         return pin?.address ?? ""
     }
     private var displayPhone: String {
-        if let k = kakaoPlace, !k.phone.isEmpty { return k.phone }
+        if isPartner, let k = kakaoPlace, !k.phone.isEmpty { return k.phone }
         return pin?.phone ?? ""
     }
 
@@ -36,9 +45,21 @@ struct StoreDetailView: View {
                 VStack(spacing: 0) {
                     heroSection
                     titleCard
-                    crawledDetailSection  // DB 크롤링 보강 정보
-                    petReviewSection      // 🐾 펫 특화 리뷰 (핵심 가치, 실데이터)
-                    blogSection           // 📝 네이버 블로그 후기
+                    if isStoreDetailLoading {
+                        capabilityLoadingSection
+                    } else if storeDetailLoadFailed {
+                        capabilityErrorSection
+                    } else if isPartner {
+                        partnerDetailSection
+                    } else {
+                        generalStoreSection
+                    }
+                    if canReviewStore {
+                        petReviewSection
+                    }
+                    if isPartner {
+                        blogSection       // 파트너 업체의 네이버 블로그 검색 결과
+                    }
                     noticeSection         // 일반 안내(체크리스트)
                 }
                 .padding(.bottom, 80)
@@ -48,16 +69,30 @@ struct StoreDetailView: View {
 
             bottomBar
         }
-        .task(id: storeKey) { await reviewService.load(storeKey: storeKey) }
+        .task(id: reviewTaskID) {
+            guard canReviewStore else {
+                reviewService.clear()
+                return
+            }
+            await reviewService.load(storeKey: storeKey)
+        }
         .task(id: reviewEligibilityTaskID) {
-            guard let uid = authSession.userId else {
+            guard canReviewStore, let uid = authSession.userId else {
                 reviewService.clearEligibility()
                 return
             }
             await reviewService.loadEligibility(storeKey: storeKey, userId: uid)
         }
         .task(id: storeKey) {
-            storeDetail = (try? await APIClient.shared.fetchStoreDetail(storeKey: storeKey)) ?? nil
+            isStoreDetailLoading = true
+            storeDetailLoadFailed = false
+            do {
+                storeDetail = try await APIClient.shared.fetchStoreDetail(storeKey: storeKey)
+            } catch {
+                storeDetail = nil
+                storeDetailLoadFailed = true
+            }
+            isStoreDetailLoading = false
         }
         .task(id: storeKey) {
             // 찜 여부 확인 — 내 찜 목록에서 같은 store_key 찾기
@@ -71,10 +106,13 @@ struct StoreDetailView: View {
             let mine = (try? await APIClient.shared.fetchOwnerStores(userId: uid)) ?? []
             isMyStore = mine.contains { ($0.storeKey ?? "") == storeKey }
         }
-        .task(id: storeKey) {
+        .task(id: "\(storeKey)|\(isPartner)") {
             // 마스킹된 주소(***) 보강 — 주소는 네이버 우선(층·건물까지 상세), 전화·링크는 카카오로 보강
             // 네이버·카카오 모두 없으면 좌표→주소 변환(지번)으로 폴백
-            guard let p = pin else { return }
+            guard isPartner, let p = pin else {
+                kakaoPlace = nil
+                return
+            }
             let region = p.address.split(separator: " ").prefix(2).joined(separator: " ")
             async let naverLookup = NaverLocalService.lookup(name: p.name, region: region, lat: p.latitude, lon: p.longitude)
             async let kakaoLookup = KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude)
@@ -87,8 +125,12 @@ struct StoreDetailView: View {
                 kakaoPlace = await KakaoLocalService.coordAddress(lat: p.latitude, lon: p.longitude)
             }
         }
-        .task(id: storeKey) {
+        .task(id: "\(storeKey)|\(isPartner)") {
             // 네이버 블로그 후기 검색 (지역명 + 가게명)
+            guard isPartner else {
+                blogService.posts = []
+                return
+            }
             let region = (pin?.address ?? "").split(separator: " ").prefix(2).joined(separator: " ")
             await blogService.load(storeName: storeName, region: region)
         }
@@ -159,7 +201,7 @@ struct StoreDetailView: View {
     }
 
     private var canWriteReview: Bool {
-        authSession.userId != nil && reviewService.eligibility?.eligible == true
+        canReviewStore && authSession.userId != nil && reviewService.eligibility?.eligible == true
     }
 
     private var reviewButtonTitle: String {
@@ -267,13 +309,29 @@ struct StoreDetailView: View {
     }
 
     private var heroGradient: some View {
-        LinearGradient(colors: [Color(hex: "#FFE6CC"), Color.brandOrange],
+        LinearGradient(colors: defaultHeroColors,
                        startPoint: .topLeading, endPoint: .bottomTrailing)
             .frame(height: 220)
             .overlay(
-                EmojiIcon(emoji: pin?.type == "호텔" ? "🏨" : "🏠", size: 64)
+                EmojiIcon(emoji: defaultStoreEmoji, size: 64)
                     .opacity(0.9)
             )
+    }
+
+    private var defaultStoreEmoji: String {
+        let type = pin?.type ?? ""
+        if type.contains("호텔") && type.contains("유치원") { return "🐾" }
+        return type.contains("호텔") ? "🏨" : "🏠"
+    }
+
+    private var defaultHeroColors: [Color] {
+        let type = pin?.type ?? ""
+        if type.contains("호텔") && type.contains("유치원") {
+            return [Color.brandGreenLight, Color(hex: "#FFE6CC")]
+        }
+        return type.contains("호텔")
+            ? [Color(hex: "#FFE6CC"), Color.brandOrange]
+            : [Color.brandGreenLight, Color(hex: "#F6C978")]
     }
 
     private func heroButton(icon: String, tint: Color = Color.brandBrown) -> some View {
@@ -323,6 +381,14 @@ struct StoreDetailView: View {
                     Text(storeName)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(Color.brandBrown)
+                    if isPartner {
+                        Text("맡겨멍 파트너")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.brandOrange)
+                            .clipShape(Capsule())
+                    }
                     if let st = pin?.status, !st.isEmpty {
                         Text(st)
                             .font(.system(size: 9, weight: .bold))
@@ -382,103 +448,170 @@ struct StoreDetailView: View {
         .offset(y: -28)
     }
 
-    // MARK: - 크롤링 보강 상세
+    // MARK: - 파트너 상세 / 일반 업체 안내
 
-    private var crawledDetailSection: some View {
-        Group {
-            if hasCrawledDetail {
-                sectionWrapper(title: "상세 정보") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        FlowTags(tags: crawledTags)
+    private var capabilityLoadingSection: some View {
+        sectionWrapper(title: "이용 안내") {
+            HStack(spacing: 10) {
+                ProgressView().tint(Color.brandOrange)
+                Text("예약 지원 여부를 확인하고 있어요")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.brandBrownMid)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+        }
+    }
 
-                        if let openTime = storeDetail?.openTime, !openTime.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("영업시간")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(Color.brandBrown)
-                                Text(formattedDetailText(openTime))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.brandBrownMid)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                            .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
-                        }
+    private var capabilityErrorSection: some View {
+        sectionWrapper(title: "이용 안내") {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("업체 정보를 불러오지 못했어요", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.brandBrown)
+                Text("안전을 위해 예약과 채팅을 잠시 사용할 수 없습니다. 잠시 후 다시 열어주세요.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.brandBrownMid)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+        }
+    }
 
-                        if let price = storeDetail?.priceInfo, !price.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("가격")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(Color.brandBrown)
-                                Text(formattedDetailText(price))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.brandBrownMid)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                            .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
-                        }
+    private var partnerDetailSection: some View {
+        sectionWrapper(title: "상세 정보") {
+            VStack(alignment: .leading, spacing: 12) {
+                if !partnerTags.isEmpty {
+                    FlowTags(tags: partnerTags)
+                }
 
-                        if !galleryImageUrls.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(Array(galleryImageUrls.enumerated()), id: \.offset) { index, raw in
-                                        if let url = URL(string: raw) {
-                                            Button {
-                                                openImageGallery(at: index)
-                                            } label: {
-                                                AsyncImage(url: url) { phase in
-                                                    switch phase {
-                                                    case .success(let image):
-                                                        image.resizable().scaledToFill()
-                                                    default:
-                                                        Color(hex: "#FFE6CC")
-                                                    }
-                                                }
-                                                .frame(width: 88, height: 88)
-                                                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                detailTextCard(
+                    title: "영업시간",
+                    value: storeDetail?.openTime,
+                    fallback: "영업시간은 업체에 문의해주세요."
+                )
+
+                detailTextCard(
+                    title: "가격",
+                    value: storeDetail?.priceInfo,
+                    fallback: "가격은 업체마다 다릅니다. 예약 확정 전 업체와 확인해주세요."
+                )
+
+                if !galleryImageUrls.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(galleryImageUrls.enumerated()), id: \.offset) { index, raw in
+                                if let url = URL(string: raw) {
+                                    Button {
+                                        openImageGallery(at: index)
+                                    } label: {
+                                        AsyncImage(url: url) { phase in
+                                            switch phase {
+                                            case .success(let image):
+                                                image.resizable().scaledToFill()
+                                            default:
+                                                Color(hex: "#FFE6CC")
                                             }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("가게 이미지 \(index + 1) 크게 보기")
                                         }
+                                        .frame(width: 88, height: 88)
+                                        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                                     }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("가게 이미지 \(index + 1) 크게 보기")
                                 }
                             }
                         }
-
-                        Text("크롤링/검색 기반 보강 정보라 실제 운영 정보와 다를 수 있어요.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.brandBrownLight)
                     }
                 }
+
+                Text("가격과 운영 정보는 예약 확정 전에 업체와 다시 확인해주세요.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.brandBrownLight)
             }
         }
     }
 
-    private var hasCrawledDetail: Bool {
-        guard let detail = storeDetail else { return false }
-        return detail.largeDog == 1
-            || detail.pickup == 1
-            || detail.playground == 1
-            || !(detail.openTime ?? "").isEmpty
-            || !(detail.priceInfo ?? "").isEmpty
-            || !(detail.imageUrl ?? "").isEmpty
-            || !(detail.images ?? []).isEmpty
+    private var generalStoreSection: some View {
+        sectionWrapper(title: "이용 안내") {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("현재 맡겨멍 예약을 지원하지 않는 업체입니다", systemImage: "info.circle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.brandBrown)
+                Text("영업시간과 가격은 업체에 직접 문의해주세요. 채팅·예약·알림장·앱 내부 리뷰는 맡겨멍 파트너 업체에서만 제공됩니다.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.brandBrownMid)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    if let phoneURL {
+                        Link(destination: phoneURL) {
+                            contactButton("전화하기", icon: "phone.fill")
+                        }
+                    }
+                    if let externalMapURL {
+                        Link(destination: externalMapURL) {
+                            contactButton("지도에서 보기", icon: "map.fill")
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+            .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        }
     }
 
-    private var crawledTags: [String] {
+    private var partnerTags: [String] {
         var tags: [String] = []
         if storeDetail?.largeDog == 1 { tags.append("대형견 가능") }
         if storeDetail?.pickup == 1 { tags.append("픽업 가능") }
         if storeDetail?.playground == 1 { tags.append("운동장 있음") }
-        if tags.isEmpty { tags.append("상세 확인 필요") }
         return tags
+    }
+
+    private func detailTextCard(title: String, value: String?, fallback: String) -> some View {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.brandBrown)
+            Text((normalized?.isEmpty == false ? normalized.map(formattedDetailText) : nil) ?? fallback)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.brandBrownMid)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+        .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
+    }
+
+    private func contactButton(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Color.brandOrange)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(Color(hex: "#FFF1DC"))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    private var phoneURL: URL? {
+        let digits = displayPhone.filter { $0.isNumber || $0 == "+" }
+        return digits.isEmpty ? nil : URL(string: "tel:\(digits)")
+    }
+
+    private var externalMapURL: URL? {
+        if let raw = kakaoPlace?.placeURL, !raw.isEmpty, let url = URL(string: raw) { return url }
+        let query = [storeName, displayAddress].filter { !$0.isEmpty }.joined(separator: " ")
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        return URL(string: "https://map.kakao.com/link/search/\(encoded)")
     }
 
     private var galleryImageUrls: [String] {
@@ -569,12 +702,12 @@ struct StoreDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
     }
 
-    // MARK: - Notice (일반 안내 — 특정 가게 주장이 아니라 보편적 체크리스트)
+    // MARK: - Notice (업체별 정책을 확인하도록 안내하는 공통 체크리스트)
 
     private var noticeSection: some View {
         sectionWrapper(title: "맡기기 전 체크리스트") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(["광견병 접종 증명서 필수","공격성이 있는 경우 사전 상담","사료는 직접 준비해주세요","정기권은 가게에 문의해주세요"], id: \.self) { t in
+                ForEach(["예방접종 확인 서류가 필요한지 문의해주세요","성향과 건강 상태를 미리 알려주세요","사료·준비물 제공 범위를 확인해주세요","가격과 취소 규정을 업체에 확인해주세요"], id: \.self) { t in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.circle")
                             .font(.system(size: 13))
@@ -595,25 +728,46 @@ struct StoreDetailView: View {
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
-            Button(action: openChat) {
-                EmojiIcon(emoji: "💬", size: 22)
-                    .frame(width: 52, height: 52)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
-            }
-            Button(action: { router.go(.booking) }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark")
-                    Text("예약하기").font(.system(size: 15, weight: .bold))
+        Group {
+            if isStoreDetailLoading {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Color.brandOrange)
+                    Text("예약 지원 여부 확인 중")
                 }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.brandBrownMid)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(Color.brandOrange)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
-                .shadow(color: Color.brandOrange.opacity(0.7), radius: 9, x: 0, y: 8)
+                .frame(height: 44)
+            } else if canBook || canChat {
+                HStack(spacing: 8) {
+                    Button(action: openChat) {
+                        EmojiIcon(emoji: "💬", size: 22)
+                            .frame(width: 52, height: 52)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+                    }
+                    .disabled(!canChat)
+                    Button(action: { if canBook { router.go(.booking) } }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark")
+                            Text("예약하기").font(.system(size: 15, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(canBook ? Color.brandOrange : Color.brandBrownLight)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                        .shadow(color: canBook ? Color.brandOrange.opacity(0.7) : .clear, radius: 9, x: 0, y: 8)
+                    }
+                    .disabled(!canBook)
+                }
+            } else {
+                Label("일반 업체 · 예약과 채팅은 지원하지 않아요", systemImage: "lock.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.brandBrownMid)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
             }
         }
         .padding(.horizontal, 12)
@@ -626,6 +780,7 @@ struct StoreDetailView: View {
 
     // 이 가게와 문의 채팅 — 기존 방 있으면 그 방으로, 없으면 작성 모드로 진입
     private func openChat() {
+        guard canChat else { return }
         let name = storeName
         let key = storeKey
         Task {

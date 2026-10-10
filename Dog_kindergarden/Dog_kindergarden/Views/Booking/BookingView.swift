@@ -19,13 +19,12 @@ final class BookingViewModel {
     var isLoading = false
     var errorMessage: String?
 
-    // 시간권은 시간당 요금 × 이용 시간, 종일권·하루 숙박권은 날짜만 선택하는 정액제
+    // 파트너별 등록 가격 구조가 도입되기 전에는 공통 가짜 가격을 표시하지 않는다.
     let services: [(name: String, price: String)] = [
-        ("시간권",      "₩5,000/시간"),
-        ("종일권",      "₩35,000"),
-        ("하루 숙박권", "₩50,000"),
+        ("시간권",      "가격 업체 확인"),
+        ("종일권",      "가격 업체 확인"),
+        ("하루 숙박권", "가격 업체 확인"),
     ]
-    let hourlyRate = 5000
     let hourOptions = Array(1...6)
 
     var isHourly: Bool { selectedService == "시간권" }
@@ -48,29 +47,6 @@ final class BookingViewModel {
     }
 
     var selectedPet: Pet? { pets.first { $0.pet_id == selectedPetId } }
-
-    private func servicePrice(_ name: String) -> String {
-        services.first { $0.name == name }?.price ?? ""
-    }
-
-    // 픽업 서비스 고정 금액
-    let pickupPrice = 10000
-
-    // "₩50,000" / "₩40,000~" → 50000 / 40000
-    private func priceValue(_ s: String) -> Int {
-        Int(s.filter { $0.isNumber }) ?? 0
-    }
-    var selectedServicePrice: Int {
-        isHourly ? hourlyRate * hours : priceValue(servicePrice(selectedService))
-    }
-    var totalPrice: Int { selectedServicePrice + pickupPrice }
-
-    // 50000 → "₩50,000"
-    func won(_ n: Int) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        return "₩" + (f.string(from: NSNumber(value: n)) ?? "\(n)")
-    }
 
     // 강아지 목록 조회
     func loadPets(userId: Int) async {
@@ -126,7 +102,7 @@ final class BookingViewModel {
                 dogName: pet?.name ?? "",
                 dogBreed: pet?.breed ?? "",
                 schedule: schedule,
-                price: won(totalPrice)
+                price: "예약 확정 전 업체 확인"
             )
         } catch {
             errorMessage = "예약에 실패했어요."
@@ -333,7 +309,7 @@ struct BookingView: View {
                             .environment(\.locale, Locale(identifier: "ko_KR"))
                             .tint(Color.brandOrange)
                     }
-                    Text("이용 시간 (시간당 ₩5,000)")
+                    Text("이용 시간")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                         ForEach(vm.hourOptions, id: \.self) { h in
@@ -412,23 +388,14 @@ struct BookingView: View {
     // MARK: - Total
 
     private var totalSection: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text(vm.serviceLabel).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
-                Spacer()
-                Text(vm.won(vm.selectedServicePrice)).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
-            }
-            HStack {
-                Text("픽업 서비스").font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
-                Spacer()
-                Text(vm.won(vm.pickupPrice)).font(.system(size: 11)).foregroundStyle(Color.brandBrownMid)
-            }
-            Divider().foregroundStyle(Color.brandBeigeBorder).padding(.vertical, 4)
-            HStack {
-                Text("총 결제 금액").font(.system(size: 13, weight: .bold)).foregroundStyle(Color.brandBrown)
-                Spacer()
-                Text(vm.won(vm.totalPrice)).font(.system(size: 20, weight: .bold)).foregroundStyle(Color.brandOrange)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Label("가격은 업체마다 다릅니다", systemImage: "info.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.brandBrown)
+            Text("예약 확정 전 업체와 서비스 범위와 최종 가격을 확인해주세요. 앱에서는 결제를 진행하지 않습니다.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.brandBrownMid)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(.white)

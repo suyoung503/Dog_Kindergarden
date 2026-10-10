@@ -89,12 +89,13 @@ UserDefaults.standard.set(
 - 공개 조회는 가게·공지·검증된 리뷰 목록으로 제한됩니다.
 
 가게
-- `GET /api/stores`
+- `GET /api/stores` — 일반 업체는 기본정보와 capability만 반환하며 미검증 가격·영업시간·이미지는 숨김
+- `GET /api/stores/detail?storeKey=...` — `is_partner`, `can_book`, `can_chat`, `can_diary`, `can_review` 포함
 - `POST /api/stores/claim` — 사장님 가게 등록 **요청** 생성. 승인 전에는 `owner_id`를 연결하지 않음
 - `GET /api/users/:id/store-owner-applications` — 본인의 등록 요청 이력
 - `GET /api/owner-applications` — 운영자 전용 승인 대기 목록과 신청자 정보
 - `GET /api/owner-applications/pending-count` — 운영자 전용 승인 대기 수
-- `PATCH /api/owner-applications/:id/approve` — 운영자 승인 및 `stores.owner_id` 연결
+- `PATCH /api/owner-applications/:id/approve` — 운영자 승인, `stores.owner_id` 연결 및 파트너 `ACTIVE` 전환
 - `PATCH /api/owner-applications/:id/reject` — 운영자 거절
 - `GET /api/owners/:id/stores` — 사장님이 등록한 가게 목록
 - `DELETE /api/owners/:id/stores/:storeId` — 등록 해제
@@ -118,7 +119,8 @@ UserDefaults.standard.set(
 
 스케줄러
 - Cron `0 9 * * *`(매일 KST 18시) — 이용일 다음날 확정 예약의 채팅방에 리뷰 요청 자동 메시지
-- Cron `17 */4 * * *`(4시간마다) — `details_checked_at`이 오래된 큐레이션 가게 8곳의 네이버 플레이스 영업시간·업체 이미지를 갱신해 전체를 약 1주일 주기로 순환 (`src/storeDetailRefresh.ts`)
+- 네이버 플레이스 상세정보 갱신 Cron은 출처·권리 검토 전까지 제거되어 있으며 `NAVER_PLACE_REFRESH_ENABLED=false`로 서버에서도 차단
+- `EXPOSE_UNVERIFIED_STORE_DETAILS=false`는 기존 크롤링 가격·영업시간·이미지·편의정보를 공개 API에서 숨긴다. 출처·권리를 확인하지 않은 채 운영에서 `true`로 바꾸지 않는다.
 - `POST /api/internal/review-requests` — 위 배치의 데모·테스트용 수동 트리거
 
 리뷰

@@ -563,6 +563,12 @@ struct StoreDetailResponse: Decodable {
     let imageUrl: String?
     let storeType: String?
     let images: [StoreImageResponse]?
+    let partnerStatus: String?
+    let isPartner: Bool?
+    let canBook: Bool?
+    let canChat: Bool?
+    let canDiary: Bool?
+    let canReview: Bool?
 }
 
 struct Notice: Decodable, Identifiable {
