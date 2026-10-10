@@ -343,23 +343,12 @@ struct AddDogSheet: View {
     }
 
     private var photoButton: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: "#FFE6CC"))
-                    .frame(width: 96, height: 96)
-                    .overlay(Circle().stroke(.white, lineWidth: 4).shadow(radius: 4))
-                EmojiIcon(emoji: "🐶", size: 48)
-            }
-            ZStack {
-                Circle()
-                    .fill(Color.brandOrange)
-                    .frame(width: 36, height: 36)
-                    .overlay(Circle().stroke(.white, lineWidth: 2))
-                Image(systemName: "camera")
-                    .font(.system(size: 15)).foregroundStyle(.white)
-            }
-            .offset(x: 4, y: 4)
+        ZStack {
+            Circle()
+                .fill(Color(hex: "#FFE6CC"))
+                .frame(width: 96, height: 96)
+                .overlay(Circle().stroke(.white, lineWidth: 4).shadow(radius: 4))
+            EmojiIcon(emoji: "🐶", size: 48)
         }
     }
 

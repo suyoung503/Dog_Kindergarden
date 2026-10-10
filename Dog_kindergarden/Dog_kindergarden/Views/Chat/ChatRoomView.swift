@@ -282,22 +282,10 @@ struct ChatRoomView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            Button(action: {}) {
-                ZStack {
-                    Circle().fill(Color(hex: "#FFE6CC")).frame(width: 36, height: 36)
-                    Image(systemName: "plus")
-                        .font(.system(size: 15)).foregroundStyle(Color.brandBrown)
-                }
-            }
-            HStack {
-                TextField("메시지를 입력해주세요", text: $vm.inputText)
-                    .font(.system(size: 13))
-                    .submitLabel(.send)
-                    .onSubmit { Task { await vm.send() } }
-                Image(systemName: "face.smiling")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.brandBrownLight)
-            }
+            TextField("메시지를 입력해주세요", text: $vm.inputText)
+                .font(.system(size: 13))
+                .submitLabel(.send)
+                .onSubmit { Task { await vm.send() } }
             .padding(.horizontal, 16)
             .frame(height: 40)
             .background(Color.brandCream.ignoresSafeArea())

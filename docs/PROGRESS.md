@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### 미연결 UI와 미사용 권한 1차 정리
+
+- [x] **죽은 버튼과 오해 가능한 장식 제거** (2026-10-10) — 가게 상세 공유 아이콘은 시스템 `ShareLink`로 연결하고, 빈 action이던 채팅 `+`, 동작 없는 스마일 아이콘, 사진 업로드처럼 보이던 강아지 등록 카메라 배지를 숨겼다. 실제 응답 담당자가 없는 가상 고객센터 채팅을 만들던 마이페이지 `1:1 문의`도 운영 채널이 준비될 때까지 제거했다.
+- [x] **사용하지 않는 위치 권한 제거** (2026-10-10) — 현재 `CLLocationManager` 기반 현재 위치 기능이 없으므로 `NSLocationAlwaysAndWhenInUseUsageDescription`과 `NSLocationWhenInUseUsageDescription`을 모두 제거했다. 기능을 구현할 때 사용자 버튼 시점에 When In Use만 복원한다. iOS Simulator Release 빌드와 Secret 정적 검사를 통과했으며, 캘린더·알림 권한 시점과 목록 오류/재시도 상태는 후속 작업으로 남겼다.
+
 ### API Key·Secret Worker 이전 (로컬 구현 완료, 운영 키 교체·배포 대기)
 
 - [x] **제한형 가게 보강 Worker API** (2026-10-10) — `/api/store-enrichment/place|blogs?storeKey=...`를 추가했다. 임의 검색어 대신 D1에 등록된 가게만 서버가 조회하고, 로그인 세션과 `ACTIVE` 파트너를 강제한다. Naver 지역 결과는 좌표 3km 이내만 채택하고 Kakao 전화·지도 링크와 합치며, D1에 장소 24시간·블로그 15분 캐시한다. 공급자 원문 오류·요청 URL·Secret은 응답과 로그에 전달하지 않는다.

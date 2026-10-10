@@ -281,7 +281,10 @@ struct StoreDetailView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
-                    heroButton(icon: "square.and.arrow.up")
+                    ShareLink(item: shareText) {
+                        heroButton(icon: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("가게 정보 공유")
                     Button(action: toggleFavorite) {
                         heroButton(
                             icon: favoriteStoreId != nil ? "heart.fill" : "heart",
@@ -327,6 +330,12 @@ struct StoreDetailView: View {
             .fill(.white.opacity(0.9))
             .frame(width: 40, height: 40)
             .overlay(Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint))
+    }
+
+    private var shareText: String {
+        [storeName, displayAddress, displayPhone]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     // 찜 토글 — 추가는 성공 후 채움, 해제는 낙관적으로 비우고 실패 시 되돌림
