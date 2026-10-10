@@ -107,23 +107,12 @@ struct StoreDetailView: View {
             isMyStore = mine.contains { ($0.storeKey ?? "") == storeKey }
         }
         .task(id: "\(storeKey)|\(isPartner)") {
-            // 마스킹된 주소(***) 보강 — 주소는 네이버 우선(층·건물까지 상세), 전화·링크는 카카오로 보강
-            // 네이버·카카오 모두 없으면 좌표→주소 변환(지번)으로 폴백
-            guard isPartner, let p = pin else {
+            // 외부 API Secret은 Worker에만 두고, D1에 등록된 파트너의 storeKey만 보강한다.
+            guard isPartner else {
                 kakaoPlace = nil
                 return
             }
-            let region = p.address.split(separator: " ").prefix(2).joined(separator: " ")
-            async let naverLookup = NaverLocalService.lookup(name: p.name, region: region, lat: p.latitude, lon: p.longitude)
-            async let kakaoLookup = KakaoLocalService.lookup(name: p.name, lat: p.latitude, lon: p.longitude)
-            let (n, k) = await (naverLookup, kakaoLookup)
-            if let n {
-                kakaoPlace = KakaoPlace(roadAddress: n.roadAddress, address: n.address, phone: k?.phone ?? "", placeURL: k?.placeURL ?? "")
-            } else if let k {
-                kakaoPlace = k
-            } else {
-                kakaoPlace = await KakaoLocalService.coordAddress(lat: p.latitude, lon: p.longitude)
-            }
+            kakaoPlace = await StoreEnrichmentService.lookupPlace(storeKey: storeKey)
         }
         .task(id: "\(storeKey)|\(isPartner)") {
             // 네이버 블로그 후기 검색 (지역명 + 가게명)
@@ -131,8 +120,7 @@ struct StoreDetailView: View {
                 blogService.posts = []
                 return
             }
-            let region = (pin?.address ?? "").split(separator: " ").prefix(2).joined(separator: " ")
-            await blogService.load(storeName: storeName, region: region)
+            await blogService.load(storeKey: storeKey)
         }
         .sheet(isPresented: $showWriteSheet) {
             ReviewWriteSheet(storeName: storeName) { draft in

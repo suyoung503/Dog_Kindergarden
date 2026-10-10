@@ -6,6 +6,13 @@
 
 ## 완료된 작업
 
+### API Key·Secret Worker 이전 (로컬 구현 완료, 운영 키 교체·배포 대기)
+
+- [x] **제한형 가게 보강 Worker API** (2026-10-10) — `/api/store-enrichment/place|blogs?storeKey=...`를 추가했다. 임의 검색어 대신 D1에 등록된 가게만 서버가 조회하고, 로그인 세션과 `ACTIVE` 파트너를 강제한다. Naver 지역 결과는 좌표 3km 이내만 채택하고 Kakao 전화·지도 링크와 합치며, D1에 장소 24시간·블로그 15분 캐시한다. 공급자 원문 오류·요청 URL·Secret은 응답과 로그에 전달하지 않는다.
+- [x] **iOS 서버용 자격 증명 제거** (2026-10-10) — `NaverLocalService`·`KakaoLocalService`의 외부 직접 호출을 제거하고 `StoreEnrichmentService`와 서버형 `NaverBlogService`로 전환했다. `Info.plist`, 로컬 `Create.xcconfig`, iOS 설정 문서에서 Naver ID/Secret, Kakao REST Key, 공공데이터 Key를 제거하고 클라이언트 사용이 전제된 `KAKAO_NATIVE_APP_KEY`만 남겼다.
+- [x] **Release 차단 검사와 검증** (2026-10-10) — 출시 smoke가 xcconfig·Info.plist와 완성된 `.app`의 금지 키 네 종류를 모두 검사하도록 확장했다. 빈 D1 마이그레이션, Worker dry-run, 보강 API 무인증·일반 업체 차단과 Secret 미설정 안전 응답을 포함한 API 회귀 **121/121**, iOS Simulator Release 빌드, 앱 번들 Secret 검사를 모두 통과했다.
+- [ ] **운영 자격 증명 교체·배포** — Naver·Kakao·공공데이터 콘솔에서 새 키 발급, Worker Secret 등록, 운영 D1 `0024` 적용과 Worker/iOS 배포, 실제 응답 확인 후 과거 키 폐기가 필요하다. 외부 콘솔 증거가 없어 완료 처리하지 않았다.
+
 ### 일반 업체와 맡겨멍 파트너 분리 (로컬 구현 완료, 운영 반영 대기)
 
 - [x] **파트너 상태와 capability 도입** (2026-10-10) — D1 마이그레이션 `0023_store_partnership.sql`에 `NONE/PENDING/ACTIVE/SUSPENDED/TERMINATED` 상태와 승인 시각·운영자, 파생 capability view를 추가했다. 과거 즉시 등록 방식의 `owner_id`는 자동 인증하지 않고 승인 이력이 없으면 신청 대기열로 옮겨 재검토한다. 사장님 신청은 `PENDING`, 운영자 승인만 `ACTIVE`, 거절·연결 해제·사장님 탈퇴는 기능 비활성 상태가 되며, 예약·채팅·알림장·이용 완료 리뷰는 `ACTIVE`이면서 `owner_id`가 연결된 가게만 서버에서 허용한다.

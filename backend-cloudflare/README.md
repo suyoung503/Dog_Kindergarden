@@ -44,11 +44,15 @@ INTERNAL_API_KEY=<.dev.vars와 같은 값> npm run test:auth
 
 ```bash
 npx wrangler secret put INTERNAL_API_KEY
+npx wrangler secret put NAVER_API_HUB_CLIENT_ID
+npx wrangler secret put NAVER_API_HUB_CLIENT_SECRET
+npx wrangler secret put KAKAO_REST_API_KEY
 npx wrangler d1 migrations apply dog_kindergarden_db --remote
 npm run deploy
 ```
 
 `ALLOW_DEV_AUTH`는 운영 Worker에 등록하지 않습니다. 인증 변경은 구버전 앱과 호환되지 않으므로 iOS 업데이트와 Worker 배포를 함께 진행해야 합니다.
+공공데이터 수집을 Worker에서 실행할 때만 `DATA_GO_KR_SERVICE_KEY`를 추가하고, 실제 Secret 값은 `wrangler.toml`, `.dev.vars.example`, 문서에 기록하지 않습니다. 기존에 앱이나 Git 이력에 포함됐던 키는 새 키로 전환한 뒤 공급자 콘솔에서 폐기해야 합니다.
 
 ### 운영자 계정 지정
 
@@ -91,6 +95,8 @@ UserDefaults.standard.set(
 가게
 - `GET /api/stores` — 일반 업체는 기본정보와 capability만 반환하며 미검증 가격·영업시간·이미지는 숨김
 - `GET /api/stores/detail?storeKey=...` — `is_partner`, `can_book`, `can_chat`, `can_diary`, `can_review` 포함
+- `GET /api/store-enrichment/place?storeKey=...` — 인증·파트너 전용 Naver/Kakao 장소 보강, D1 24시간 캐시
+- `GET /api/store-enrichment/blogs?storeKey=...` — 인증·파트너 전용 Naver 블로그 검색, D1 15분 캐시
 - `POST /api/stores/claim` — 사장님 가게 등록 **요청** 생성. 승인 전에는 `owner_id`를 연결하지 않음
 - `GET /api/users/:id/store-owner-applications` — 본인의 등록 요청 이력
 - `GET /api/owner-applications` — 운영자 전용 승인 대기 목록과 신청자 정보

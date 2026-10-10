@@ -41,12 +41,13 @@ open Dog_kindergarden.xcworkspace   # .xcodeproj가 아닌 .xcworkspace로 열 �
 
 빌드·실행·테스트는 Xcode에서 한다 (스킴: `Dog_kindergarden`).
 
-**빌드 전 필수 — Create.xcconfig:** API 키는 git에서 제외된 `Dog_kindergarden/Base.lproj/Config/Create.xcconfig`에 있고 (Xcode 빌드 설정의 `baseConfigurationReference`가 이 파일을 가리킴), `Info.plist`가 `$(변수)`로 참조한다. 파일이 없으면 지도·로그인이 동작하지 않는다. 필요한 키:
+**빌드 전 필수 — Create.xcconfig:** iOS SDK의 공개 앱 식별자는 git에서 제외된 `Dog_kindergarden/Base.lproj/Config/Create.xcconfig`에 있고 (Xcode 빌드 설정의 `baseConfigurationReference`가 이 파일을 가리킴), `Info.plist`가 `$(변수)`로 참조한다. 파일이 없으면 지도·로그인이 동작하지 않는다. 필요한 값:
 
 ```
-KAKAO_NATIVE_APP_KEY, KAKAO_REST_API_KEY, DATA_GO_KR_SERVICE_KEY,
-NAVER_CLIENT_ID, NAVER_CLIENT_SECRET   ← NCP NAVER API HUB 키 (구 developers.naver.com 검색 API는 신규 제휴 중단)
+KAKAO_NATIVE_APP_KEY
 ```
+
+Naver Client ID/Secret, Kakao REST API Key, 공공데이터 Service Key는 iOS 번들에 두지 않는다. Worker의 Secret으로만 관리하며, 앱은 인증된 `/api/store-enrichment/*`를 호출한다.
 
 ## 아키텍처
 
@@ -70,9 +71,9 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 ### 지도 데이터 흐름
 
 1. `AnimalBoardingService`의 `BoardingStore`가 `GET /api/stores`(백엔드 `is_curated=1` 필터)를 호출해 **선별된 서울 유치원/호텔만** 핀 데이터로 가져온다(2026-08-20 이전엔 공공데이터 API를 직접 호출·전국 페이지네이션했으나, 서버가 `numOfRows`를 100건으로 강제 절단하는 미문서화 제한 때문에 대부분의 가게가 애초에 로드되지 않는 문제가 있어 폐기 — `TMConverter`·전국 페이지네이션 코드는 삭제). 큐레이션 목록은 공공데이터 폐업 여부 확인 + 네이버/카카오 보강 주소·좌표를 거쳐 `backend-cloudflare/crawl-results/apply-curated-seoul-*.sql`로 D1에 반영한 것 — 가격정보 유무와 무관하게 유치원/호텔이면 포함된다. 응답의 `store_key`는 `MapPin.storeKeyOverride`에 담아 식별 키가 어긋나지 않게 한다.
-2. `KakaoLocalService`로 마스킹된 주소 보강
+2. 가게 상세의 주소·전화·블로그 보강은 iOS가 외부 공급자를 직접 호출하지 않고 인증된 Worker API를 사용
 3. `KakaoMapView`는 뷰포트 기반: 지도 이동이 멈추면(`cameraDidStopped`) 현재 화면 위경도 범위 안의 가게만 핀 표시, 중심 가까운 순 개수 상한(현재 큐레이션 대상이 서울로 한정되어 있어 서울 밖에서는 핀이 뜨지 않음 — 전국 확장 시 재검토)
-4. 가게 상세(`StoreDetailView`)의 주소 보강은 **네이버 우선**: `NaverLocalService`(지역 검색)가 층·건물·호까지 상세한 등록 주소를 주고, 카카오는 전화·카카오맵 링크를 보강, 둘 다 없으면 좌표→주소 변환(지번) 폴백. 동명 타지역 가게 오매칭 방지로 검색 결과 중 핀 좌표 최근접을 고르고 **3km 밖이면 기각**한다. 네이버 검색 API(지역·블로그)는 구 developers.naver.com이 아니라 **NCP NAVER API HUB**(`naverapihub.apigw.ntruss.com`, 헤더 `X-NCP-APIGW-API-KEY-ID`/`-KEY`) 경유 — 응답 포맷은 구 API와 동일. 상세는 `docs/PORTFOLIO.md` §12.
+4. 가게 상세(`StoreDetailView`)는 `StoreEnrichmentService`와 `NaverBlogService`를 통해 Worker의 `/api/store-enrichment/place|blogs?storeKey=...`만 호출한다. Worker가 D1의 등록 가게명·주소·좌표로 검색어를 만들므로 임의 검색 프록시가 되지 않으며, `ACTIVE` 파트너와 로그인 세션을 요구한다. Naver 지역 검색은 핀 좌표 최근접 결과 중 **3km 밖을 기각**하고, Kakao는 전화·지도 링크를 보강한다. 결과는 D1에 장소 24시간·블로그 15분 캐시하며 공급자 원문 오류와 Secret은 앱 응답·로그에 전달하지 않는다.
 
 ### 핵심 도메인 설계 — 공공 가게의 ID 승격
 
@@ -81,7 +82,7 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 - `store_key` = `"이름|주소"` 문자열. 예약·리뷰·찜 시 이 키로 `stores` 테이블을 조회해 **있으면 재사용, 없으면 insert** (upsert) → 같은 가게는 항상 같은 `store_id`.
 - `store_key`의 주소 부분은 공공데이터의 **마스킹 원본**(`***`)이다 — 정체성 키라서 **절대 변경 금지**. 표시용 `stores.address` 컬럼만 검증된 실주소로 백필할 수 있다(2026-07-17, 16곳 완료). 백엔드 upsert는 기존 행의 address를 덮어쓰지 않으므로(phone·store_type·좌표만 COALESCE 보강) 백필 값이 유지된다.
 - 채팅방은 `chat_rooms(user_id, store_id UNIQUE)`, 찜은 `favorites(user_id, store_id UNIQUE)` — 둘 다 **(사용자+가게) 조합당 1개**. 예약 API가 방을 자동 생성/조회하고 `{reservation_id, room_id}`를 함께 반환한다.
-- 사장님-가게 소유는 `stores.owner_id`. 마이페이지 '내 가게'(`MyStoreSheet`)에서 상호명 검색으로 등록(`POST /api/stores/claim`, `store_key` upsert 재사용, 남의 가게면 409)·해제(`DELETE /api/owners/:id/stores/:storeId`)하고, 등록된 가게는 가게 상세에 '내 가게' 뱃지로 표시된다. 받은 문의는 `GET /api/owners/:id/chatrooms`로 조회해 채팅 목록(`ChatListView`) 상단 '받은 문의' 섹션에 표시하고, 받은 예약 요청(`OwnerModeView`)도 `GET /api/owners/:id/reservations/pending`으로 내 가게 것만 조회한다(확정/취소 가능).
+- 사장님-가게 소유는 `stores.owner_id`와 `partner_status`를 함께 사용한다. 마이페이지 '내 가게'에서 신청하면 `PENDING`일 뿐이며 운영자가 신청자 자료를 확인해 승인해야 `owner_id`가 연결되고 `ACTIVE`가 된다. 예약·채팅·알림장·리뷰 capability는 `ACTIVE` 파트너에만 열리며 일반 업체는 전화·외부 지도·찜만 제공한다. 과거 즉시 등록 `owner_id`도 승인 이력이 없으면 마이그레이션에서 대기열로 되돌린다.
 - 예약 캘린더 일정은 **고객 기기**에만 쓴다(사장님 기기 금지) — 추가는 예약 요청 시점(`BookingView` 성공 직후), 삭제는 본인 취소 시 즉시 + 사장님 취소는 고객이 예약 내역(`ReservationListView`)을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 삭제(서버 푸시 없음).
 - 예약 취소는 고객·사장님 공용 `PATCH /api/reservations/:id/cancel` 하나 — 사장님 취소만 바디 `by_owner`로 구분해 고객 채팅방에 취소 안내 자동 메시지(sender 0)를 남긴다(iOS는 `cancelReservation(byOwner:)`, `OwnerModeView`에서만 true). 고객 본인 취소에 메시지를 보내지 말 것.
 - 채팅방 진입 시 `router.chatRoomAsOwner`를 반드시 설정할 것(받은 문의에서만 true) — '응답중' 표시가 이 플래그를 따른다. 자동메시지(sender 0)는 시점과 무관하게 화자 없는 **중앙 시스템 안내문**으로 렌더링한다(2026-07-18 말풍선에서 분리 — 좌/우 말풍선으로 되돌리지 말 것). 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.

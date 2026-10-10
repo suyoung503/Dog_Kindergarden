@@ -29,7 +29,7 @@
 3. [ ] 사장님 가게 셀프 등록을 관리자 승인 방식으로 변경 — 로컬 구현·52개 회귀 검증 완료, 운영자 계정 지정과 운영 배포 대기
 4. [ ] 회원 탈퇴 및 개인정보 삭제·익명화 정책 구현
 5. [ ] Sign in with Apple 추가
-6. [ ] Naver Secret과 가능한 공공데이터 API Key를 서버로 이전
+6. [ ] Naver Secret과 가능한 공공데이터 API Key를 서버로 이전 — 로컬 Worker 프록시·iOS 제거·121개 회귀·Release 번들 검사 완료, 새 키 발급·운영 Secret 등록·배포·기존 키 폐기 대기
 7. [ ] 크롤링 데이터 출처·이용 조건 정리 및 운영 노출 제한
 8. [ ] 일반 업체와 맡겨멍 파트너 업체 분리 — 로컬 구현·116개 API 회귀·iOS Release 빌드 완료, 운영 D1/Worker/iOS 동시 배포 대기
 9. [ ] 알림장 사진 업로드(R2) 구현
@@ -199,13 +199,13 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 
 **사전 감사 완료:** Release 앱에 포함되는 Naver Client ID/Secret, Kakao REST API Key, 공공데이터 Service Key와 과거 Git 이력을 점검하고 Worker 중계 구조·키 교체 순서·번들 차단 기준을 [`API_SECRET_AUDIT.md`](API_SECRET_AUDIT.md)에 기록했다. 서버 이전과 공급자 콘솔의 키 교체는 아직 완료되지 않았다.
 
-- [ ] iOS `Info.plist`/빌드 설정에서 `NAVER_CLIENT_SECRET` 제거
-- [ ] `iPhone → Naver API` 호출을 `iPhone → Cloudflare Worker → Naver API`로 전환
+- [x] iOS `Info.plist`/빌드 설정에서 `NAVER_CLIENT_SECRET` 제거 — Naver ID/Secret, Kakao REST Key, 공공데이터 Key 모두 제거
+- [x] `iPhone → Naver API` 호출을 `iPhone → Cloudflare Worker → Naver API`로 전환 — D1 등록 가게·인증 세션·활성 파트너만 허용
 - [ ] Naver Client ID/Secret을 Cloudflare Worker Secret으로 저장
-- [ ] 공공데이터 API Key도 가능하면 Worker로 이전
+- [x] 공공데이터 API Key도 가능하면 Worker로 이전 — iOS 런타임에서 제거하고 Worker 수집 시에만 선택적 Secret을 쓰도록 분리, 운영 Secret 등록은 대기
 - [ ] 키별 도메인·앱·번들 ID·사용량 제한 설정 확인
-- [ ] Kakao Native App Key처럼 클라이언트 사용이 전제된 키와 서버 Secret을 구분해 문서화
-- [ ] 로그·오류 응답·분석 도구에 키가 노출되지 않는지 확인
+- [x] Kakao Native App Key처럼 클라이언트 사용이 전제된 키와 서버 Secret을 구분해 문서화
+- [x] 로그·오류 응답·분석 도구에 키가 노출되지 않는지 확인 — 공급자 원문 오류·요청 URL 비전달, Release 소스·완성 번들 차단 검사 추가; 운영 로그 수동 점검은 배포 후 수행
 
 ---
 

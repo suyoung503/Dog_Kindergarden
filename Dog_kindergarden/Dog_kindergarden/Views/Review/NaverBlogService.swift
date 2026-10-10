@@ -1,9 +1,8 @@
 import Foundation
 import Observation
 
-// 네이버 블로그 검색 — 가게 이름으로 실제 방문 후기 블로그 글을 가져옴
-// NCP NAVER API HUB 경유 (구 개발자센터 검색 API는 신규 등록 중단 → API HUB로 이관)
-// 키: Info.plist의 NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (지역 검색과 같은 Application)
+// 네이버 블로그 검색 결과는 Worker가 D1의 가게 정보로 조회한다.
+// 앱은 Naver Client Secret이나 임의 검색어를 보유·전송하지 않는다.
 
 struct BlogPost: Identifiable {
     let id = UUID()
@@ -19,88 +18,45 @@ final class NaverBlogService {
     var posts: [BlogPost] = []
     var isLoading = false
 
-    private var clientID: String {
-        Bundle.main.object(forInfoDictionaryKey: "NAVER_CLIENT_ID") as? String ?? ""
-    }
-    private var clientSecret: String {
-        Bundle.main.object(forInfoDictionaryKey: "NAVER_CLIENT_SECRET") as? String ?? ""
-    }
-
-    private struct Response: Decodable {
-        let items: [Item]
-        struct Item: Decodable {
-            let title: String
-            let link: String
-            let description: String
-            let bloggername: String
-            let postdate: String?
-        }
+    private struct Item: Decodable {
+        let title: String
+        let snippet: String
+        let link: String
+        let blogger: String
+        let date: String
     }
 
-    func load(storeName: String, region: String = "") async {
-        let id = clientID, secret = clientSecret
-        guard !id.isEmpty, id != "[NAVER_CLIENT_ID]",
-              !secret.isEmpty, secret != "[NAVER_CLIENT_SECRET]" else { return }
-
+    func load(storeKey: String) async {
         isLoading = true
         defer { isLoading = false }
 
-        let query = region.isEmpty ? storeName : "\(region) \(storeName)"
-        var comps = URLComponents(string: "https://naverapihub.apigw.ntruss.com/search/v1/blog")!
+        var comps = URLComponents(
+            url: APIEnvironment.apiBaseURL.appendingPathComponent("store-enrichment/blogs"),
+            resolvingAgainstBaseURL: false
+        )!
         comps.queryItems = [
-            URLQueryItem(name: "query", value: query),
-            URLQueryItem(name: "display", value: "5"),
-            URLQueryItem(name: "sort", value: "sim"),
+            URLQueryItem(name: "storeKey", value: storeKey),
         ]
         guard let url = comps.url else { return }
 
-        var req = URLRequest(url: url)
-        req.setValue(id, forHTTPHeaderField: "X-NCP-APIGW-API-KEY-ID")
-        req.setValue(secret, forHTTPHeaderField: "X-NCP-APIGW-API-KEY")
-
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
-            let decoded = try JSONDecoder().decode(Response.self, from: data)
-            let mapped = decoded.items.map { item in
+            let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
+            let decoded = try JSONDecoder().decode([Item].self, from: data)
+            let mapped = decoded.map { item in
                 BlogPost(
-                    title: item.title.strippedHTML,
-                    snippet: item.description.strippedHTML,
+                    title: item.title,
+                    snippet: item.snippet,
                     link: item.link,
-                    blogger: item.bloggername,
-                    date: Self.formatDate(item.postdate)
+                    blogger: item.blogger,
+                    date: item.date
                 )
             }
-            await MainActor.run { self.posts = Self.filterRelevant(mapped, storeName: storeName) }
+            await MainActor.run { self.posts = mapped }
         } catch {
+            await MainActor.run { self.posts = [] }
             #if DEBUG
             print("⚠️ 네이버 블로그 검색 실패: \(error)")
             #endif
         }
-    }
-
-    // 검색 유사도(sort=sim)만으로는 지역명만 일치해도 가게와 무관한 글이 섞여 들어와
-    // 본문(snippet)에 가게명이 실제로 언급된 글만 남긴다. 전체 상호명으로 안 걸리면
-    // 핵심 브랜드명(첫 단어)으로 완화 — 그래도 없으면 빈 배열(빈 상태 UI로 처리됨).
-    private static func filterRelevant(_ posts: [BlogPost], storeName: String) -> [BlogPost] {
-        let matchedFull = posts.filter { $0.snippet.contains(storeName) }
-        if !matchedFull.isEmpty { return matchedFull }
-        guard let coreName = storeName.split(separator: " ").first, coreName.count >= 2 else { return [] }
-        return posts.filter { $0.snippet.contains(coreName) }
-    }
-
-    private static func formatDate(_ raw: String?) -> String {
-        guard let r = raw, r.count == 8 else { return "" }
-        let y = r.prefix(4), m = r.dropFirst(4).prefix(2), d = r.dropFirst(6).prefix(2)
-        return "\(y).\(m).\(d)"
-    }
-}
-
-private extension String {
-    // <b>, &amp; 등 HTML 태그·엔티티 제거
-    var strippedHTML: String {
-        var s = replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        let entities = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " "]
-        for (k, v) in entities { s = s.replacingOccurrences(of: k, with: v) }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

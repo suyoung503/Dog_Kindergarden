@@ -233,6 +233,41 @@ expect("승인 업체도 미검증 가격 숨김", partnerStoreDetail.data.price
 expect("승인 업체도 미검증 대표 이미지 숨김", partnerStoreDetail.data.image_url, null);
 expect("승인 업체도 미검증 이미지 갤러리 숨김", partnerStoreDetail.data.images.length, 0);
 expect(
+  "장소 보강 API 무인증 차단",
+  (await request(
+    "GET",
+    `/api/store-enrichment/place?storeKey=${encodeURIComponent(store.store_key)}`,
+  )).status,
+  401,
+);
+expect(
+  "등록되지 않은 가게 보강 차단",
+  (await request(
+    "GET",
+    "/api/store-enrichment/place?storeKey=missing-store",
+    { token: guardianToken },
+  )).status,
+  404,
+);
+expect(
+  "Worker 장소 Secret 미설정 응답",
+  (await request(
+    "GET",
+    `/api/store-enrichment/place?storeKey=${encodeURIComponent(store.store_key)}`,
+    { token: guardianToken },
+  )).status,
+  503,
+);
+expect(
+  "Worker 블로그 Secret 미설정 응답",
+  (await request(
+    "GET",
+    `/api/store-enrichment/blogs?storeKey=${encodeURIComponent(store.store_key)}`,
+    { token: guardianToken },
+  )).status,
+  503,
+);
+expect(
   "승인 업체 채팅방 생성 허용",
   (await request("POST", "/api/chatrooms", {
     body: { user_id: guardianId, ...store },
@@ -289,6 +324,15 @@ const rejectedStoreDetail = await request(
 );
 expect("거절 업체 파트너 비활성", rejectedStoreDetail.data.is_partner, false);
 expect("거절 업체 예약 비활성", rejectedStoreDetail.data.can_book, false);
+expect(
+  "일반 업체 장소 보강 차단",
+  (await request(
+    "GET",
+    `/api/store-enrichment/place?storeKey=${encodeURIComponent(rejectedStore.store_key)}`,
+    { token: guardianToken },
+  )).status,
+  403,
+);
 
 const guardianPet = await request("POST", `/api/users/${guardianId}/pets`, {
   body: { name: "보호자 강아지" },

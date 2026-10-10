@@ -182,6 +182,10 @@ type Bindings = {
   ALLOW_DEV_AUTH?: string;
   NAVER_PLACE_REFRESH_ENABLED?: string;
   EXPOSE_UNVERIFIED_STORE_DETAILS?: string;
+  NAVER_API_HUB_CLIENT_ID?: string;
+  NAVER_API_HUB_CLIENT_SECRET?: string;
+  KAKAO_REST_API_KEY?: string;
+  DATA_GO_KR_SERVICE_KEY?: string;
 };
 
 type Variables = {
@@ -360,6 +364,287 @@ function storeAPIResponse(
     can_diary: Number(row.can_diary ?? 0) === 1,
     can_review: Number(row.can_review ?? 0) === 1,
   };
+}
+
+type EnrichmentStoreRow = {
+  store_id: number;
+  name: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  is_partner: number;
+};
+
+type PlaceEnrichment = {
+  road_address: string;
+  address: string;
+  phone: string;
+  place_url: string;
+};
+
+type BlogEnrichment = {
+  title: string;
+  snippet: string;
+  link: string;
+  blogger: string;
+  date: string;
+};
+
+async function findEnrichmentStore(
+  db: D1Database,
+  storeKey: string,
+): Promise<EnrichmentStoreRow | null> {
+  return db.prepare(
+    `SELECT s.store_id, s.name, s.address, s.latitude, s.longitude, c.is_partner
+     FROM stores s
+     JOIN store_capabilities c ON c.store_id = s.store_id
+     WHERE s.store_key = ?
+     LIMIT 1`,
+  )
+    .bind(storeKey)
+    .first<EnrichmentStoreRow>();
+}
+
+async function readEnrichmentCache<T>(
+  db: D1Database,
+  storeId: number,
+  kind: "PLACE" | "BLOGS",
+): Promise<T | null> {
+  const row = await db.prepare(
+    `SELECT payload FROM store_enrichment_cache
+     WHERE store_id = ? AND kind = ?
+       AND unixepoch(expires_at) > unixepoch('now')`,
+  )
+    .bind(storeId, kind)
+    .first<{ payload: string }>();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.payload) as T;
+  } catch {
+    await db.prepare(
+      `DELETE FROM store_enrichment_cache WHERE store_id = ? AND kind = ?`,
+    )
+      .bind(storeId, kind)
+      .run();
+    return null;
+  }
+}
+
+async function writeEnrichmentCache(
+  db: D1Database,
+  storeId: number,
+  kind: "PLACE" | "BLOGS",
+  payload: unknown,
+  ttlSeconds: number,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO store_enrichment_cache
+       (store_id, kind, payload, fetched_at, expires_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP, datetime('now', ?))
+     ON CONFLICT(store_id, kind) DO UPDATE SET
+       payload = excluded.payload,
+       fetched_at = excluded.fetched_at,
+       expires_at = excluded.expires_at`,
+  )
+    .bind(storeId, kind, JSON.stringify(payload), `+${ttlSeconds} seconds`)
+    .run();
+}
+
+function stripSearchHTML(value: string): string {
+  let result = value.replace(/<[^>]+>/g, "");
+  const entities: Record<string, string> = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&nbsp;": " ",
+  };
+  for (const [encoded, decoded] of Object.entries(entities)) {
+    result = result.replaceAll(encoded, decoded);
+  }
+  return result.trim();
+}
+
+function distanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const dLat = (lat2 - lat1) * 111_000;
+  const dLon = (lon2 - lon1) * 88_800;
+  return Math.sqrt(dLat * dLat + dLon * dLon);
+}
+
+async function fetchNaverPlace(
+  env: Bindings,
+  store: EnrichmentStoreRow,
+): Promise<Pick<PlaceEnrichment, "road_address" | "address"> | null> {
+  const id = env.NAVER_API_HUB_CLIENT_ID;
+  const secret = env.NAVER_API_HUB_CLIENT_SECRET;
+  if (!id || !secret || store.latitude === null || store.longitude === null)
+    return null;
+
+  const region = (store.address ?? "").split(/\s+/).slice(0, 2).join(" ");
+  const queries = [region ? `${region} ${store.name}` : store.name, store.name];
+  for (const query of [...new Set(queries)]) {
+    const url = new URL("https://naverapihub.apigw.ntruss.com/search/v1/local");
+    url.searchParams.set("query", query);
+    url.searchParams.set("display", "5");
+    try {
+      const response = await fetch(url.toString(), {
+        headers: {
+          "X-NCP-APIGW-API-KEY-ID": id,
+          "X-NCP-APIGW-API-KEY": secret,
+        },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) continue;
+      const body = await response.json<{
+        items?: Array<{
+          roadAddress?: string;
+          address?: string;
+          mapx?: string;
+          mapy?: string;
+        }>;
+      }>();
+      const nearest = (body.items ?? [])
+        .map((item) => {
+          const longitude = Number(item.mapx ?? "") / 1e7;
+          const latitude = Number(item.mapy ?? "") / 1e7;
+          return {
+            item,
+            distance: Number.isFinite(latitude) && Number.isFinite(longitude)
+              ? distanceMeters(store.latitude!, store.longitude!, latitude, longitude)
+              : Number.POSITIVE_INFINITY,
+          };
+        })
+        .filter((candidate) => candidate.distance <= 3_000)
+        .sort((a, b) => a.distance - b.distance)[0];
+      if (nearest) {
+        return {
+          road_address: nearest.item.roadAddress ?? "",
+          address: nearest.item.address ?? "",
+        };
+      }
+    } catch {
+      // 공급자 오류·요청 URL·Secret은 응답이나 로그로 전달하지 않는다.
+    }
+  }
+  return null;
+}
+
+async function fetchKakaoPlace(
+  env: Bindings,
+  store: EnrichmentStoreRow,
+): Promise<PlaceEnrichment | null> {
+  const key = env.KAKAO_REST_API_KEY;
+  if (!key || store.latitude === null || store.longitude === null) return null;
+  const headers = { Authorization: `KakaoAK ${key}` };
+  try {
+    const keywordURL = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
+    keywordURL.searchParams.set("query", store.name);
+    keywordURL.searchParams.set("x", String(store.longitude));
+    keywordURL.searchParams.set("y", String(store.latitude));
+    keywordURL.searchParams.set("radius", "1000");
+    keywordURL.searchParams.set("sort", "distance");
+    const keywordResponse = await fetch(keywordURL.toString(), {
+      headers,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (keywordResponse.ok) {
+      const body = await keywordResponse.json<{
+        documents?: Array<{
+          address_name?: string;
+          road_address_name?: string;
+          phone?: string;
+          place_url?: string;
+        }>;
+      }>();
+      const first = body.documents?.[0];
+      if (first) {
+        return {
+          road_address: first.road_address_name ?? "",
+          address: first.address_name ?? "",
+          phone: first.phone ?? "",
+          place_url: first.place_url ?? "",
+        };
+      }
+    }
+
+    const coordURL = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
+    coordURL.searchParams.set("x", String(store.longitude));
+    coordURL.searchParams.set("y", String(store.latitude));
+    const coordResponse = await fetch(coordURL.toString(), {
+      headers,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!coordResponse.ok) return null;
+    const coord = await coordResponse.json<{
+      documents?: Array<{
+        road_address?: { address_name?: string } | null;
+        address?: { address_name?: string } | null;
+      }>;
+    }>();
+    const first = coord.documents?.[0];
+    if (!first) return null;
+    return {
+      road_address: first.road_address?.address_name ?? "",
+      address: first.address?.address_name ?? "",
+      phone: "",
+      place_url: "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNaverBlogs(
+  env: Bindings,
+  store: EnrichmentStoreRow,
+): Promise<BlogEnrichment[] | null> {
+  const id = env.NAVER_API_HUB_CLIENT_ID;
+  const secret = env.NAVER_API_HUB_CLIENT_SECRET;
+  if (!id || !secret) return null;
+  const region = (store.address ?? "").split(/\s+/).slice(0, 2).join(" ");
+  const url = new URL("https://naverapihub.apigw.ntruss.com/search/v1/blog");
+  url.searchParams.set("query", region ? `${region} ${store.name}` : store.name);
+  url.searchParams.set("display", "5");
+  url.searchParams.set("sort", "sim");
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        "X-NCP-APIGW-API-KEY-ID": id,
+        "X-NCP-APIGW-API-KEY": secret,
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    const body = await response.json<{
+      items?: Array<{
+        title?: string;
+        link?: string;
+        description?: string;
+        bloggername?: string;
+        postdate?: string;
+      }>;
+    }>();
+    const mapped = (body.items ?? []).map((item) => ({
+      title: stripSearchHTML(item.title ?? ""),
+      snippet: stripSearchHTML(item.description ?? ""),
+      link: item.link ?? "",
+      blogger: stripSearchHTML(item.bloggername ?? ""),
+      date: (item.postdate ?? "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1.$2.$3"),
+    }));
+    const fullMatches = mapped.filter((post) => post.snippet.includes(store.name));
+    if (fullMatches.length > 0) return fullMatches;
+    const coreName = store.name.trim().split(/\s+/)[0] ?? "";
+    if (coreName.length < 2) return [];
+    return mapped.filter((post) => post.snippet.includes(coreName));
+  } catch {
+    return null;
+  }
 }
 
 async function canAccessRoom(
@@ -570,6 +855,74 @@ app.get("/api/stores/detail", async (c) => {
       exposeUnverifiedDetails,
     ),
   );
+});
+
+// 외부 장소 API의 서버 중계. 사용자가 임의 검색어를 전달하지 못하게 D1 storeKey만 받는다.
+app.get("/api/store-enrichment/place", async (c) => {
+  const storeKey = (c.req.query("storeKey") ?? c.req.query("store_key") ?? "").trim();
+  if (!storeKey) return c.json({ message: "storeKey is required" }, 400);
+  const store = await findEnrichmentStore(c.env.DB, storeKey);
+  if (!store) return c.json({ message: "store not found" }, 404);
+  if (store.is_partner !== 1)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
+
+  const cached = await readEnrichmentCache<PlaceEnrichment>(
+    c.env.DB,
+    store.store_id,
+    "PLACE",
+  );
+  if (cached) return c.json(cached);
+  if (
+    (!c.env.NAVER_API_HUB_CLIENT_ID || !c.env.NAVER_API_HUB_CLIENT_SECRET)
+    && !c.env.KAKAO_REST_API_KEY
+  ) {
+    return c.json({ message: "place enrichment is not configured" }, 503);
+  }
+
+  const [naver, kakao] = await Promise.all([
+    fetchNaverPlace(c.env, store),
+    fetchKakaoPlace(c.env, store),
+  ]);
+  if (!naver && !kakao)
+    return c.json({ message: "place enrichment unavailable" }, 502);
+  const result: PlaceEnrichment = {
+    road_address: naver?.road_address || kakao?.road_address || "",
+    address: naver?.address || kakao?.address || "",
+    phone: kakao?.phone ?? "",
+    place_url: kakao?.place_url ?? "",
+  };
+  await writeEnrichmentCache(c.env.DB, store.store_id, "PLACE", result, 86_400);
+  return c.json(result);
+});
+
+app.get("/api/store-enrichment/blogs", async (c) => {
+  const storeKey = (c.req.query("storeKey") ?? c.req.query("store_key") ?? "").trim();
+  if (!storeKey) return c.json({ message: "storeKey is required" }, 400);
+  const store = await findEnrichmentStore(c.env.DB, storeKey);
+  if (!store) return c.json({ message: "store not found" }, 404);
+  if (store.is_partner !== 1)
+    return c.json(
+      { message: "partner store required", code: "PARTNER_REQUIRED" },
+      403,
+    );
+
+  const cached = await readEnrichmentCache<BlogEnrichment[]>(
+    c.env.DB,
+    store.store_id,
+    "BLOGS",
+  );
+  if (cached) return c.json(cached);
+  if (!c.env.NAVER_API_HUB_CLIENT_ID || !c.env.NAVER_API_HUB_CLIENT_SECRET)
+    return c.json({ message: "blog enrichment is not configured" }, 503);
+
+  const posts = await fetchNaverBlogs(c.env, store);
+  if (posts === null)
+    return c.json({ message: "blog enrichment unavailable" }, 502);
+  await writeEnrichmentCache(c.env.DB, store.store_id, "BLOGS", posts, 900);
+  return c.json(posts);
 });
 
 function flagValue(value: boolean | number | undefined): number | null {

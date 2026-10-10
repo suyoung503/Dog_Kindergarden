@@ -142,18 +142,24 @@ check_tracked_sensitive_files() {
   return "$found"
 }
 
-check_naver_secret_source() {
+check_ios_server_secrets() {
   cd "$REPO_ROOT" || return 1
-  local files
+  local files pattern
+  pattern='^[[:space:]]*(NAVER_CLIENT_ID|NAVER_CLIENT_SECRET|KAKAO_REST_API_KEY|DATA_GO_KR_SERVICE_KEY)[[:space:]]*=[[:space:]]*[^$\[(]'
   files="$(find "$IOS_DIR" -path "$IOS_DIR/Pods" -prune -o -name '*.xcconfig' -type f -print0 \
-    | xargs -0 grep -IlE '^[[:space:]]*NAVER_CLIENT_SECRET[[:space:]]*=[[:space:]]*[^$\[(]' 2>/dev/null || true)"
+    | xargs -0 grep -IlE "$pattern" 2>/dev/null || true)"
   if [ -n "$files" ]; then
-    echo "Release 번들에 포함될 수 있는 NAVER_CLIENT_SECRET 리터럴 발견:"
+    echo "Release 번들에 포함될 수 있는 서버용 API 자격 증명 발견:"
     printf '%s\n' "$files"
-    echo "값은 보안을 위해 출력하지 않았습니다. Worker Secret 이전 전에는 출시할 수 없습니다."
+    echo "값은 보안을 위해 출력하지 않았습니다. Worker Secret만 사용해야 합니다."
     return 1
   fi
-  echo "추적 중인 xcconfig에서 NAVER_CLIENT_SECRET 리터럴을 찾지 못했습니다."
+  if grep -Eq '<key>(NAVER_CLIENT_ID|NAVER_CLIENT_SECRET|KAKAO_REST_API_KEY|DATA_GO_KR_SERVICE_KEY)</key>' \
+    "$IOS_DIR/Dog_kindergarden/Info.plist"; then
+    echo "iOS Info.plist에 서버용 API 키 항목이 남아 있습니다."
+    return 1
+  fi
+  echo "iOS 설정에서 서버용 Naver·Kakao REST·공공데이터 자격 증명을 찾지 못했습니다."
 }
 
 check_repository_consistency() {
@@ -238,13 +244,16 @@ ios_release_bundle_gate() {
   fi
 
   local failed=0
-  local secret
-  secret="$(/usr/libexec/PlistBuddy -c 'Print :NAVER_CLIENT_SECRET' "$app/Info.plist" 2>/dev/null || true)"
-  if [ -n "$secret" ] && [ "$secret" != '[NAVER_CLIENT_SECRET]' ]; then
-    echo "Release 앱 Info.plist에 NAVER_CLIENT_SECRET 값이 포함되어 있습니다(값은 출력하지 않음)."
-    failed=1
-  else
-    echo "Release 앱 Info.plist에 유효한 NAVER_CLIENT_SECRET 값이 없습니다."
+  local key value
+  for key in NAVER_CLIENT_ID NAVER_CLIENT_SECRET KAKAO_REST_API_KEY DATA_GO_KR_SERVICE_KEY; do
+    value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$app/Info.plist" 2>/dev/null || true)"
+    if [ -n "$value" ]; then
+      echo "Release 앱 Info.plist에 금지된 $key 항목이 포함되어 있습니다(값은 출력하지 않음)."
+      failed=1
+    fi
+  done
+  if [ "$failed" -eq 0 ]; then
+    echo "Release 앱 Info.plist에 서버용 API 자격 증명이 없습니다."
   fi
 
   local executable
@@ -310,7 +319,7 @@ run_command A02 "검사 대상 Git 상태 기록" check_repository_state || true
 run_command A03 "민감 파일 Git 추적 여부" check_tracked_sensitive_files || true
 
 if [ "$RUN_IOS" -eq 1 ]; then
-  run_command S01 "iOS 설정의 Naver Secret 리터럴 차단" check_naver_secret_source || true
+  run_command S01 "iOS 설정의 서버용 API 자격 증명 차단" check_ios_server_secrets || true
   consistency_log="$LOG_DIR/S02.log"
   if check_repository_consistency >"$consistency_log" 2>&1; then
     record S02 PASS "저장소와 출시 문서 일치 검사" "$consistency_log"
@@ -323,7 +332,7 @@ if [ "$RUN_IOS" -eq 1 ]; then
     fi
   fi
 else
-  skip S01 "iOS 설정의 Naver Secret 리터럴 차단"
+  skip S01 "iOS 설정의 서버용 API 자격 증명 차단"
   skip S02 "저장소와 출시 문서 일치 검사"
 fi
 

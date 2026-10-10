@@ -1,3 +1,8 @@
 # 로컬 개발 전용. 이 파일을 .dev.vars로 복사하고 실제 임의 문자열로 바꾸세요.
 ALLOW_DEV_AUTH=true
 INTERNAL_API_KEY=replace-with-a-long-random-local-key
+
+# 외부 가게 보강 API를 로컬에서 시험할 때만 채운다. 실제 값은 Git에 커밋하지 않는다.
+NAVER_API_HUB_CLIENT_ID=
+NAVER_API_HUB_CLIENT_SECRET=
+KAKAO_REST_API_KEY=

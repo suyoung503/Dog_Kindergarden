@@ -21,7 +21,7 @@ open Dog_kindergarden.xcworkspace
 
 Xcode 27에서는 오래된 SDK의 iOS 10/13 배포 대상 설정도 빌드 오류가 됩니다. `Podfile`의 `post_install`이 Pods의 최소 배포 대상을 iOS 16 이상으로 보정하므로, Xcode 업데이트 후에도 `pod install`을 실행하세요. 생성된 `Pods.xcodeproj`를 직접 수정할 필요는 없습니다.
 
-### 2. API 키 설정 (필수)
+### 2. iOS 공개 앱 키 설정 (필수)
 
 API 키는 이 디렉터리 기준으로 git에서 제외된 `Base.lproj/Config/Create.xcconfig` 파일에 두고, `Info.plist`가 `$(변수)`로 참조합니다.
 이 파일이 없으면 지도·로그인이 동작하지 않습니다. (Xcode 빌드 설정의 `baseConfigurationReference`가 이 파일을 가리키므로 다른 이름·위치로 만들면 인식되지 않습니다.)
@@ -30,21 +30,15 @@ API 키는 이 디렉터리 기준으로 git에서 제외된 `Base.lproj/Config/
 
 ```
 KAKAO_NATIVE_APP_KEY = 카카오_네이티브_앱_키
-KAKAO_REST_API_KEY = 카카오_REST_API_키
-DATA_GO_KR_SERVICE_KEY = 공공데이터포털_서비스_키
-NAVER_CLIENT_ID = 네이버_클라이언트_ID
-NAVER_CLIENT_SECRET = 네이버_클라이언트_시크릿
 ```
 
 키 발급처:
 
 | 키 | 발급처 | 용도 |
 |---|---|---|
-| `KAKAO_NATIVE_APP_KEY`, `KAKAO_REST_API_KEY` | [Kakao Developers](https://developers.kakao.com) | 지도, 카카오 로그인, 주소 검색 |
-| `DATA_GO_KR_SERVICE_KEY` | [공공데이터포털](https://www.data.go.kr) — "동물위탁관리업" 검색 | 전국 애견 유치원·호텔 업체 데이터 |
-| `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | [NCP NAVER API HUB](https://console.ncloud.com) — 검색(지역·블로그) API 이용 신청 ※ 구 developers.naver.com 검색 API는 신규 제휴 중단 | 가게 상세의 블로그 후기 + 주소 정밀 보강(지역 검색) |
+| `KAKAO_NATIVE_APP_KEY` | [Kakao Developers](https://developers.kakao.com) | iOS 카카오 지도와 로그인. Bundle ID 제한을 설정해야 함 |
 
-> 네이버 키가 없어도 앱은 정상 빌드·실행됩니다 — 블로그 후기 섹션이 비고, 주소는 카카오·좌표 변환 폴백으로 표시됩니다.
+Naver Client ID/Secret, Kakao REST API Key, 공공데이터 Service Key는 앱 설정에 넣지 않습니다. 외부 장소·블로그 조회는 인증된 Cloudflare Worker가 Secret으로 처리합니다.
 
 ### 3. 빌드·실행
 
