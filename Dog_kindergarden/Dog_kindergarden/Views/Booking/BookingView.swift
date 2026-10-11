@@ -18,13 +18,18 @@ final class BookingViewModel {
     var pets: [Pet] = []
     var isLoading = false
     var errorMessage: String?
+    var storePriceInfo: String?
+    var isPriceLoading = false
 
-    // 파트너별 등록 가격 구조가 도입되기 전에는 공통 가짜 가격을 표시하지 않는다.
-    let services: [(name: String, price: String)] = [
-        ("시간권",      "가격 업체 확인"),
-        ("종일권",      "가격 업체 확인"),
-        ("하루 숙박권", "가격 업체 확인"),
-    ]
+    // D1에 저장된 업체 가격표에서 서비스별로 가장 가까운 행을 찾아 표시한다.
+    // 일치하는 항목이 없을 때만 업체 확인으로 안내하며 임의 금액을 계산하지 않는다.
+    var services: [(name: String, price: String)] {
+        [
+            ("시간권", matchedPrice(keywords: ["시간", "반일"])),
+            ("종일권", matchedPrice(keywords: ["종일", "데이케어", "유치원", "주간"])),
+            ("하루 숙박권", matchedPrice(keywords: ["숙박", "1박", "호텔"])),
+        ]
+    }
     let hourOptions = Array(1...6)
 
     var isHourly: Bool { selectedService == "시간권" }
@@ -47,6 +52,31 @@ final class BookingViewModel {
     }
 
     var selectedPet: Pet? { pets.first { $0.pet_id == selectedPetId } }
+    var selectedPriceText: String {
+        services.first(where: { $0.name == selectedService })?.price ?? "가격 업체 확인"
+    }
+
+    var formattedStorePriceInfo: String? {
+        guard let value = storePriceInfo?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: " / ", with: "\n")
+    }
+
+    private var priceLines: [String] {
+        (formattedStorePriceInfo ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func matchedPrice(keywords: [String]) -> String {
+        guard !priceLines.isEmpty else { return "가격 업체 확인" }
+        return priceLines.first { line in
+            keywords.contains { line.localizedCaseInsensitiveContains($0) }
+        } ?? "가격표에서 확인"
+    }
 
     // 강아지 목록 조회
     func loadPets(userId: Int) async {
@@ -57,6 +87,18 @@ final class BookingViewModel {
             if selectedPetId == nil { selectedPetId = pets.first?.pet_id }
         } catch {
             errorMessage = "강아지 목록을 불러오지 못했어요."
+        }
+    }
+
+    func loadStorePrice(storeKey: String) async {
+        isPriceLoading = true
+        defer { isPriceLoading = false }
+        do {
+            storePriceInfo = try await APIClient.shared.fetchStoreDetail(storeKey: storeKey)?.priceInfo
+        } catch {
+            // 가격 호출 실패가 예약 입력 전체를 막지는 않도록 하되, 없는 값처럼 오인하지 않게 안내한다.
+            storePriceInfo = nil
+            errorMessage = "가격 정보를 불러오지 못했어요. 예약 전 업체에 확인해주세요."
         }
     }
 
@@ -102,7 +144,7 @@ final class BookingViewModel {
                 dogName: pet?.name ?? "",
                 dogBreed: pet?.breed ?? "",
                 schedule: schedule,
-                price: "예약 확정 전 업체 확인"
+                price: selectedPriceText
             )
         } catch {
             errorMessage = "예약에 실패했어요."
@@ -143,6 +185,8 @@ struct BookingView: View {
             guardianPhone = userProfile.phone
             guardianAddress = userProfile.address
             if let uid = authSession.userId { await vm.loadPets(userId: uid) }
+            let key = router.selectedPin?.storeKey ?? router.selectedStore
+            await vm.loadStorePrice(storeKey: key)
         }
         .alert("캘린더 권한이 꺼져 있어요", isPresented: $showCalendarDeniedAlert) {
             Button("설정에서 허용") {
@@ -389,10 +433,18 @@ struct BookingView: View {
 
     private var totalSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("가격은 업체마다 다릅니다", systemImage: "info.circle.fill")
+            Label(vm.formattedStorePriceInfo == nil ? "가격은 업체마다 다릅니다" : "업체 등록 가격표", systemImage: "info.circle.fill")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(Color.brandBrown)
-            Text("예약 확정 전 업체와 서비스 범위와 최종 가격을 확인해주세요. 앱에서는 결제를 진행하지 않습니다.")
+            if vm.isPriceLoading {
+                ProgressView().tint(Color.brandOrange)
+            } else if let priceInfo = vm.formattedStorePriceInfo {
+                Text(priceInfo)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.brandOrange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("수집된 가격은 참고용이며 예약 확정 전 업체와 서비스 범위와 최종 가격을 확인해주세요. 앱에서는 결제를 진행하지 않습니다.")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.brandBrownMid)
                 .fixedSize(horizontal: false, vertical: true)
