@@ -200,6 +200,17 @@ struct MyPageView: View {
 
     private var supportSection: some View {
         MyPageSection(title: "고객지원") {
+            if authSession.isAdmin {
+                MyPageItem(icon: "person.2.wave.2", label: "고객 문의", bg: Color(hex: "#FFE0B8")) {
+                    router.go(.supportConversationList)
+                }
+            } else {
+                MyPageItem(icon: "bubble.left.and.bubble.right", label: "1:1 문의", bg: Color.brandGreenLight) {
+                    router.selectedSupportConversationId = nil
+                    router.selectedSupportConversationTitle = "맡겨멍 고객센터"
+                    router.go(.supportConversation)
+                }
+            }
             MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
             MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
             MyPageItem(icon: "person.crop.circle.badge.minus", label: "회원 탈퇴", bg: Color(hex: "#FFE3E3")) {

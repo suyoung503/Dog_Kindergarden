@@ -81,6 +81,10 @@ type ChatRoomBody = {
   storeAddress?: string;
 };
 
+type SupportMessageBody = {
+  content?: string;
+};
+
 type KakaoAuthBody = {
   access_token?: string;
   accessToken?: string;
@@ -163,6 +167,8 @@ type CreatePetBody = {
   weight?: number;
   gender?: string;
   note?: string;
+  image_url?: string;
+  imageUrl?: string;
 };
 
 // @cloudflare/workers-types 미설치 환경(로컬 node_modules 손상)에서도 타입체크가 되도록
@@ -310,6 +316,37 @@ app.use("/api/*", async (c, next) => {
 
 function sameUser(authUserId: number, requestedUserId: number): boolean {
   return Number.isInteger(requestedUserId) && requestedUserId === authUserId;
+}
+
+async function hasActiveSupportAdmin(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT 1 AS available
+     FROM users
+     WHERE is_admin = 1 AND deleted_at IS NULL
+     LIMIT 1`,
+  ).first<{ available: number }>();
+  return row?.available === 1;
+}
+
+async function canAccessSupportConversation(
+  db: D1Database,
+  conversationId: number,
+  authUserId: number,
+  authIsAdmin: boolean,
+): Promise<boolean> {
+  if (!Number.isInteger(conversationId) || conversationId <= 0) return false;
+  if (authIsAdmin) {
+    const row = await db.prepare(
+      `SELECT conversation_id FROM support_conversations WHERE conversation_id = ?`,
+    ).bind(conversationId).first();
+    return Boolean(row);
+  }
+  const row = await db.prepare(
+    `SELECT conversation_id
+     FROM support_conversations
+     WHERE conversation_id = ? AND user_id = ?`,
+  ).bind(conversationId, authUserId).first();
+  return Boolean(row);
 }
 
 type StoreCapabilityRow = {
@@ -1790,6 +1827,141 @@ app.get("/api/users/:id/pets", async (c) => {
   return c.json(results);
 });
 
+// MARK: - 고객센터 1:1 문의
+// 가게 채팅과 완전히 분리한다. 일반 사용자는 자신의 단일 대화만, is_admin=1 운영자는
+// 전체 문의 목록과 각 대화만 열람·답장할 수 있다.
+
+app.get("/api/support/conversation", async (c) => {
+  if (c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const userId = c.get("authUserId");
+  const adminAvailable = await hasActiveSupportAdmin(c.env.DB);
+  const conversation = await c.env.DB.prepare(
+    `SELECT conversation_id, user_id, status, created_at, updated_at
+     FROM support_conversations
+     WHERE user_id = ?`,
+  ).bind(userId).first();
+  return c.json({
+    admin_available: adminAvailable,
+    conversation: conversation ?? null,
+  });
+});
+
+app.post("/api/support/conversation", async (c) => {
+  if (c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  if (!(await hasActiveSupportAdmin(c.env.DB))) {
+    return c.json(
+      {
+        message: "현재 문의를 받을 운영자 계정이 없습니다.",
+        code: "SUPPORT_ADMIN_UNAVAILABLE",
+      },
+      503,
+    );
+  }
+
+  const userId = c.get("authUserId");
+  const inserted = await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO support_conversations (user_id) VALUES (?)`,
+  ).bind(userId).run();
+  const conversation = await c.env.DB.prepare(
+    `SELECT conversation_id, user_id, status, created_at, updated_at
+     FROM support_conversations
+     WHERE user_id = ?`,
+  ).bind(userId).first();
+  if (!conversation)
+    return c.json({ message: "failed to open support conversation" }, 500);
+  return c.json(conversation, (inserted.meta.changes ?? 0) > 0 ? 201 : 200);
+});
+
+app.get("/api/support/conversations", async (c) => {
+  if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
+  const { results } = await c.env.DB.prepare(
+    `SELECT sc.conversation_id, sc.user_id, sc.status,
+            sc.created_at, sc.updated_at,
+            u.nickname AS user_name, u.email AS user_email,
+            (
+              SELECT sm.content FROM support_messages sm
+              WHERE sm.conversation_id = sc.conversation_id
+              ORDER BY sm.message_id DESC LIMIT 1
+            ) AS last_message,
+            (
+              SELECT sm.created_at FROM support_messages sm
+              WHERE sm.conversation_id = sc.conversation_id
+              ORDER BY sm.message_id DESC LIMIT 1
+            ) AS last_message_at
+     FROM support_conversations sc
+     JOIN users u ON u.user_id = sc.user_id
+     WHERE u.deleted_at IS NULL
+     ORDER BY COALESCE(last_message_at, sc.updated_at) DESC, sc.conversation_id DESC`,
+  ).all();
+  return c.json(results);
+});
+
+app.get("/api/support/conversations/:id/messages", async (c) => {
+  const conversationId = Number(c.req.param("id"));
+  if (!(await canAccessSupportConversation(
+    c.env.DB,
+    conversationId,
+    c.get("authUserId"),
+    c.get("authIsAdmin"),
+  ))) return c.json({ message: "forbidden" }, 403);
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT message_id, conversation_id, sender_id, sender_role, content, created_at
+     FROM support_messages
+     WHERE conversation_id = ?
+     ORDER BY message_id ASC`,
+  ).bind(conversationId).all();
+  return c.json(results);
+});
+
+app.post("/api/support/conversations/:id/messages", async (c) => {
+  const conversationId = Number(c.req.param("id"));
+  const authUserId = c.get("authUserId");
+  const authIsAdmin = c.get("authIsAdmin");
+  if (!(await canAccessSupportConversation(
+    c.env.DB,
+    conversationId,
+    authUserId,
+    authIsAdmin,
+  ))) return c.json({ message: "forbidden" }, 403);
+  if (!authIsAdmin && !(await hasActiveSupportAdmin(c.env.DB))) {
+    return c.json(
+      {
+        message: "현재 문의를 받을 운영자 계정이 없습니다.",
+        code: "SUPPORT_ADMIN_UNAVAILABLE",
+      },
+      503,
+    );
+  }
+
+  const body = await c.req.json<SupportMessageBody>().catch(() => ({}));
+  const content = body.content?.trim() ?? "";
+  if (!content) return c.json({ message: "content is required" }, 400);
+  if (content.length > 4000)
+    return c.json({ message: "content is too long" }, 400);
+
+  const inserted = await c.env.DB.prepare(
+    `INSERT INTO support_messages
+       (conversation_id, sender_id, sender_role, content)
+     VALUES (?, ?, ?, ?)`,
+  ).bind(
+    conversationId,
+    authUserId,
+    authIsAdmin ? "ADMIN" : "USER",
+    content,
+  ).run();
+  await c.env.DB.prepare(
+    `UPDATE support_conversations
+     SET updated_at = CURRENT_TIMESTAMP, status = 'OPEN'
+     WHERE conversation_id = ?`,
+  ).bind(conversationId).run();
+  const message = await c.env.DB.prepare(
+    `SELECT message_id, conversation_id, sender_id, sender_role, content, created_at
+     FROM support_messages WHERE message_id = ?`,
+  ).bind(inserted.meta.last_row_id).first();
+  return c.json(message, 201);
+});
+
 app.get("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
   if (!(await canAccessRoom(c.env.DB, roomId, c.get("authUserId"))))
@@ -2625,6 +2797,13 @@ app.delete("/api/users/:id/account", async (c) => {
        WHERE room_id IN (SELECT room_id FROM chat_rooms WHERE user_id = ?)`,
     ).bind(userId),
     c.env.DB.prepare(`DELETE FROM chat_rooms WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(
+      `DELETE FROM support_messages
+       WHERE conversation_id IN (
+         SELECT conversation_id FROM support_conversations WHERE user_id = ?
+       )`,
+    ).bind(userId),
+    c.env.DB.prepare(`DELETE FROM support_conversations WHERE user_id = ?`).bind(userId),
     c.env.DB.prepare(`DELETE FROM favorites WHERE user_id = ?`).bind(userId),
     c.env.DB.prepare(`DELETE FROM pets WHERE user_id = ?`).bind(userId),
 
@@ -2716,9 +2895,18 @@ app.post("/api/users/:id/pets", async (c) => {
 
   if (!body.name) return c.json({ message: "name is required" }, 400);
 
+  const imageUrl = (body.image_url ?? body.imageUrl ?? "").trim() || null;
+  if (
+    imageUrl &&
+    (!/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageUrl) ||
+      imageUrl.length > 1_050_000)
+  ) {
+    return c.json({ message: "invalid pet image" }, 400);
+  }
+
   const result = await c.env.DB.prepare(
-    `INSERT INTO pets (user_id, name, breed, age, weight, gender, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO pets (user_id, name, breed, age, weight, gender, note, image_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       userId,
@@ -2728,11 +2916,12 @@ app.post("/api/users/:id/pets", async (c) => {
       body.weight ?? null,
       body.gender ?? null,
       body.note ?? null,
+      imageUrl,
     )
     .run();
 
   const created = await c.env.DB.prepare(
-    `SELECT pet_id, user_id, name, breed, age, weight, gender, note FROM pets WHERE pet_id = ?`,
+    `SELECT pet_id, user_id, name, breed, age, weight, gender, note, image_url FROM pets WHERE pet_id = ?`,
   )
     .bind(result.meta.last_row_id)
     .first();

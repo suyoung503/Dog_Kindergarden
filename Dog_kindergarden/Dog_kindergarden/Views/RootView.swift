@@ -91,6 +91,8 @@ struct RootView: View {
         case .noticeList:  NoticeListView()
         case .noticeDetail: NoticeDetailView()
         case .ownerApplications: OwnerApplicationAdminView()
+        case .supportConversationList: SupportConversationListView()
+        case .supportConversation: SupportConversationView()
         }
     }
 }

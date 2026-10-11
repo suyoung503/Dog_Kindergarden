@@ -1,6 +1,6 @@
 # 맡겨멍 App Store App Privacy 매핑 체크리스트
 
-**점검 기준일:** 2026-10-09
+**점검 기준일:** 2026-10-11
 **대상:** 현재 저장소의 iOS 앱, Cloudflare Worker·D1 스키마, CocoaPods SDK
 **주의:** 이 문서는 App Store Connect 입력을 준비하기 위한 코드 기반 매핑이다. 실제 Archive의 Xcode Privacy Report와 운영 환경을 다시 대조한 후 제출해야 한다.
 
@@ -10,7 +10,7 @@
 
 - 카카오 로그인: 카카오 사용자 ID, 닉네임, 동의된 이메일을 서버 계정에 연결
 - 프로필: 닉네임, 전화번호, 주소를 서버에 저장
-- 반려견: 이름, 견종, 나이, 몸무게, 성별, 사회성, 알레르기, 특이사항을 서버에 저장
+- 반려견: 이름, 견종, 나이, 몸무게, 성별, 사회성, 알레르기, 특이사항과 이용자가 선택한 프로필 사진 1장을 서버에 저장
 - 예약·콘텐츠: 예약 일정·유형·요청사항, 채팅, 알림장, 리뷰를 사용자 계정 및 가게와 연결하여 저장
 - 이용 기록: 찜, 읽음 상태, 가게 등록 신청·승인 이력을 계정과 연결하여 저장
 - 인증: 앱은 원문 세션 토큰을 Keychain에 저장하고 서버는 SHA-256 해시를 30일 인증에 사용
@@ -18,7 +18,7 @@
 ### 현재 빌드에서 수집하지 않는 항목
 
 - **현재 위치:** `Info.plist`에 위치 권한 설명 문자열은 있으나 앱 소스에 `CoreLocation` 사용이나 위치 권한 요청 코드가 없다. 현재 빌드 기준으로 위치를 수집한다고 표시하지 않는다. 위치 기능을 구현하면 선언을 재검토한다.
-- **사진·동영상:** 사진 선택·카메라·업로드 코드가 없다. 화면의 카메라 모양 버튼과 `diary_photos` 스키마만으로는 수집에 해당하지 않는다. R2 업로드 기능을 추가하는 시점에 `Photos or Videos`를 추가한다.
+- **알림장 사진·동영상:** 알림장 사진 업로드는 아직 구현되지 않았다. 다만 강아지 프로필은 시스템 `PhotosPicker`로 선택한 사진 1장을 압축해 서버에 저장하므로 `Photos or Videos`를 수집 항목으로 선언한다.
 - **캘린더 내용:** EventKit으로 맡겨멍 예약 일정을 기기에 추가·삭제하지만 캘린더 내용을 서버로 전송하지 않는다. 기기 내부 처리만 하므로 수집 데이터로 표시하지 않는다.
 - **진단·광고:** 충돌·분석·광고 SDK, IDFA, ATT 또는 광고 목적 데이터 처리가 없다.
 
@@ -36,6 +36,7 @@ App Store Connect의 **“이 앱에서 데이터를 수집합니까?”**에는
 | Contact Info → Physical Address | 예 | 이용자가 입력한 주소 | 예 | 아니요 | 앱 기능 |
 | Identifiers → User ID | 예 | 카카오 사용자 식별자, 맡겨멍 사용자 ID | 예 | 아니요 | 앱 기능 |
 | User Content → Emails or Text Messages | 예 | 보호자·사장님 간 앱 내 채팅 | 예 | 아니요 | 앱 기능 |
+| User Content → Photos or Videos | 예 | 이용자가 선택한 강아지 프로필 사진 1장 | 예 | 아니요 | 앱 기능 |
 | User Content → Other User Content | 예 | 반려견 정보, 예약 요청사항, 알림장, 리뷰 본문·평가·태그 | 예 | 아니요 | 앱 기능 |
 | Usage Data → Product Interaction | 예 | 찜, 예약·채팅 읽음 상태, 사장님 가게 등록 신청·처리 기록 | 예 | 아니요 | 앱 기능 |
 | Other Data → Other Data Types | 예 | KakaoMapsSDK와 KakaoSDKCommon이 자체 Privacy Manifest에서 선언 | 예 | 아니요 | 앱 기능 |
@@ -43,7 +44,7 @@ App Store Connect의 **“이 앱에서 데이터를 수집합니까?”**에는
 ### 현재 `아니요`로 두는 항목
 
 - Precise Location / Coarse Location
-- Photos or Videos / Audio Data
+- Audio Data
 - Contacts / Health / Fitness / Financial Info / Sensitive Info
 - Browsing History / Search History
 - Device ID / Advertising Data
@@ -65,6 +66,7 @@ App Store Connect의 **“이 앱에서 데이터를 수집합니까?”**에는
 - `NSPrivacyCollectedDataTypeUserID`
 - `NSPrivacyCollectedDataTypeEmailsOrTextMessages`
 - `NSPrivacyCollectedDataTypeOtherUserContent`
+- `NSPrivacyCollectedDataTypePhotosorVideos`
 - `NSPrivacyCollectedDataTypeProductInteraction`
 
 모든 항목은 `Linked = true`, `Tracking = false`, 목적은 `App Functionality`로 선언한다.
@@ -108,7 +110,8 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 | 알림 | 서버 알림 피드를 30초 간격으로 확인하여 로컬 알림 표시 | 알림 피드 조회만 | APNs 도입 시 기기 토큰 수집 선언 재검토 |
 | 위치 When In Use | 설명 문자열은 있으나 요청·수집 코드 없음 | 아니요 | 위치 기능 구현 전까지 요청하지 않는지 확인 |
 | 위치 Always | 설명 문자열은 있으나 요청·수집 코드 없음 | 아니요 | 실제 사용 계획이 없다면 최종 제출 전에 `Info.plist`에서 제거 |
-| 사진·카메라 | 실제 선택·촬영·업로드 코드 없음 | 아니요 | 사진 기능 구현 시 권한 설명과 Photos or Videos 선언 추가 |
+| 사진 | `PhotosPicker`로 이용자가 명시적으로 선택한 강아지 사진 1장을 JPEG로 압축·업로드 | 예 | Photos or Videos 선언 유지, 탈퇴 시 반려견 행과 함께 삭제되는지 운영 검증 |
+| 카메라 | 직접 촬영 코드 없음 | 아니요 | 카메라 촬영 기능을 추가할 때 권한 설명 재검토 |
 
 ## 6. 제출 전 수동 체크리스트
 

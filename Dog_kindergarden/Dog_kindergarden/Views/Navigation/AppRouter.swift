@@ -22,6 +22,8 @@ enum AppScreen {
     case noticeList
     case noticeDetail
     case ownerApplications
+    case supportConversationList
+    case supportConversation
 }
 
 // 알림장 화면 전달 컨텍스트 — 어느 예약의 알림장인지 + 작성 권한(사장님) 여부
@@ -64,6 +66,8 @@ final class AppRouter {
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
     var diaryContext: DiaryContext? = nil          // 알림장 화면 진입 컨텍스트 (예약·작성 권한)
     var selectedNotice: Notice? = nil      // 공지사항 목록에서 탭한 항목 — 상세 화면에 전달
+    var selectedSupportConversationId: Int? = nil
+    var selectedSupportConversationTitle: String = "1:1 문의"
 
     // 프로필 미설정 시 사용할 사용자 강아지 아바타 (dog_c 고정)
     let userDogAvatar: String = "dog_c"
@@ -89,6 +93,8 @@ final class AppRouter {
         recentPins = []
         lastBooking = nil
         diaryContext = nil
+        selectedSupportConversationId = nil
+        selectedSupportConversationTitle = "1:1 문의"
     }
 
     // MARK: - 최근 본 가게 (계정별 영속)

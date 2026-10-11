@@ -1,5 +1,7 @@
 import SwiftUI
 import Observation
+import PhotosUI
+import UIKit
 
 // 백엔드 pets 테이블과 매핑되는 강아지 모델
 struct Pet: Identifiable, Codable {
@@ -10,6 +12,7 @@ struct Pet: Identifiable, Codable {
     let weight: Double?
     let gender: String?
     let note: String?
+    let image_url: String?
     var id: Int { pet_id }
 }
 
@@ -32,10 +35,13 @@ final class DogProfileViewModel {
     var sociability = "좋음"
     var allergy = ""
     var notes = ""
+    var selectedPhotoData: Data?
+    var isPhotoLoading = false
 
     func reset() {
         dogName = ""; age = ""; weight = ""; breed = ""
         gender = "남"; sociability = "좋음"; allergy = ""; notes = ""
+        selectedPhotoData = nil
     }
 
     // 강아지 목록 조회
@@ -68,6 +74,9 @@ final class DogProfileViewModel {
         if !breedTrim.isEmpty { body["breed"] = breedTrim }
         if let ageInt = parseInt(age) { body["age"] = ageInt }
         if let weightVal = parseDouble(weight) { body["weight"] = weightVal }
+        if let selectedPhotoData {
+            body["image_url"] = "data:image/jpeg;base64,\(selectedPhotoData.base64EncodedString())"
+        }
 
         let url = APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/pets")
         var req = APITransport.request(url: url, method: "POST")
@@ -105,6 +114,49 @@ final class DogProfileViewModel {
     private func parseDouble(_ s: String) -> Double? {
         Double(s.filter { $0.isNumber || $0 == "." })
     }
+
+    func loadPhoto(from item: PhotosPickerItem?) async {
+        guard let item else { return }
+        isPhotoLoading = true
+        defer { isPhotoLoading = false }
+        do {
+            guard let original = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: original),
+                  let normalized = image.normalizedPetPhoto(maxDimension: 1_024, compression: 0.72) else {
+                errorMessage = "사진을 불러오지 못했어요."
+                return
+            }
+            guard normalized.count <= 750_000 else {
+                errorMessage = "사진 용량이 너무 커요. 다른 사진을 선택해주세요."
+                return
+            }
+            selectedPhotoData = normalized
+            errorMessage = nil
+        } catch {
+            errorMessage = "사진을 불러오지 못했어요."
+        }
+    }
+}
+
+private extension UIImage {
+    func normalizedPetPhoto(maxDimension: CGFloat, compression: CGFloat) -> Data? {
+        let longest = max(size.width, size.height)
+        let scale = longest > maxDimension ? maxDimension / longest : 1
+        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let resized = renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: compression)
+    }
+}
+
+private func petImage(from value: String?) -> UIImage? {
+    guard let value,
+          let comma = value.firstIndex(of: ","),
+          value[..<comma].contains(";base64"),
+          let data = Data(base64Encoded: String(value[value.index(after: comma)...])) else { return nil }
+    return UIImage(data: data)
 }
 
 struct DogProfileView: View {
@@ -213,7 +265,11 @@ struct DogProfileView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .fill(dogCardColors[index % dogCardColors.count])
                         .frame(width: 64, height: 64)
-                    Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 44, height: 44)
+                    if let image = petImage(from: pet.image_url) {
+                        Image(uiImage: image).resizable().scaledToFill().frame(width: 64, height: 64).clipped()
+                    } else {
+                        Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 44, height: 44)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -275,6 +331,7 @@ struct AddDogSheet: View {
     @Bindable var vm: DogProfileViewModel
     let userId: Int?
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhotoItem: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
@@ -340,16 +397,40 @@ struct AddDogSheet: View {
                 }
             }
         }
+        .onChange(of: selectedPhotoItem) { item in
+            Task { await vm.loadPhoto(from: item) }
+        }
     }
 
     private var photoButton: some View {
-        ZStack {
-            Circle()
-                .fill(Color(hex: "#FFE6CC"))
-                .frame(width: 96, height: 96)
-                .overlay(Circle().stroke(.white, lineWidth: 4).shadow(radius: 4))
-            EmojiIcon(emoji: "🐶", size: 48)
+        PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+            ZStack(alignment: .bottomTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(Color(hex: "#FFE6CC"))
+                        .frame(width: 96, height: 96)
+                        .overlay(Circle().stroke(.white, lineWidth: 4).shadow(radius: 4))
+                    if let data = vm.selectedPhotoData, let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 92, height: 92)
+                            .clipShape(Circle())
+                    } else if vm.isPhotoLoading {
+                        ProgressView().tint(Color.brandOrange)
+                    } else {
+                        EmojiIcon(emoji: "🐶", size: 48)
+                    }
+                }
+                Circle()
+                    .fill(Color.brandOrange)
+                    .frame(width: 30, height: 30)
+                    .overlay(Image(systemName: "camera.fill").font(.system(size: 13)).foregroundStyle(.white))
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(vm.selectedPhotoData == nil ? "갤러리에서 강아지 사진 선택" : "강아지 사진 변경")
     }
 
     private func sheetField(_ label: String, text: Binding<String>, placeholder: String, multiline: Bool = false) -> some View {
@@ -471,7 +552,11 @@ struct PetDetailSheet: View {
         return VStack(spacing: 12) {
             ZStack {
                 Circle().fill(dogCardColors[index % dogCardColors.count]).frame(width: 96, height: 96)
-                Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 64, height: 64)
+                if let image = petImage(from: pet.image_url) {
+                    Image(uiImage: image).resizable().scaledToFill().frame(width: 96, height: 96).clipShape(Circle())
+                } else {
+                    Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 64, height: 64)
+                }
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(pet.name)

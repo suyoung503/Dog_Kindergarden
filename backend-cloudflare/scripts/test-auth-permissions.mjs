@@ -63,6 +63,17 @@ expectOneOf("다른 사장님 로컬 로그인", otherOwnerLogin.status, [200, 2
 const otherOwnerId = otherOwnerLogin.data.user_id;
 const otherOwnerToken = otherOwnerLogin.data.session_token;
 
+const supportBeforeAdmin = await request("GET", "/api/support/conversation", {
+  token: guardianToken,
+});
+expect("운영자 부재 상태 조회", supportBeforeAdmin.status, 200);
+expect("운영자 부재 표시", supportBeforeAdmin.data.admin_available, false);
+expect(
+  "운영자 부재 시 문의 생성 차단",
+  (await request("POST", "/api/support/conversation", { token: guardianToken })).status,
+  503,
+);
+
 const adminLogin = await request("POST", "/api/auth/dev", {
   body: {
     identity: "auth-test-admin",
@@ -73,6 +84,74 @@ const adminLogin = await request("POST", "/api/auth/dev", {
 });
 expectOneOf("운영자 로컬 로그인", adminLogin.status, [200, 201]);
 const adminToken = adminLogin.data.session_token;
+
+const supportConversation = await request("POST", "/api/support/conversation", {
+  token: guardianToken,
+});
+expectOneOf("운영자 등록 후 1:1 문의 생성", supportConversation.status, [200, 201]);
+const supportConversationId = supportConversation.data.conversation_id;
+expect(
+  "일반 사용자의 전체 고객 문의 목록 접근 차단",
+  (await request("GET", "/api/support/conversations", { token: guardianToken })).status,
+  403,
+);
+expect(
+  "운영자 계정의 일반 사용자 문의 생성 차단",
+  (await request("POST", "/api/support/conversation", { token: adminToken })).status,
+  403,
+);
+expect(
+  "다른 사용자의 문의 메시지 조회 차단",
+  (await request("GET", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: ownerToken,
+  })).status,
+  403,
+);
+expect(
+  "문의 작성자 메시지 전송",
+  (await request("POST", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: guardianToken,
+    body: { content: "운영자에게 보내는 테스트 문의" },
+  })).status,
+  201,
+);
+const supportAdminList = await request("GET", "/api/support/conversations", {
+  token: adminToken,
+});
+expect("운영자 고객 문의 목록 조회", supportAdminList.status, 200);
+expect(
+  "운영자 목록에 사용자 문의 노출",
+  supportAdminList.data.some((item) => item.conversation_id === supportConversationId),
+  true,
+);
+expect(
+  "운영자 문의 메시지 조회",
+  (await request("GET", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: adminToken,
+  })).status,
+  200,
+);
+expect(
+  "운영자 문의 답장",
+  (await request("POST", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: adminToken,
+    body: { content: "운영자 테스트 답변" },
+  })).status,
+  201,
+);
+const supportMessagesAfterReply = await request(
+  "GET",
+  `/api/support/conversations/${supportConversationId}/messages`,
+  { token: guardianToken },
+);
+expect("문의 작성자의 답장 조회", supportMessagesAfterReply.status, 200);
+expect(
+  "운영자 답장 역할 보존",
+  supportMessagesAfterReply.data.some(
+    (message) => message.content === "운영자 테스트 답변" && message.sender_role === "ADMIN",
+  ),
+  true,
+);
 
 expect(
   "가입 역할 위조 차단",
@@ -335,10 +414,18 @@ expect(
 );
 
 const guardianPet = await request("POST", `/api/users/${guardianId}/pets`, {
-  body: { name: "보호자 강아지" },
+  body: {
+    name: "보호자 강아지",
+    image_url: "data:image/jpeg;base64,/9j/2Q==",
+  },
   token: guardianToken,
 });
 expect("본인 강아지 등록", guardianPet.status, 201);
+expect(
+  "강아지 갤러리 사진 저장",
+  guardianPet.data.image_url,
+  "data:image/jpeg;base64,/9j/2Q==",
+);
 const ownerPet = await request("POST", `/api/users/${ownerId}/pets`, {
   body: { name: "사장님 강아지" },
   token: ownerToken,

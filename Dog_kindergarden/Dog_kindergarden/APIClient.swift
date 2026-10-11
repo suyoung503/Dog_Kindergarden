@@ -288,6 +288,34 @@ final class APIClient {
         try await request(path: "/notices/\(id)", method: "GET")
     }
 
+    // MARK: - 고객센터 1:1 문의
+
+    func fetchMySupportConversation() async throws -> SupportConversationStatus {
+        try await request(path: "/support/conversation", method: "GET")
+    }
+
+    @discardableResult
+    func openSupportConversation() async throws -> SupportConversation {
+        try await request(path: "/support/conversation", method: "POST")
+    }
+
+    func fetchSupportConversations() async throws -> [SupportConversationSummary] {
+        try await request(path: "/support/conversations", method: "GET")
+    }
+
+    func fetchSupportMessages(conversationId: Int) async throws -> [SupportMessageResponse] {
+        try await request(path: "/support/conversations/\(conversationId)/messages", method: "GET")
+    }
+
+    @discardableResult
+    func sendSupportMessage(conversationId: Int, content: String) async throws -> SupportMessageResponse {
+        try await request(
+            path: "/support/conversations/\(conversationId)/messages",
+            method: "POST",
+            body: SupportMessageCreateRequest(content: content)
+        )
+    }
+
     func fetchStoreDetail(storeKey: String) async throws -> StoreDetailResponse? {
         var components = URLComponents(url: baseURL.appendingPathComponent("stores/detail"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "storeKey", value: storeKey)]
@@ -327,6 +355,14 @@ final class APIClient {
         guard let httpResponse = response as? HTTPURLResponse else { throw APIError.badStatus }
         APITransport.handleUnauthorized(httpResponse.statusCode)
         guard (200..<300).contains(httpResponse.statusCode) else {
+            let payload = try? decoder.decode(APIErrorResponse.self, from: data)
+            if payload?.code != nil || payload?.message != nil {
+                throw APIError.server(
+                    status: httpResponse.statusCode,
+                    code: payload?.code,
+                    message: payload?.message
+                )
+            }
             throw APIError.httpStatus(httpResponse.statusCode)
         }
         return try decoder.decode(Response.self, from: data)
@@ -336,6 +372,12 @@ final class APIClient {
 enum APIError: Error {
     case badStatus
     case httpStatus(Int)
+    case server(status: Int, code: String?, message: String?)
+}
+
+private struct APIErrorResponse: Decodable {
+    let code: String?
+    let message: String?
 }
 
 enum AccountDeletionError: Error {
@@ -576,4 +618,45 @@ struct Notice: Decodable, Identifiable {
     let title: String
     let createdAt: String
     let body: String?
+}
+
+struct SupportConversation: Decodable, Identifiable {
+    var id: Int { conversationId }
+    let conversationId: Int
+    let userId: Int
+    let status: String
+    let createdAt: String?
+    let updatedAt: String?
+}
+
+struct SupportConversationStatus: Decodable {
+    let adminAvailable: Bool
+    let conversation: SupportConversation?
+}
+
+struct SupportConversationSummary: Decodable, Identifiable {
+    var id: Int { conversationId }
+    let conversationId: Int
+    let userId: Int
+    let status: String
+    let createdAt: String?
+    let updatedAt: String?
+    let userName: String?
+    let userEmail: String?
+    let lastMessage: String?
+    let lastMessageAt: String?
+}
+
+struct SupportMessageResponse: Decodable, Identifiable {
+    var id: Int { messageId }
+    let messageId: Int
+    let conversationId: Int
+    let senderId: Int
+    let senderRole: String
+    let content: String
+    let createdAt: String?
+}
+
+private struct SupportMessageCreateRequest: Encodable {
+    let content: String
 }
