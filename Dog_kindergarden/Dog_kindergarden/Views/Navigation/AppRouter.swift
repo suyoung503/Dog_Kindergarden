@@ -48,6 +48,8 @@ struct BookingResult {
     let dogBreed: String
     let schedule: String
     let price: String
+    let isAllDay: Bool
+    let durationHours: Int
 }
 
 @Observable

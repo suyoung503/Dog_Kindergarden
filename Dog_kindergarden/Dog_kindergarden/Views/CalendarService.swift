@@ -1,7 +1,7 @@
 import EventKit
 import Foundation
 
-// 예약 확정 시 기기 캘린더에 일정을 추가/삭제하는 EventKit 연결
+// 사용자가 예약 완료 화면에서 명시적으로 선택했을 때 기기 캘린더에 일정을 추가/삭제한다.
 enum CalendarService {
     private static let store = EKEventStore()
     private static let mappingKey = "reservation_calendar_events"
@@ -32,6 +32,7 @@ enum CalendarService {
     @discardableResult
     static func addReservationEvent(reservationId: Int, title: String, notes: String?, date: Date,
                                     isAllDay: Bool = false, durationHours: Int = 1) async -> Bool {
+        if hasReservationEvent(reservationId: reservationId) { return true }
         guard await requestAccess() else { return false }
         let event = EKEvent(eventStore: store)
         event.title = title
@@ -45,9 +46,7 @@ enum CalendarService {
         return true
     }
 
-    // 고객 기기 캘린더 동기화 — 예약 내역을 불러올 때 호출.
-    // 일정 추가는 예약 요청 시점(BookingView)에 이미 했으므로, 여기서는 사장님이 취소한 경우처럼
-    // 이 기기 밖에서 CANCELED가 된 예약의 일정만 삭제한다 (서버 푸시가 없어 관찰 방식).
+    // 고객 기기 캘린더 동기화 — 사용자가 직접 추가한 일정 중 취소된 예약만 삭제한다.
     static func syncReservationEvents(_ reservations: [ReservationSummary]) async {
         for reservation in reservations {
             guard let rid = reservation.reservationId,
@@ -73,6 +72,11 @@ enum CalendarService {
     // 이때는 앱이 직접 '설정 열기'로 안내해야 한다
     static var isAccessDenied: Bool {
         EKEventStore.authorizationStatus(for: .event) == .denied
+    }
+
+    static func hasReservationEvent(reservationId: Int) -> Bool {
+        guard let identifier = eventIdentifier(for: reservationId) else { return false }
+        return store.event(withIdentifier: identifier) != nil
     }
 
     private static func requestAccess() async -> Bool {

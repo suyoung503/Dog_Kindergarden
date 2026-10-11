@@ -2,6 +2,8 @@ import SwiftUI
 
 struct BookingDoneView: View {
     @Environment(AppRouter.self) private var router
+    @State private var calendarState: CalendarAddState = .idle
+    @State private var showCalendarDeniedAlert = false
 
     private var booking: BookingResult? { router.lastBooking }
 
@@ -44,6 +46,22 @@ struct BookingDoneView: View {
                 startPoint: .top, endPoint: .bottom
             )
         )
+        .task {
+            if let reservationId = booking?.reservationId,
+               CalendarService.hasReservationEvent(reservationId: reservationId) {
+                calendarState = .saved
+            }
+        }
+        .alert("캘린더 권한이 꺼져 있어요", isPresented: $showCalendarDeniedAlert) {
+            Button("설정에서 허용") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("나중에", role: .cancel) {}
+        } message: {
+            Text("예약은 정상적으로 접수됐어요. 설정에서 캘린더 접근을 허용한 뒤 다시 추가할 수 있어요.")
+        }
     }
 
     // MARK: - Success icon
@@ -116,6 +134,35 @@ struct BookingDoneView: View {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
+            Button(action: addToCalendar) {
+                HStack(spacing: 7) {
+                    if calendarState == .saving {
+                        ProgressView().tint(Color.brandOrange)
+                    } else {
+                        Image(systemName: calendarState == .saved ? "checkmark.circle.fill" : "calendar.badge.plus")
+                    }
+                    Text(calendarState == .saved ? "캘린더에 추가됨" : "캘린더에 추가")
+                        .font(.system(size: 14, weight: .bold))
+                }
+                .foregroundStyle(calendarState == .saved ? Color.brandGreen : Color.brandOrange)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+            }
+            .disabled(calendarState == .saving || calendarState == .saved || booking == nil)
+
+            if calendarState == .failed {
+                Text("일정을 추가하지 못했어요. 잠시 후 다시 시도해주세요.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            } else if calendarState != .saved {
+                Text("버튼을 누를 때만 캘린더 접근을 요청해요.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.brandBrownMid)
+            }
+
             Button(action: {
                 if let b = booking {
                     router.selectedChat = b.storeName
@@ -148,4 +195,37 @@ struct BookingDoneView: View {
             }
         }
     }
+
+    private func addToCalendar() {
+        guard let booking,
+              let date = CalendarService.parseSchedule(booking.schedule),
+              calendarState != .saving else {
+            calendarState = .failed
+            return
+        }
+        calendarState = .saving
+        Task {
+            let saved = await CalendarService.addReservationEvent(
+                reservationId: booking.reservationId,
+                title: "\(booking.storeName) 예약 신청",
+                notes: booking.dogName.isEmpty ? nil : "\(booking.dogName) 맡김",
+                date: date,
+                isAllDay: booking.isAllDay,
+                durationHours: booking.durationHours
+            )
+            if saved {
+                calendarState = .saved
+            } else {
+                calendarState = .failed
+                if CalendarService.isAccessDenied { showCalendarDeniedAlert = true }
+            }
+        }
+    }
+}
+
+private enum CalendarAddState: Equatable {
+    case idle
+    case saving
+    case saved
+    case failed
 }

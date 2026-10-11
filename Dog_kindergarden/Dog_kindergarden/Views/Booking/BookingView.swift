@@ -144,7 +144,9 @@ final class BookingViewModel {
                 dogName: pet?.name ?? "",
                 dogBreed: pet?.breed ?? "",
                 schedule: schedule,
-                price: selectedPriceText
+                price: selectedPriceText,
+                isAllDay: !isHourly,
+                durationHours: isHourly ? hours : 1
             )
         } catch {
             errorMessage = "예약에 실패했어요."
@@ -160,7 +162,6 @@ struct BookingView: View {
     @State private var vm = BookingViewModel()
     @State private var guardianPhone = ""
     @State private var guardianAddress = ""
-    @State private var showCalendarDeniedAlert = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -187,17 +188,6 @@ struct BookingView: View {
             if let uid = authSession.userId { await vm.loadPets(userId: uid) }
             let key = router.selectedPin?.storeKey ?? router.selectedStore
             await vm.loadStorePrice(storeKey: key)
-        }
-        .alert("캘린더 권한이 꺼져 있어요", isPresented: $showCalendarDeniedAlert) {
-            Button("설정에서 허용") {
-                router.go(.bookingDone)
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("건너뛰기", role: .cancel) { router.go(.bookingDone) }
-        } message: {
-            Text("예약은 완료됐어요. 설정에서 캘린더 접근을 허용하면 다음 예약부터 일정이 자동으로 저장돼요.")
         }
     }
 
@@ -507,24 +497,6 @@ struct BookingView: View {
                 storeType: pin?.type ?? ""
             ) {
                 router.lastBooking = result
-                // 예약 요청과 동시에 내 기기 캘린더에 일정 추가
-                // (취소 시 삭제: 내가 취소하면 즉시, 사장님이 취소하면 예약 내역 열 때 동기화)
-                if let date = CalendarService.parseSchedule(result.schedule) {
-                    // 종일권·숙박권은 시간이 없으므로 종일 일정, 시간권은 이용 시간만큼
-                    let saved = await CalendarService.addReservationEvent(
-                        reservationId: result.reservationId,
-                        title: "\(result.storeName) 예약",
-                        notes: result.dogName.isEmpty ? nil : "\(result.dogName) 맡김",
-                        date: date,
-                        isAllDay: !vm.isHourly,
-                        durationHours: vm.hours
-                    )
-                    // 권한 거부 상태면 시스템 알림이 다시 뜨지 않으므로 설정 이동을 직접 안내
-                    if !saved && CalendarService.isAccessDenied {
-                        showCalendarDeniedAlert = true
-                        return
-                    }
-                }
                 router.go(.bookingDone)
             }
         }
