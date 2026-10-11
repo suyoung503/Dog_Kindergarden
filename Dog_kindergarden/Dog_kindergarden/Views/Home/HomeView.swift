@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var activeType: String? = nil         // "호텔" | "유치원" 필터
     // 현재 지도에 보이는 범위 — 카메라 이동/줌이 멈출 때 갱신
     @State private var mapBounds: MapBounds? = nil
+    @State private var storeLoadPhase: AsyncLoadPhase = .idle
 
     // 수도권 = 서울 + 경기(인천 포함). bounds 확정 전 초기 폴백에만 사용
     private let metroKeys = ["서울", "경기"]
@@ -80,9 +81,14 @@ struct HomeView: View {
                 .padding(.bottom, 28)
         }
         .task {
+            await loadStores()
             // 홈에 돌아올 때마다 갱신 — 채팅방에서 읽고 나오면 점이 사라진다
             guard let uid = authSession.userId else { return }
             hasUnreadChats = await ChatService.unreadCount(userId: uid) > 0
+        }
+        .onChange(of: boarding.isLoaded) { loaded in
+            // RootView에서 시작한 동일 요청이 늦게 끝나도 오류 배너를 즉시 정상 상태로 되돌린다.
+            if loaded { storeLoadPhase = .loaded }
         }
     }
 
@@ -218,12 +224,58 @@ struct HomeView: View {
             // 리뷰 태그 필터 칩
             filterChips
                 .padding(12)
+
+            mapLoadStatus
         }
         .frame(height: 490)
         .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
         .shadow(color: Color.brandBrown.opacity(0.12), radius: 10, x: 0, y: 10)
         .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var mapLoadStatus: some View {
+        if boarding.pins.isEmpty {
+            switch storeLoadPhase {
+            case .idle, .loading:
+                AsyncLoadingStateView(message: "지도 가게를 불러오는 중이에요")
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .background(.ultraThinMaterial)
+            case .loaded:
+                VStack(spacing: 8) {
+                    Image(systemName: "mappin.slash")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Color.brandOrange)
+                    Text("표시할 가게가 없어요")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.brandBrown)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.ultraThinMaterial)
+            case .failed(let message):
+                AsyncLoadFailureView(message: message) {
+                    Task { await loadStores() }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(.ultraThinMaterial)
+            }
+        } else {
+            VStack {
+                Spacer()
+                switch storeLoadPhase {
+                case .loading:
+                    AsyncRefreshIndicator()
+                        .background(.ultraThinMaterial)
+                case .failed(let message):
+                    AsyncLoadFailureView(message: message, compact: true) {
+                        Task { await loadStores() }
+                    }
+                case .idle, .loaded:
+                    EmptyView()
+                }
+            }
+        }
     }
 
     // 보호자 리뷰 태그로 가게 필터 (다중 선택, AND 조건)
@@ -274,6 +326,28 @@ struct HomeView: View {
     private func toggleFilter(_ tag: ReviewTag) {
         if activeFilters.contains(tag) { activeFilters.remove(tag) }
         else { activeFilters.insert(tag) }
+    }
+
+    private func loadStores() async {
+        guard !storeLoadPhase.isLoading else { return }
+        if boarding.isLoaded {
+            storeLoadPhase = .loaded
+            return
+        }
+
+        storeLoadPhase = .loading
+        await boarding.loadIfNeeded()
+
+        // RootView의 선행 요청과 동시에 진입한 경우 loadIfNeeded가 즉시 반환할 수 있어
+        // 잠깐 기다린 뒤 한 번만 상태를 재확인한다.
+        if !boarding.isLoaded {
+            try? await Task.sleep(for: .milliseconds(500))
+            await boarding.loadIfNeeded()
+        }
+
+        storeLoadPhase = boarding.isLoaded
+            ? .loaded
+            : .failed("지도 가게를 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
     }
 
     // MARK: - Recent

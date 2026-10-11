@@ -6,7 +6,7 @@ struct OwnerModeView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [PendingReservation] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
     @State private var confirmingId: Int?
     @State private var pendingCancel: PendingReservation?
     @State private var selectedDetail: PendingReservation?   // 카드 탭 → 상세 시트
@@ -15,13 +15,11 @@ struct OwnerModeView: View {
         ScrollView {
             VStack(spacing: 0) {
                 navBar
-                if isLoading {
-                    ProgressView()
-                        .padding(.top, 100)
-                } else if reservations.isEmpty {
-                    emptyState
+                if reservations.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(reservations, id: \.reservationId) { reservation in
                             reservationCard(reservation)
                         }
@@ -68,6 +66,34 @@ struct OwnerModeView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "받은 예약 요청을 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -161,9 +187,19 @@ struct OwnerModeView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let uid = authSession.userId else { return }
-        reservations = (try? await APIClient.shared.fetchPendingReservations(ownerId: uid)) ?? []
+        guard !loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let loaded = try await APIClient.shared.fetchPendingReservations(ownerId: uid)
+            reservations = loaded
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("받은 예약 요청을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     // 확정 — 캘린더 일정은 여기(사장님 기기)가 아니라 고객 기기가 예약 내역을 열 때
@@ -176,8 +212,10 @@ struct OwnerModeView: View {
             do {
                 try await APIClient.shared.confirmReservation(reservationId: rid)
             } catch {
+                loadPhase = .failed("예약을 확정하지 못했어요. 요청은 그대로 유지했어요.")
                 return
             }
+            loadPhase = .loaded
             reservations.removeAll { $0.reservationId == rid }
         }
     }
@@ -191,8 +229,10 @@ struct OwnerModeView: View {
             do {
                 try await APIClient.shared.cancelReservation(reservationId: rid, byOwner: true)
             } catch {
+                loadPhase = .failed("예약 취소를 완료하지 못했어요. 요청은 그대로 유지했어요.")
                 return
             }
+            loadPhase = .loaded
             reservations.removeAll { $0.reservationId == rid }
         }
     }

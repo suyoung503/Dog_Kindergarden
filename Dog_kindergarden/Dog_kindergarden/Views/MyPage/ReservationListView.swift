@@ -6,20 +6,18 @@ struct ReservationListView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [ReservationSummary] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
     @State private var pendingCancel: ReservationSummary?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 navBar
-                if isLoading {
-                    ProgressView()
-                        .padding(.top, 100)
-                } else if reservations.isEmpty {
-                    emptyState
+                if reservations.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(Array(reservations.enumerated()), id: \.offset) { _, reservation in
                             reservationCard(reservation)
                         }
@@ -63,6 +61,34 @@ struct ReservationListView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "예약 내역을 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -148,11 +174,21 @@ struct ReservationListView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let uid = authSession.userId else { return }
-        reservations = (try? await APIClient.shared.fetchReservations(userId: uid)) ?? []
-        // 사장님이 취소한 예약의 일정을 내 기기 캘린더에서 제거
-        await CalendarService.syncReservationEvents(reservations)
+        guard !loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let loaded = try await APIClient.shared.fetchReservations(userId: uid)
+            reservations = loaded
+            loadPhase = .loaded
+            // 사장님이 취소한 예약의 일정을 내 기기 캘린더에서 제거
+            await CalendarService.syncReservationEvents(loaded)
+        } catch {
+            loadPhase = .failed("예약 내역을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     // 낙관적 취소 — 목록에서 즉시 제거, 실패 시 원래 자리에 복원
@@ -165,8 +201,10 @@ struct ReservationListView: View {
             do {
                 try await APIClient.shared.cancelReservation(reservationId: rid)
                 await CalendarService.removeReservationEvent(reservationId: rid)
+                loadPhase = .loaded
             } catch {
                 reservations.insert(previous, at: index)
+                loadPhase = .failed("예약 취소를 완료하지 못했어요. 기존 내역을 복원했어요.")
             }
         }
     }

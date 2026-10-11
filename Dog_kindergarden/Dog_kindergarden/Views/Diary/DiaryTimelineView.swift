@@ -6,7 +6,7 @@ struct DiaryTimelineView: View {
     @Environment(AppRouter.self) private var router
 
     @State private var entries: [DiaryEntry] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
     @State private var composer: DiaryComposerMode?
     @State private var pendingDelete: DiaryEntry?
 
@@ -17,12 +17,11 @@ struct DiaryTimelineView: View {
         VStack(spacing: 0) {
             navBar
             ScrollView {
-                if isLoading {
-                    ProgressView().padding(.top, 100)
-                } else if entries.isEmpty {
-                    emptyState
+                if entries.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(entries) { entry in
                             entryCard(entry)
                         }
@@ -82,6 +81,34 @@ struct DiaryTimelineView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "알림장을 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -173,19 +200,32 @@ struct DiaryTimelineView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let rid = context?.reservationId else { return }
-        entries = (try? await APIClient.shared.fetchDiaries(reservationId: rid)) ?? []
+        guard !loadPhase.isLoading else { return }
+        guard let rid = context?.reservationId else {
+            loadPhase = .failed("예약 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let loaded = try await APIClient.shared.fetchDiaries(reservationId: rid)
+            entries = loaded
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("알림장을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     private func delete(_ entry: DiaryEntry) {
         guard let did = entry.diaryId else { return }
+        let backup = entries
         entries.removeAll { $0.diaryId == did }
         Task {
             do {
                 try await APIClient.shared.deleteDiary(diaryId: did)
+                loadPhase = .loaded
             } catch {
-                await load()   // 실패 시 서버 상태로 복원
+                entries = backup
+                loadPhase = .failed("알림장을 삭제하지 못했어요. 기존 내용을 복원했어요.")
             }
         }
     }

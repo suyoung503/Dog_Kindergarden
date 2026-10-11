@@ -6,23 +6,29 @@ import Observation
 final class ChatListViewModel {
     var rooms: [ChatRoomSummary] = []
     var receivedRooms: [OwnerChatRoomSummary] = []   // 사장님: 내 가게로 온 손님 문의방
-    var isLoading = false
+    var loadPhase: AsyncLoadPhase = .idle
 
     func load(userId: Int, isOwner: Bool) async {
-        isLoading = true
-        defer { isLoading = false }
+        guard !loadPhase.isLoading else { return }
+        loadPhase = .loading
         do {
-            rooms = try await ChatService.rooms(userId: userId)
+            let loadedRooms = try await ChatService.rooms(userId: userId)
+            let loadedReceived: [OwnerChatRoomSummary]
+            if isOwner {
+                let received = try await ChatService.ownerRooms(ownerId: userId)
+                // 내가 내 가게에 문의한 방은 '내 채팅'에만 표시
+                loadedReceived = received.filter { r in
+                    !loadedRooms.contains { $0.room_id == r.room_id }
+                }
+            } else {
+                loadedReceived = []
+            }
+            rooms = loadedRooms
+            receivedRooms = loadedReceived
+            loadPhase = .loaded
         } catch {
-            rooms = []
+            loadPhase = .failed("채팅 목록을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
         }
-        guard isOwner else {
-            receivedRooms = []
-            return
-        }
-        let received = (try? await ChatService.ownerRooms(ownerId: userId)) ?? []
-        // 내가 내 가게에 문의한 방은 '내 채팅'에만 표시
-        receivedRooms = received.filter { r in !rooms.contains { $0.room_id == r.room_id } }
     }
 }
 
@@ -34,11 +40,12 @@ struct ChatListView: View {
     var body: some View {
         VStack(spacing: 0) {
             navBar
-            if !vm.isLoading && vm.rooms.isEmpty && vm.receivedRooms.isEmpty {
-                emptyState
+            if vm.rooms.isEmpty && vm.receivedRooms.isEmpty {
+                emptyContent
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
+                        loadStatusHeader
                         // 사장님: 받은 문의 섹션을 위에 분리
                         if !vm.receivedRooms.isEmpty {
                             sectionHeader("받은 문의")
@@ -59,10 +66,7 @@ struct ChatListView: View {
             }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task {
-            guard let uid = authSession.userId else { return }
-            await vm.load(userId: uid, isOwner: authSession.isOwner)
-        }
+        .task { await load() }
     }
 
     // MARK: - Nav
@@ -87,6 +91,36 @@ struct ChatListView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch vm.loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "채팅 목록을 불러오는 중이에요")
+                .frame(maxHeight: .infinity, alignment: .top)
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch vm.loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
@@ -225,5 +259,16 @@ struct ChatListView: View {
     private func shortTime(_ s: String?) -> String {
         guard let s, let d = Self.inFmt.date(from: s) else { return "" }
         return Self.outFmt.string(from: d)
+    }
+
+    // MARK: - Actions
+
+    private func load() async {
+        guard !vm.loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            vm.loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        await vm.load(userId: uid, isOwner: authSession.isOwner)
     }
 }

@@ -6,19 +6,17 @@ struct FavoritesView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var favorites: [FavoriteStoreResponse] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 navBar
-                if isLoading {
-                    ProgressView()
-                        .padding(.top, 100)
-                } else if favorites.isEmpty {
-                    emptyState
+                if favorites.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(favorites, id: \.storeId) { favorite in
                             favoriteCard(favorite)
                         }
@@ -54,6 +52,34 @@ struct FavoritesView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "찜한 가게를 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -126,9 +152,19 @@ struct FavoritesView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let uid = authSession.userId else { return }
-        favorites = (try? await APIClient.shared.fetchFavorites(userId: uid)) ?? []
+        guard !loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let loaded = try await APIClient.shared.fetchFavorites(userId: uid)
+            favorites = loaded
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("찜한 가게를 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     // 저장된 가게로 상세화면 이동 — 원본 store_key를 유지해 리뷰·찜 상태가 이어지게 함
@@ -154,8 +190,14 @@ struct FavoritesView: View {
         let backup = favorites
         favorites.removeAll { $0.storeId == favorite.storeId }
         Task {
-            do { try await APIClient.shared.removeFavorite(userId: uid, storeId: favorite.storeId) }
-            catch { favorites = backup }
+            do {
+                try await APIClient.shared.removeFavorite(userId: uid, storeId: favorite.storeId)
+                loadPhase = .loaded
+            }
+            catch {
+                favorites = backup
+                loadPhase = .failed("찜 해제를 완료하지 못했어요. 기존 목록을 복원했어요.")
+            }
         }
     }
 }

@@ -7,19 +7,17 @@ struct OwnerDiaryListView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [PendingReservation] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 navBar
-                if isLoading {
-                    ProgressView()
-                        .padding(.top, 100)
-                } else if reservations.isEmpty {
-                    emptyState
+                if reservations.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(reservations, id: \.reservationId) { reservation in
                             reservationCard(reservation)
                         }
@@ -60,6 +58,34 @@ struct OwnerDiaryListView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "확정 예약을 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -120,9 +146,19 @@ struct OwnerDiaryListView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let uid = authSession.userId else { return }
-        reservations = (try? await APIClient.shared.fetchConfirmedReservations(ownerId: uid)) ?? []
+        guard !loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let loaded = try await APIClient.shared.fetchConfirmedReservations(ownerId: uid)
+            reservations = loaded
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("확정 예약을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     private func open(_ reservation: PendingReservation) {

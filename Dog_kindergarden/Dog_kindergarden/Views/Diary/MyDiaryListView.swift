@@ -7,19 +7,17 @@ struct MyDiaryListView: View {
     @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [ReservationSummary] = []
-    @State private var isLoading = true
+    @State private var loadPhase: AsyncLoadPhase = .idle
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 navBar
-                if isLoading {
-                    ProgressView()
-                        .padding(.top, 100)
-                } else if reservations.isEmpty {
-                    emptyState
+                if reservations.isEmpty {
+                    emptyContent
                 } else {
                     VStack(spacing: 12) {
+                        loadStatusHeader
                         ForEach(reservations, id: \.reservationId) { reservation in
                             reservationCard(reservation)
                         }
@@ -60,6 +58,34 @@ struct MyDiaryListView: View {
     }
 
     // MARK: - Empty
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch loadPhase {
+        case .idle, .loading:
+            AsyncLoadingStateView(message: "내 알림장을 불러오는 중이에요")
+        case .loaded:
+            emptyState
+        case .failed(let message):
+            AsyncLoadFailureView(message: message) {
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusHeader: some View {
+        switch loadPhase {
+        case .loading:
+            AsyncRefreshIndicator()
+        case .failed(let message):
+            AsyncLoadFailureView(message: message, compact: true) {
+                Task { await load() }
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -115,10 +141,19 @@ struct MyDiaryListView: View {
     // MARK: - Actions
 
     private func load() async {
-        defer { isLoading = false }
-        guard let uid = authSession.userId else { return }
-        let all = (try? await APIClient.shared.fetchReservations(userId: uid)) ?? []
-        reservations = all.filter { $0.status == "CONFIRMED" }
+        guard !loadPhase.isLoading else { return }
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
+            return
+        }
+        loadPhase = .loading
+        do {
+            let all = try await APIClient.shared.fetchReservations(userId: uid)
+            reservations = all.filter { $0.status == "CONFIRMED" }
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("내 알림장을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+        }
     }
 
     // 보호자 열람 전용으로 알림장 진입 — 예약에 담긴 실제 강아지 이름 사용
