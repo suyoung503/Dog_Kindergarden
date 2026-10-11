@@ -32,7 +32,7 @@ struct RootView: View {
                 // 계정 전환 시 이전 계정 알림 잔존 방지
                 UNUserNotificationCenter.current().removeAllDeliveredNotifications()
                 guard authSession.userId != nil else { return }
-                await notificationService.requestPermission()
+                await notificationService.refreshAuthorizationStatus()
                 await notificationService.pollLoop()   // 로그아웃/계정 전환 시 task 취소로 종료
             }
             // 알림 탭 딥링크 — 로그인 상태면 즉시, 콜드 스타트면 세션 복원 후 소비

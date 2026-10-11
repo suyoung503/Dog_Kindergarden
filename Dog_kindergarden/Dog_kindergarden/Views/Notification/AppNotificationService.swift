@@ -29,6 +29,7 @@ final class AppNotificationService: NSObject {
 
     var pendingDeepLink: NotificationDeepLink? = nil
     var activeRoomId: Int? = nil   // 열려 있는 채팅방 — 그 방의 chat 알림은 배너 생략
+    var authorizationStatus: UNAuthorizationStatus = .notDetermined
     private var userId: Int? = nil
 
     func configure(userId: Int?) {
@@ -45,9 +46,17 @@ final class AppNotificationService: NSObject {
         center.removeAllPendingNotificationRequests()
     }
 
-    func requestPermission() async {
-        _ = try? await UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound])
+    @discardableResult
+    func requestPermission() async -> Bool {
+        let granted = (try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound])) ?? false
+        await refreshAuthorizationStatus()
+        return granted
+    }
+
+    func refreshAuthorizationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        authorizationStatus = settings.authorizationStatus
     }
 
     // 포그라운드 폴링 루프 — 앱이 백그라운드로 가면 프로세스 서스펜드로 자연히 멈춘다

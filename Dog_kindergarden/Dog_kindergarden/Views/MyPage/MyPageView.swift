@@ -4,6 +4,8 @@ struct MyPageView: View {
     @Environment(AppRouter.self) private var router
     @Environment(UserProfile.self) private var userProfile
     @Environment(AuthSession.self) private var authSession
+    @Environment(AppNotificationService.self) private var notificationService
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showEditSheet = false
     @State private var showLogoutConfirm = false
@@ -17,6 +19,7 @@ struct MyPageView: View {
     @State private var favoriteCount: Int?
     @State private var myStores: [OwnerStoreResponse] = []   // 사장님: 등록한 내 가게
     @State private var pendingOwnerApplicationCount: Int?
+    @State private var showNotificationSheet = false
 
     var body: some View {
         ScrollView {
@@ -44,6 +47,9 @@ struct MyPageView: View {
                 onConfirm: { Task { await deleteAccount() } }
             )
         }
+        .sheet(isPresented: $showNotificationSheet) {
+            NotificationPermissionSheet()
+        }
         .task {
             guard let uid = authSession.userId else { return }
             reservationCount = (try? await APIClient.shared.fetchReservations(userId: uid))?.count
@@ -53,6 +59,12 @@ struct MyPageView: View {
             await reloadMyStores()
             if authSession.isAdmin {
                 pendingOwnerApplicationCount = try? await APIClient.shared.fetchPendingStoreOwnerApplicationCount()
+            }
+            await notificationService.refreshAuthorizationStatus()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await notificationService.refreshAuthorizationStatus() }
             }
         }
         .alert("로그아웃 하시겠어요?", isPresented: $showLogoutConfirm) {
@@ -182,7 +194,25 @@ struct MyPageView: View {
                 MyPageItem(icon: "building.2",    label: "내 가게",      badge: myStoreBadge, bg: Color(hex: "#FFD9A8")) { showMyStoreSheet = true }
             }
             MyPageItem(icon: "pawprint",          label: "우리 아이 프로필", bg: Color(hex: "#FFE6CC")) { router.go(.dogProfile) }
-            MyPageItem(icon: "bell",              label: "알림 설정",    bg: Color.brandBlueLight) { openNotificationSettings() }
+            MyPageItem(icon: "bell", label: "알림 설정", badge: notificationBadge, bg: Color.brandBlueLight) {
+                Task {
+                    await notificationService.refreshAuthorizationStatus()
+                    if notificationService.authorizationStatus == .notDetermined {
+                        showNotificationSheet = true
+                    } else {
+                        openNotificationSettings()
+                    }
+                }
+            }
+        }
+    }
+
+    private var notificationBadge: String? {
+        switch notificationService.authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return "켜짐"
+        case .denied: return "꺼짐"
+        case .notDetermined: return "설정 전"
+        @unknown default: return nil
         }
     }
 
@@ -250,6 +280,66 @@ struct MyPageView: View {
             .font(.system(size: 10))
             .foregroundStyle(Color.brandBrownMid)
             .padding(.top, 24)
+    }
+}
+
+private struct NotificationPermissionSheet: View {
+    @Environment(AppNotificationService.self) private var notificationService
+    @Environment(\.dismiss) private var dismiss
+    @State private var isRequesting = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.brandOrange)
+
+                Text("예약과 문의 소식을 알려드릴게요")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(Color.brandBrown)
+
+                Text("예약 승인·취소, 새 채팅과 알림장 소식을 놓치지 않도록 알림을 사용할 수 있어요. 거부해도 앱 안의 예약과 채팅은 계속 이용할 수 있습니다.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.brandBrownMid)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    isRequesting = true
+                    Task {
+                        _ = await notificationService.requestPermission()
+                        isRequesting = false
+                        dismiss()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if isRequesting {
+                            ProgressView().tint(.white)
+                        }
+                        Text(isRequesting ? "요청 중..." : "알림 받기")
+                            .font(.system(size: 15, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.brandOrange)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                }
+                .disabled(isRequesting)
+
+                Button("나중에") { dismiss() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.brandBrownMid)
+                    .disabled(isRequesting)
+            }
+            .padding(24)
+            .background(Color.brandCream.ignoresSafeArea())
+            .navigationTitle("알림 설정")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
+        .interactiveDismissDisabled(isRequesting)
     }
 }
 
