@@ -2178,15 +2178,24 @@ app.get("/api/users/:id/unread-count", async (c) => {
 type NotificationCursor = {
   message_id?: number;
   request_id?: number;
+  support_message_id?: number;
+  owner_application_id?: number;
   canceled_at?: string;
 };
 
 type NotificationItem = {
-  type: "chat" | "reservation_request" | "reservation_canceled";
+  type:
+    | "chat"
+    | "reservation_request"
+    | "reservation_canceled"
+    | "support"
+    | "owner_application";
   title: string;
   body: string;
   room_id?: number;
   reservation_id?: number;
+  conversation_id?: number;
+  application_id?: number;
   as_owner?: boolean;
   store_type?: string;
 };
@@ -2210,10 +2219,18 @@ app.get("/api/users/:id/notifications", async (c) => {
   const maxRes = await c.env.DB.prepare(
     `SELECT COALESCE(MAX(reservation_id), 0) AS v FROM reservations`,
   ).first<{ v: number }>();
+  const maxSupport = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(message_id), 0) AS v FROM support_messages`,
+  ).first<{ v: number }>();
+  const maxOwnerApplication = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(application_id), 0) AS v FROM store_owner_applications`,
+  ).first<{ v: number }>();
   const now = await c.env.DB.prepare(`SELECT CURRENT_TIMESTAMP AS v`).first<{ v: string }>();
   const nextCursor: NotificationCursor = {
     message_id: maxMsg?.v ?? 0,
     request_id: maxRes?.v ?? 0,
+    support_message_id: maxSupport?.v ?? 0,
+    owner_application_id: maxOwnerApplication?.v ?? 0,
     canceled_at: now?.v ?? "",
   };
 
@@ -2228,6 +2245,10 @@ app.get("/api/users/:id/notifications", async (c) => {
   }
   const afterMessage = cursor.message_id ?? 0;
   const afterRequest = cursor.request_id ?? 0;
+  // 기존 앱이 저장한 커서에는 신규 축 필드가 없다. 이때 0부터 읽으면 배포 직후
+  // 과거 문의·신청이 한꺼번에 알림으로 쏟아지므로 현재 최댓값에서 시작한다.
+  const afterSupportMessage = cursor.support_message_id ?? (maxSupport?.v ?? 0);
+  const afterOwnerApplication = cursor.owner_application_id ?? (maxOwnerApplication?.v ?? 0);
   const afterCanceled = cursor.canceled_at ?? "";
 
   const items: NotificationItem[] = [];
@@ -2342,6 +2363,74 @@ app.get("/api/users/:id/notifications", async (c) => {
         title: "예약 취소",
         body: `${row.pet_name ?? "강아지"} 보호자가 ${row.start_date} 예약을 취소했어요 — ${row.store_name ?? ""}`,
         reservation_id: row.reservation_id,
+      });
+    }
+  }
+
+  // ── 고객센터 축: 일반 사용자는 운영자 답장, 운영자는 모든 사용자의 새 문의를 받는다.
+  if (c.get("authIsAdmin")) {
+    const supportMessages = await c.env.DB.prepare(
+      `
+      SELECT sm.conversation_id, sm.content, u.nickname AS user_name,
+             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id
+      FROM support_messages sm
+      JOIN support_conversations sc ON sc.conversation_id = sm.conversation_id
+      JOIN users u ON u.user_id = sc.user_id AND u.deleted_at IS NULL
+      WHERE sm.sender_role = 'USER' AND sm.message_id > ?
+      GROUP BY sm.conversation_id
+    `,
+    )
+      .bind(afterSupportMessage)
+      .all<{ conversation_id: number; content: string; user_name: string | null; cnt: number }>();
+    for (const row of supportMessages.results) {
+      items.push({
+        type: "support",
+        title: row.user_name ?? "고객 문의",
+        body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+        conversation_id: row.conversation_id,
+      });
+    }
+
+    const ownerApplications = await c.env.DB.prepare(
+      `
+      SELECT a.application_id, u.nickname, s.name AS store_name
+      FROM store_owner_applications a
+      JOIN users u ON u.user_id = a.user_id AND u.deleted_at IS NULL
+      JOIN stores s ON s.store_id = a.store_id
+      WHERE a.status = 'PENDING' AND a.application_id > ?
+      ORDER BY a.application_id
+    `,
+    )
+      .bind(afterOwnerApplication)
+      .all<{ application_id: number; nickname: string | null; store_name: string | null }>();
+    for (const row of ownerApplications.results) {
+      items.push({
+        type: "owner_application",
+        title: "새 가게 등록 요청",
+        body: `${row.nickname ?? "사장님"} · ${row.store_name ?? "가게"}`,
+        application_id: row.application_id,
+      });
+    }
+  } else {
+    const supportReplies = await c.env.DB.prepare(
+      `
+      SELECT sm.conversation_id, sm.content,
+             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id
+      FROM support_messages sm
+      JOIN support_conversations sc ON sc.conversation_id = sm.conversation_id
+        AND sc.user_id = ?
+      WHERE sm.sender_role = 'ADMIN' AND sm.message_id > ?
+      GROUP BY sm.conversation_id
+    `,
+    )
+      .bind(userId, afterSupportMessage)
+      .all<{ conversation_id: number; content: string; cnt: number }>();
+    for (const row of supportReplies.results) {
+      items.push({
+        type: "support",
+        title: "맡겨멍 고객센터",
+        body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+        conversation_id: row.conversation_id,
       });
     }
   }

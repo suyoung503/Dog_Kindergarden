@@ -42,6 +42,13 @@ function expectOneOf(name, actual, expected) {
   if (!ok) throw new Error(`${name}: expected ${expected.join("/")}, got ${actual}`);
 }
 
+function notificationPath(userId, cursor) {
+  const query = cursor === undefined
+    ? ""
+    : `?cursor=${encodeURIComponent(JSON.stringify(cursor))}`;
+  return `/api/users/${userId}/notifications${query}`;
+}
+
 const guardianLogin = await request("POST", "/api/auth/dev", {
   body: { identity: "auth-test-guardian", nickname: "권한테스트 보호자", is_owner: false },
 });
@@ -153,6 +160,80 @@ expect(
   true,
 );
 
+const adminNotificationBaseline = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id),
+  { token: adminToken },
+);
+expect("운영자 알림 기준 커서 생성", adminNotificationBaseline.status, 200);
+const guardianNotificationBaseline = await request(
+  "GET",
+  notificationPath(guardianId),
+  { token: guardianToken },
+);
+expect("보호자 알림 기준 커서 생성", guardianNotificationBaseline.status, 200);
+const legacyAdminCursor = {
+  message_id: adminNotificationBaseline.data.cursor.message_id,
+  request_id: adminNotificationBaseline.data.cursor.request_id,
+  canceled_at: adminNotificationBaseline.data.cursor.canceled_at,
+};
+const legacyCursorNotifications = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id, legacyAdminCursor),
+  { token: adminToken },
+);
+expect("구버전 커서 호환 조회", legacyCursorNotifications.status, 200);
+expect(
+  "구버전 커서에서 과거 문의 알림 폭탄 방지",
+  legacyCursorNotifications.data.notifications.some((item) => item.type === "support"),
+  false,
+);
+
+expect(
+  "알림 검증용 사용자 문의 전송",
+  (await request("POST", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: guardianToken,
+    body: { content: "운영자 알림으로 전달될 문의" },
+  })).status,
+  201,
+);
+const adminSupportNotifications = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id, adminNotificationBaseline.data.cursor),
+  { token: adminToken },
+);
+expect("운영자 문의 알림 조회", adminSupportNotifications.status, 200);
+expect(
+  "운영자 문의 알림에 대화 연결 포함",
+  adminSupportNotifications.data.notifications.some(
+    (item) => item.type === "support" && item.conversation_id === supportConversationId,
+  ),
+  true,
+);
+
+expect(
+  "알림 검증용 운영자 답장 전송",
+  (await request("POST", `/api/support/conversations/${supportConversationId}/messages`, {
+    token: adminToken,
+    body: { content: "보호자 알림으로 전달될 답변" },
+  })).status,
+  201,
+);
+const guardianSupportNotifications = await request(
+  "GET",
+  notificationPath(guardianId, guardianNotificationBaseline.data.cursor),
+  { token: guardianToken },
+);
+expect("보호자 문의 답장 알림 조회", guardianSupportNotifications.status, 200);
+expect(
+  "보호자 문의 알림에 본인 대화만 포함",
+  guardianSupportNotifications.data.notifications.some(
+    (item) => item.type === "support" && item.conversation_id === supportConversationId,
+  ),
+  true,
+);
+const adminNotificationCursorAfterSupport = adminSupportNotifications.data.cursor;
+
 expect(
   "가입 역할 위조 차단",
   (await request("POST", "/api/auth/dev", {
@@ -255,6 +336,34 @@ const ownerApplication = await request("POST", "/api/stores/claim", {
 expect("사장님 가게 등록 요청 생성", ownerApplication.status, 201);
 expect("등록 요청은 승인 대기", ownerApplication.data.status, "PENDING");
 const applicationId = ownerApplication.data.application_id;
+
+const legacyOwnerApplicationNotifications = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id, legacyAdminCursor),
+  { token: adminToken },
+);
+expect("구버전 커서의 등록 요청 호환 조회", legacyOwnerApplicationNotifications.status, 200);
+expect(
+  "구버전 커서에서 과거 등록 요청 알림 폭탄 방지",
+  legacyOwnerApplicationNotifications.data.notifications.some(
+    (item) => item.type === "owner_application",
+  ),
+  false,
+);
+
+const ownerApplicationNotifications = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id, adminNotificationCursorAfterSupport),
+  { token: adminToken },
+);
+expect("운영자 가게 등록 요청 알림 조회", ownerApplicationNotifications.status, 200);
+expect(
+  "가게 등록 요청 알림에 신청 번호 포함",
+  ownerApplicationNotifications.data.notifications.some(
+    (item) => item.type === "owner_application" && item.application_id === applicationId,
+  ),
+  true,
+);
 
 expect(
   "일반 사용자의 운영자 요청함 접근 차단",

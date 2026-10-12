@@ -10,6 +10,8 @@ struct NotificationItemDTO: Decodable {
     let body: String
     let room_id: Int?
     let reservation_id: Int?
+    let conversation_id: Int?
+    let application_id: Int?
     let as_owner: Bool?
     let store_type: String?
 }
@@ -19,6 +21,8 @@ enum NotificationDeepLink: Equatable {
     case chat(roomId: Int, title: String, asOwner: Bool, storeType: String?)
     case reservationList
     case ownerMode
+    case support(conversationId: Int, title: String)
+    case ownerApplications
 }
 
 // 서버 이벤트 피드 폴링 → 로컬 알림 발행 (원격 푸시 불가 제약 우회 — 설계 문서 참고)
@@ -104,6 +108,8 @@ final class AppNotificationService: NSObject {
             "type": item.type,
             "room_id": item.room_id ?? 0,
             "reservation_id": item.reservation_id ?? 0,
+            "conversation_id": item.conversation_id ?? 0,
+            "application_id": item.application_id ?? 0,
             "as_owner": item.as_owner ?? false,
             "title": item.title,
             "store_type": item.store_type ?? "",
@@ -161,6 +167,7 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let type = info["type"] as? String ?? ""
         let roomId = info["room_id"] as? Int ?? 0
+        let conversationId = info["conversation_id"] as? Int ?? 0
         let asOwner = info["as_owner"] as? Bool ?? false
         let title = info["title"] as? String ?? "채팅"
         let storeType = info["store_type"] as? String ?? ""
@@ -172,6 +179,10 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
                          storeType: storeType.isEmpty ? nil : storeType)
         case "reservation_request", "reservation_canceled":
             link = .ownerMode
+        case "support" where conversationId > 0:
+            link = .support(conversationId: conversationId, title: title)
+        case "owner_application":
+            link = .ownerApplications
         default:
             link = nil
         }

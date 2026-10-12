@@ -65,6 +65,12 @@ struct RootView: View {
             router.go(.reservationList)
         case .ownerMode:
             router.go(.ownerMode)
+        case .support(let conversationId, let title):
+            router.selectedSupportConversationId = conversationId
+            router.selectedSupportConversationTitle = title
+            router.go(.supportConversation)
+        case .ownerApplications:
+            router.go(.ownerApplications)
         }
     }
 
