@@ -63,18 +63,19 @@ ALTER TABLE reservations ADD COLUMN canceled_by TEXT; -- 'USER' | 'OWNER'
 ```json
 {
   "notifications": [
-    {"type": "chat", "title": "멍멍유치원", "body": "네~ 가능합니다", "room_id": 5, "as_owner": false, "store_type": "유치원"},
-    {"type": "chat", "title": "김보호자", "body": "예약 문의드려요 외 2건", "room_id": 7, "as_owner": true},
-    {"type": "reservation_request", "title": "새 예약 요청", "body": "상민이 보호자의 시간권 요청 — 멍멍유치원", "reservation_id": 12},
-    {"type": "reservation_canceled", "title": "예약 취소", "body": "상민이 보호자가 2026-07-20 (일) 예약을 취소했어요 — 멍멍유치원", "reservation_id": 11},
-    {"type": "support", "title": "김보호자", "body": "문의드립니다", "conversation_id": 3},
-    {"type": "owner_application", "title": "새 가게 등록 요청", "body": "김사장 · 멍멍유치원", "application_id": 4}
+    {"event_id": "chat:69", "type": "chat", "title": "멍멍유치원", "body": "네~ 가능합니다", "room_id": 5, "as_owner": false, "store_type": "유치원"},
+    {"event_id": "chat:70", "type": "chat", "title": "김보호자", "body": "예약 문의드려요 외 2건", "room_id": 7, "as_owner": true},
+    {"event_id": "reservation_request:12", "type": "reservation_request", "title": "새 예약 요청", "body": "상민이 보호자의 시간권 요청 — 멍멍유치원", "reservation_id": 12},
+    {"event_id": "reservation_canceled:11", "type": "reservation_canceled", "title": "예약 취소", "body": "상민이 보호자가 2026-07-20 (일) 예약을 취소했어요 — 멍멍유치원", "reservation_id": 11},
+    {"event_id": "support:8", "type": "support", "title": "김보호자", "body": "문의드립니다", "conversation_id": 3},
+    {"event_id": "owner_application:4", "type": "owner_application", "title": "새 가게 등록 요청", "body": "김사장 · 멍멍유치원", "application_id": 4}
   ],
   "cursor": {"message_id": 69, "request_id": 12, "support_message_id": 8, "owner_application_id": 4, "canceled_at": "2026-07-18 12:00:00"}
 }
 ```
 
 - `cursor`는 서버가 구성해 내려주고, **iOS는 내용을 해석하지 않고 그대로 저장했다가 다음 요청에 되돌려준다**(opaque). 이벤트가 없어도 cursor는 항상 현재값으로 반환.
+- 각 항목의 `event_id`는 이벤트 축의 단조 ID를 조합한 안정적 식별자다. 앱 내부 알림함과 시스템 알림이 같은 이벤트를 중복 저장·표시하지 않는 기준으로 사용한다.
 - 기존 앱 커서에 `support_message_id` 또는 `owner_application_id`가 없으면 해당 축은 요청 시점의 현재 최댓값에서 시작한다. 신규 축 배포 직후 과거 문의·신청이 알림으로 쏟아지는 것을 막기 위한 호환 규칙이다.
 - 채팅 title 규칙: 손님 시점 = 가게명, 사장님 시점 = 손님 닉네임, 시스템 메시지(sender 0) = '맡겨멍'. `as_owner`는 딥링크 시 `chatRoomAsOwner` 설정에 사용.
 - 채팅 항목의 `store_type`(손님 시점만): 딥링크 시 `chatRoomAvatar`를 기존 규칙(손님 시점 = 가게 타입 아이콘, 사장님 시점 = room_id 기반 강아지 아바타)대로 정하는 데 필요.
@@ -96,6 +97,7 @@ ALTER TABLE reservations ADD COLUMN canceled_by TEXT; -- 'USER' | 'OWNER'
 - **포그라운드 배너 표시**: delegate `willPresent`에서 `.banner, .sound` 반환 — 커스텀 배너 UI를 만들지 않고 시스템 배너 사용 (알림 센터 누적 + 탭 처리 경로 통일).
 - **억제 규칙**: 현재 열려 있는 채팅방(`router.selectedRoomId`)과 같은 `room_id`의 chat 알림은 발행 스킵 — 3초 폴링으로 이미 화면에 보이는 중.
 - **커서 저장**: UserDefaults `notification_cursor_<userId>` (계정별 — `recent_pins_<userId>` 패턴). 커서 없으면 첫 폴링은 커서 수신만 하고 알림 무발행.
+- **앱 내부 알림함**: 시스템 알림 권한과 관계없이 수신 이벤트를 `event_id`로 중복 제거해 계정별 UserDefaults에 최대 100건 저장한다. 홈 종 아이콘에서 읽지 않은 상태를 표시하고 각 항목은 기존 딥링크를 재사용한다.
 
 ### 알림 권한
 
@@ -104,7 +106,7 @@ ALTER TABLE reservations ADD COLUMN canceled_by TEXT; -- 'USER' | 'OWNER'
 ### BGAppRefreshTask
 
 - `Info.plist`: `BGTaskSchedulerPermittedIdentifiers`에 `net.suyoung.Dog-kindergarden.refresh` 추가 + `UIBackgroundModes` = `fetch`.
-- 앱 백그라운드 진입 시(`scenePhase == .background`) `BGTaskScheduler.submit`. 핸들러: 같은 폴링 1회 → 알림 발행 → 재스케줄. 만료 핸들러에서 작업 취소.
+- 앱 백그라운드 진입 시 `BGTaskScheduler.submit`. 핸들러는 메모리의 사용자 번호가 비어 있으면 Keychain 세션과 `auth_user_id`가 모두 유효할 때 계정별 알림함을 복원한 뒤 폴링 1회 → 알림 발행 → 재스케줄한다. 만료 핸들러에서는 작업을 취소한다.
 - 시뮬레이터 시연: Xcode 디버거 `_simulateLaunchForTaskWithIdentifier` 트리거 사용.
 
 ### 딥링크 (delegate `didReceive`)

@@ -6,10 +6,9 @@ struct HomeView: View {
     @Environment(BoardingStore.self) private var boarding
     @Environment(TagStore.self) private var tagStore
     @Environment(UserProfile.self) private var userProfile
-    @Environment(AuthSession.self) private var authSession
+    @Environment(AppNotificationService.self) private var notificationService
     @State private var searchText = ""
     @State private var showFAB = false
-    @State private var hasUnreadChats = false    // 종 아이콘 빨간 점 — 안 읽은 채팅 존재 여부
     @State private var activeFilters: Set<ReviewTag> = []    // 리뷰 태그 필터 (다중 선택, AND)
     @State private var activeType: String? = nil         // "호텔" | "유치원" 필터
     // 현재 지도에 보이는 범위 — 카메라 이동/줌이 멈출 때 갱신
@@ -82,9 +81,6 @@ struct HomeView: View {
         }
         .task {
             await loadStores()
-            // 홈에 돌아올 때마다 갱신 — 채팅방에서 읽고 나오면 점이 사라진다
-            guard let uid = authSession.userId else { return }
-            hasUnreadChats = await ChatService.unreadCount(userId: uid) > 0
         }
         .onChange(of: boarding.isLoaded) { loaded in
             // RootView에서 시작한 동일 요청이 늦게 끝나도 오류 배너를 즉시 정상 상태로 되돌린다.
@@ -119,7 +115,7 @@ struct HomeView: View {
                 }
             }
             Spacer()
-            Button(action: { router.go(.chatList) }) {
+            Button(action: { router.go(.notificationInbox) }) {
                 ZStack {
                     Circle()
                         .fill(.white)
@@ -130,7 +126,7 @@ struct HomeView: View {
                         .foregroundStyle(Color.brandBrown)
                 }
                 .overlay(alignment: .topTrailing) {
-                    if hasUnreadChats {
+                    if notificationService.unreadInboxCount > 0 {
                         Circle()
                             .fill(.red)
                             .frame(width: 8, height: 8)

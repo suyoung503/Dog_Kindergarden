@@ -99,6 +99,7 @@ struct RootView: View {
         case .ownerApplications: OwnerApplicationAdminView()
         case .supportConversationList: SupportConversationListView()
         case .supportConversation: SupportConversationView()
+        case .notificationInbox: NotificationInboxView()
         }
     }
 }

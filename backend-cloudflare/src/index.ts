@@ -2184,6 +2184,7 @@ type NotificationCursor = {
 };
 
 type NotificationItem = {
+  event_id: string;
   type:
     | "chat"
     | "reservation_request"
@@ -2275,9 +2276,11 @@ app.get("/api/users/:id/notifications", async (c) => {
       store_name: string | null;
       store_type: string | null;
       cnt: number;
+      last_id: number;
     }>();
   for (const row of asCustomer.results) {
     items.push({
+      event_id: `chat:${row.last_id}`,
       type: "chat",
       title: row.sender_id === 0 ? "맡겨멍" : (row.store_name ?? "채팅"),
       body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
@@ -2303,9 +2306,16 @@ app.get("/api/users/:id/notifications", async (c) => {
     `,
     )
       .bind(userId, userId, userId, afterMessage)
-      .all<{ room_id: number; content: string; customer_name: string | null; cnt: number }>();
+      .all<{
+        room_id: number;
+        content: string;
+        customer_name: string | null;
+        cnt: number;
+        last_id: number;
+      }>();
     for (const row of asOwnerRows.results) {
       items.push({
+        event_id: `chat:${row.last_id}`,
         type: "chat",
         title: row.customer_name ?? "보호자",
         body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
@@ -2333,6 +2343,7 @@ app.get("/api/users/:id/notifications", async (c) => {
       .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; reservation_type: string | null }>();
     for (const row of requests.results) {
       items.push({
+        event_id: `reservation_request:${row.reservation_id}`,
         type: "reservation_request",
         title: "새 예약 요청",
         body: `${row.pet_name ?? "강아지"} 보호자의 ${row.reservation_type ?? "예약"} 요청 — ${row.store_name ?? ""}`,
@@ -2359,6 +2370,7 @@ app.get("/api/users/:id/notifications", async (c) => {
       .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; start_date: string }>();
     for (const row of canceled.results) {
       items.push({
+        event_id: `reservation_canceled:${row.reservation_id}`,
         type: "reservation_canceled",
         title: "예약 취소",
         body: `${row.pet_name ?? "강아지"} 보호자가 ${row.start_date} 예약을 취소했어요 — ${row.store_name ?? ""}`,
@@ -2381,9 +2393,16 @@ app.get("/api/users/:id/notifications", async (c) => {
     `,
     )
       .bind(afterSupportMessage)
-      .all<{ conversation_id: number; content: string; user_name: string | null; cnt: number }>();
+      .all<{
+        conversation_id: number;
+        content: string;
+        user_name: string | null;
+        cnt: number;
+        last_id: number;
+      }>();
     for (const row of supportMessages.results) {
       items.push({
+        event_id: `support:${row.last_id}`,
         type: "support",
         title: row.user_name ?? "고객 문의",
         body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
@@ -2405,6 +2424,7 @@ app.get("/api/users/:id/notifications", async (c) => {
       .all<{ application_id: number; nickname: string | null; store_name: string | null }>();
     for (const row of ownerApplications.results) {
       items.push({
+        event_id: `owner_application:${row.application_id}`,
         type: "owner_application",
         title: "새 가게 등록 요청",
         body: `${row.nickname ?? "사장님"} · ${row.store_name ?? "가게"}`,
@@ -2424,9 +2444,10 @@ app.get("/api/users/:id/notifications", async (c) => {
     `,
     )
       .bind(userId, afterSupportMessage)
-      .all<{ conversation_id: number; content: string; cnt: number }>();
+      .all<{ conversation_id: number; content: string; cnt: number; last_id: number }>();
     for (const row of supportReplies.results) {
       items.push({
+        event_id: `support:${row.last_id}`,
         type: "support",
         title: "맡겨멍 고객센터",
         body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,

@@ -203,12 +203,30 @@ const adminSupportNotifications = await request(
   { token: adminToken },
 );
 expect("운영자 문의 알림 조회", adminSupportNotifications.status, 200);
+const adminSupportNotification = adminSupportNotifications.data.notifications.find(
+  (item) => item.type === "support" && item.conversation_id === supportConversationId,
+);
 expect(
   "운영자 문의 알림에 대화 연결 포함",
-  adminSupportNotifications.data.notifications.some(
-    (item) => item.type === "support" && item.conversation_id === supportConversationId,
-  ),
+  Boolean(adminSupportNotification),
   true,
+);
+expect(
+  "문의 알림의 안정적 이벤트 식별자",
+  adminSupportNotification?.event_id?.startsWith("support:") ?? false,
+  true,
+);
+const repeatedAdminSupportNotifications = await request(
+  "GET",
+  notificationPath(adminLogin.data.user_id, adminNotificationBaseline.data.cursor),
+  { token: adminToken },
+);
+expect(
+  "같은 커서 재조회 시 문의 이벤트 식별자 유지",
+  repeatedAdminSupportNotifications.data.notifications.find(
+    (item) => item.type === "support" && item.conversation_id === supportConversationId,
+  )?.event_id,
+  adminSupportNotification.event_id,
 );
 
 expect(
@@ -363,6 +381,13 @@ expect(
     (item) => item.type === "owner_application" && item.application_id === applicationId,
   ),
   true,
+);
+expect(
+  "등록 요청 알림의 안정적 이벤트 식별자",
+  ownerApplicationNotifications.data.notifications.find(
+    (item) => item.type === "owner_application" && item.application_id === applicationId,
+  )?.event_id,
+  `owner_application:${applicationId}`,
 );
 
 expect(

@@ -5,6 +5,7 @@ import Observation
 
 // 알림 피드 항목 — 서버 snake_case 그대로 (ChatService 패턴)
 struct NotificationItemDTO: Decodable {
+    let event_id: String?
     let type: String
     let title: String
     let body: String
@@ -14,6 +15,40 @@ struct NotificationItemDTO: Decodable {
     let application_id: Int?
     let as_owner: Bool?
     let store_type: String?
+}
+
+struct AppInboxItem: Codable, Identifiable, Equatable {
+    let id: String
+    let type: String
+    let title: String
+    let body: String
+    let roomId: Int?
+    let reservationId: Int?
+    let conversationId: Int?
+    let applicationId: Int?
+    let asOwner: Bool
+    let storeType: String?
+    let receivedAt: Date
+    var isRead: Bool
+
+    var deepLink: NotificationDeepLink? {
+        switch type {
+        case "chat":
+            guard let roomId else { return nil }
+            return .chat(roomId: roomId, title: title, asOwner: asOwner, storeType: storeType)
+        case "reservation_confirmed":
+            return .reservationList
+        case "reservation_request", "reservation_canceled":
+            return .ownerMode
+        case "support":
+            guard let conversationId else { return nil }
+            return .support(conversationId: conversationId, title: title)
+        case "owner_application":
+            return .ownerApplications
+        default:
+            return nil
+        }
+    }
 }
 
 // 알림 탭 딥링크 — RootView가 소비해 AppRouter로 이동
@@ -34,17 +69,24 @@ final class AppNotificationService: NSObject {
     var pendingDeepLink: NotificationDeepLink? = nil
     var activeRoomId: Int? = nil   // 열려 있는 채팅방 — 그 방의 chat 알림은 배너 생략
     var authorizationStatus: UNAuthorizationStatus = .notDetermined
+    var inboxItems: [AppInboxItem] = []
     private var userId: Int? = nil
 
+    var unreadInboxCount: Int { inboxItems.lazy.filter { !$0.isRead }.count }
+
     func configure(userId: Int?) {
+        guard self.userId != userId else { return }
         self.userId = userId
+        loadInbox()
     }
 
     func clearAfterAccountDeletion(userId: Int) {
         if self.userId == userId { self.userId = nil }
         pendingDeepLink = nil
         activeRoomId = nil
+        inboxItems = []
         UserDefaults.standard.removeObject(forKey: "notification_cursor_\(userId)")
+        UserDefaults.standard.removeObject(forKey: inboxKey(userId: userId))
         let center = UNUserNotificationCenter.current()
         center.removeAllDeliveredNotifications()
         center.removeAllPendingNotificationRequests()
@@ -95,8 +137,87 @@ final class AppNotificationService: NSObject {
         guard let rawItems = json["notifications"],
               let itemsData = try? JSONSerialization.data(withJSONObject: rawItems),
               let items = try? JSONDecoder().decode([NotificationItemDTO].self, from: itemsData) else { return }
+        appendToInbox(items)
         for item in items { publish(item) }
     }
+
+    func markAllInboxRead() {
+        guard inboxItems.contains(where: { !$0.isRead }) else { return }
+        for index in inboxItems.indices { inboxItems[index].isRead = true }
+        saveInbox()
+    }
+
+    func markInboxRead(id: String) {
+        guard let index = inboxItems.firstIndex(where: { $0.id == id }),
+              !inboxItems[index].isRead else { return }
+        inboxItems[index].isRead = true
+        saveInbox()
+    }
+
+    func clearInbox() {
+        inboxItems = []
+        guard let userId else { return }
+        UserDefaults.standard.removeObject(forKey: inboxKey(userId: userId))
+    }
+
+    private func appendToInbox(_ items: [NotificationItemDTO]) {
+        guard !items.isEmpty, userId != nil else { return }
+        var knownIds = Set(inboxItems.map(\.id))
+        let receivedAt = Date()
+        var additions: [AppInboxItem] = []
+        for item in items {
+            let id = item.event_id ?? fallbackId(for: item)
+            guard knownIds.insert(id).inserted else { continue }
+            additions.append(AppInboxItem(
+                id: id,
+                type: item.type,
+                title: item.title,
+                body: item.body,
+                roomId: item.room_id,
+                reservationId: item.reservation_id,
+                conversationId: item.conversation_id,
+                applicationId: item.application_id,
+                asOwner: item.as_owner ?? false,
+                storeType: item.store_type,
+                receivedAt: receivedAt,
+                isRead: item.type == "chat" && item.room_id == activeRoomId
+            ))
+        }
+        guard !additions.isEmpty else { return }
+        inboxItems.insert(contentsOf: additions.reversed(), at: 0)
+        if inboxItems.count > 100 { inboxItems = Array(inboxItems.prefix(100)) }
+        saveInbox()
+    }
+
+    private func fallbackId(for item: NotificationItemDTO) -> String {
+        [
+            item.type,
+            String(item.room_id ?? 0),
+            String(item.reservation_id ?? 0),
+            String(item.conversation_id ?? 0),
+            String(item.application_id ?? 0),
+            item.title,
+            item.body,
+        ].joined(separator: "|")
+    }
+
+    private func loadInbox() {
+        guard let userId,
+              let data = UserDefaults.standard.data(forKey: inboxKey(userId: userId)),
+              let items = try? JSONDecoder().decode([AppInboxItem].self, from: data) else {
+            inboxItems = []
+            return
+        }
+        inboxItems = items
+    }
+
+    private func saveInbox() {
+        guard let userId,
+              let data = try? JSONEncoder().encode(inboxItems) else { return }
+        UserDefaults.standard.set(data, forKey: inboxKey(userId: userId))
+    }
+
+    private func inboxKey(userId: Int) -> String { "notification_inbox_\(userId)" }
 
     private func publish(_ item: NotificationItemDTO) {
         if item.type == "chat", let roomId = item.room_id, roomId == activeRoomId { return }
@@ -106,6 +227,7 @@ final class AppNotificationService: NSObject {
         content.sound = .default
         content.userInfo = [
             "type": item.type,
+            "event_id": item.event_id ?? fallbackId(for: item),
             "room_id": item.room_id ?? 0,
             "reservation_id": item.reservation_id ?? 0,
             "conversation_id": item.conversation_id ?? 0,
@@ -117,7 +239,9 @@ final class AppNotificationService: NSObject {
         // 매번 고유 identifier — 같은 방으로 여러 번 알림이 와도 알림 센터에 각각 쌓인다
         // (예전엔 방 기준 고정 id라 나중 알림이 이전 알림을 덮어써 히스토리가 사라졌음)
         let request = UNNotificationRequest(
-            identifier: "\(item.type)-\(UUID().uuidString)", content: content, trigger: nil
+            identifier: item.event_id ?? "\(item.type)-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
     }
@@ -135,13 +259,22 @@ final class AppNotificationService: NSObject {
     nonisolated static func handleBackgroundRefresh(_ task: BGAppRefreshTask) {
         scheduleBackgroundRefresh()   // 다음 실행 재예약
         let poll = Task { @MainActor in
-            await shared.pollOnce()   // 콜드 BG 런치로 userId 미설정이면 no-op (한계 수용)
+            shared.restoreUserForBackgroundIfNeeded()
+            await shared.pollOnce()
             task.setTaskCompleted(success: true)
         }
         task.expirationHandler = {
             poll.cancel()
             task.setTaskCompleted(success: false)
         }
+    }
+
+    private func restoreUserForBackgroundIfNeeded() {
+        guard userId == nil,
+              AuthTokenStore.load() != nil,
+              let storedUserId = UserDefaults.standard.value(forKey: "auth_user_id") as? Int else { return }
+        userId = storedUserId
+        loadInbox()
     }
 }
 
@@ -165,6 +298,7 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let info = response.notification.request.content.userInfo
+        let eventId = info["event_id"] as? String
         let type = info["type"] as? String ?? ""
         let roomId = info["room_id"] as? Int ?? 0
         let conversationId = info["conversation_id"] as? Int ?? 0
@@ -188,6 +322,7 @@ extension AppNotificationService: UNUserNotificationCenterDelegate {
         }
         if let link {
             Task { @MainActor in
+                if let eventId { AppNotificationService.shared.markInboxRead(id: eventId) }
                 AppNotificationService.shared.pendingDeepLink = link
             }
         }
