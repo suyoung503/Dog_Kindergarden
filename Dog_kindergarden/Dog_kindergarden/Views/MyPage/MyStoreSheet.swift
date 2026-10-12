@@ -11,6 +11,8 @@ struct MyStoreSheet: View {
     @State private var query = ""
     @State private var errorMessage: String?
     @State private var pendingClaim: MapPin?
+    @State private var loadPhase: AsyncLoadPhase = .idle
+    @State private var hasLoadedOnce = false
 
     // 상호명 부분일치 검색 (2글자 이상, 최대 30개)
     private var results: [MapPin] {
@@ -23,9 +25,24 @@ struct MyStoreSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    registeredSection
-                    pendingSection
-                    searchSection
+                    if !hasLoadedOnce && (loadPhase == .idle || loadPhase.isLoading) {
+                        AsyncLoadingStateView(message: "내 가게 정보를 불러오는 중이에요")
+                    } else if !hasLoadedOnce, case .failed(let message) = loadPhase {
+                        AsyncLoadFailureView(message: message) {
+                            Task { await load() }
+                        }
+                    } else {
+                        if loadPhase.isLoading {
+                            AsyncRefreshIndicator()
+                        } else if case .failed(let message) = loadPhase {
+                            AsyncLoadFailureView(message: message, compact: true) {
+                                Task { await load() }
+                            }
+                        }
+                        registeredSection
+                        pendingSection
+                        searchSection
+                    }
                     if let error = errorMessage {
                         Text(error)
                             .font(.system(size: 12))
@@ -35,6 +52,7 @@ struct MyStoreSheet: View {
                 .padding(20)
             }
             .background(Color.brandCream.ignoresSafeArea())
+            .refreshable { await load() }
             .navigationTitle("내 가게")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -171,7 +189,7 @@ struct MyStoreSheet: View {
             .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
 
             if query.trimmingCharacters(in: .whitespaces).count < 2 {
-                Text("2글자 이상 입력하면 전국 등록 업체에서 찾아드려요")
+                Text("2글자 이상 입력하면 서울 등록 업체에서 찾아드려요")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.brandBrownLight)
             } else if results.isEmpty {
@@ -238,9 +256,23 @@ struct MyStoreSheet: View {
     }
 
     private func load() async {
-        guard let uid = authSession.userId else { return }
-        myStores = (try? await APIClient.shared.fetchOwnerStores(userId: uid)) ?? []
-        applications = (try? await APIClient.shared.fetchMyStoreOwnerApplications(userId: uid)) ?? []
+        guard let uid = authSession.userId else {
+            loadPhase = .failed("로그인 정보를 확인하지 못했어요. 다시 로그인해주세요.")
+            return
+        }
+
+        loadPhase = .loading
+        do {
+            async let stores = APIClient.shared.fetchOwnerStores(userId: uid)
+            async let ownerApplications = APIClient.shared.fetchMyStoreOwnerApplications(userId: uid)
+            let (loadedStores, loadedApplications) = try await (stores, ownerApplications)
+            myStores = loadedStores
+            applications = loadedApplications
+            hasLoadedOnce = true
+            loadPhase = .loaded
+        } catch {
+            loadPhase = .failed("내 가게 정보를 불러오지 못했어요. 네트워크 연결을 확인하고 다시 시도해주세요.")
+        }
     }
 
     private func claim(_ pin: MapPin) {
