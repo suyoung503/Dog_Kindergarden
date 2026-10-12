@@ -5,6 +5,7 @@ private let typeTagColor = Color(hex: "#FFE6CC")
 struct StoreDetailView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
+    @Environment(\.openURL) private var openURL
     @State private var reviewService = ReviewService()
     @State private var blogService = NaverBlogService()
     @State private var showWriteSheet = false
@@ -16,6 +17,7 @@ struct StoreDetailView: View {
     @State private var selectedImageIndex = 0
     @State private var isStoreDetailLoading = true
     @State private var storeDetailLoadFailed = false
+    @State private var externalOpenError: String?
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
@@ -45,6 +47,7 @@ struct StoreDetailView: View {
                 VStack(spacing: 0) {
                     heroSection
                     titleCard
+                    contactActionsSection
                     if isStoreDetailLoading {
                         capabilityLoadingSection
                     } else if storeDetailLoadFailed {
@@ -139,6 +142,14 @@ struct StoreDetailView: View {
                 imageURLs: galleryImageUrls,
                 selectedIndex: $selectedImageIndex
             )
+        }
+        .alert("연결할 수 없어요", isPresented: Binding(
+            get: { externalOpenError != nil },
+            set: { if !$0 { externalOpenError = nil } }
+        )) {
+            Button("확인", role: .cancel) { externalOpenError = nil }
+        } message: {
+            Text(externalOpenError ?? "잠시 후 다시 시도해주세요.")
         }
     }
 
@@ -543,24 +554,43 @@ struct StoreDetailView: View {
                     .foregroundStyle(Color.brandBrownMid)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
-                    if let phoneURL {
-                        Link(destination: phoneURL) {
-                            contactButton("전화하기", icon: "phone.fill")
-                        }
-                    }
-                    if let externalMapURL {
-                        Link(destination: externalMapURL) {
-                            contactButton("지도에서 보기", icon: "map.fill")
-                        }
-                    }
-                }
             }
             .padding(14)
             .background(.white)
             .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
             .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
         }
+    }
+
+    private var contactActionsSection: some View {
+        sectionWrapper(title: "연락·위치") {
+            HStack(spacing: 8) {
+                Button {
+                    guard let phoneURL else {
+                        externalOpenError = "이 업체는 연결 가능한 전화번호를 제공하지 않았어요."
+                        return
+                    }
+                    openExternalURL(phoneURL, failureMessage: "이 기기에서 전화 앱을 열 수 없어요.")
+                } label: {
+                    contactButton(
+                        phoneURL == nil ? "전화번호 없음" : "전화하기",
+                        icon: phoneURL == nil ? "phone.down.fill" : "phone.fill",
+                        enabled: phoneURL != nil
+                    )
+                }
+
+                Button {
+                    guard let externalMapURL else {
+                        externalOpenError = "지도에서 검색할 가게 정보가 없어요."
+                        return
+                    }
+                    openExternalURL(externalMapURL, failureMessage: "지도 페이지를 열 수 없어요.")
+                } label: {
+                    contactButton("지도에서 보기", icon: "map.fill", enabled: externalMapURL != nil)
+                }
+            }
+        }
+        .padding(.bottom, 8)
     }
 
     private var partnerTags: [String] {
@@ -589,26 +619,42 @@ struct StoreDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.brandBeigeBorder, lineWidth: 1))
     }
 
-    private func contactButton(_ title: String, icon: String) -> some View {
+    private func contactButton(_ title: String, icon: String, enabled: Bool = true) -> some View {
         Label(title, systemImage: icon)
             .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(Color.brandOrange)
+            .foregroundStyle(enabled ? Color.brandOrange : Color.brandBrownLight)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
-            .background(Color(hex: "#FFF1DC"))
+            .background(enabled ? Color(hex: "#FFF1DC") : Color.brandCream)
             .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     private var phoneURL: URL? {
-        let digits = displayPhone.filter { $0.isNumber || $0 == "+" }
-        return digits.isEmpty ? nil : URL(string: "tel:\(digits)")
+        let raw = displayPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.contains("*"), !raw.contains("X"), !raw.contains("x") else { return nil }
+        let digits = raw.filter(\.isNumber)
+        guard (8...15).contains(digits.count) else { return nil }
+        let normalized = raw.hasPrefix("+") ? "+\(digits)" : digits
+        return URL(string: "tel:\(normalized)")
     }
 
     private var externalMapURL: URL? {
         if let raw = kakaoPlace?.placeURL, !raw.isEmpty, let url = URL(string: raw) { return url }
-        let query = [storeName, displayAddress].filter { !$0.isEmpty }.joined(separator: " ")
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        let query = [storeName, displayAddress]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !query.isEmpty else { return nil }
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
         return URL(string: "https://map.kakao.com/link/search/\(encoded)")
+    }
+
+    private func openExternalURL(_ url: URL, failureMessage: String) {
+        openURL(url) { accepted in
+            if !accepted { externalOpenError = failureMessage }
+        }
     }
 
     private var galleryImageUrls: [String] {
