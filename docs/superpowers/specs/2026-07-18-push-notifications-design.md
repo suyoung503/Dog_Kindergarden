@@ -85,7 +85,7 @@ ALTER TABLE reservations ADD COLUMN canceled_by TEXT; -- 'USER' | 'OWNER'
 
 ### 범위 외 (백엔드)
 
-- 인증 없음(user_id 클라이언트 신뢰)은 기존 데모 한계 그대로 — 이 엔드포인트도 동일.
+- 별도 알림 전용 인증 체계는 만들지 않는다. 기존 Bearer 세션 미들웨어와 URL 사용자 번호의 본인 일치 검사를 그대로 적용한다.
 
 ## iOS 변경
 
@@ -153,7 +153,7 @@ ALTER TABLE reservations ADD COLUMN canceled_by TEXT; -- 'USER' | 'OWNER'
 
 **iOS** — xcodebuild BUILD SUCCEEDED → 시뮬레이터에서 `dev-simulator` ↔ `dev-simulator-owner` 전환 시나리오:
 
-1. 홈 진입 시 알림 권한 프롬프트.
+1. 로그인 직후에는 권한 프롬프트가 뜨지 않고, 마이페이지에서 `알림 받기`를 누를 때만 요청.
 2. 상대 계정이 메시지 전송(또는 curl로 주입) → 30초 내 배너 표시, 탭 시 해당 채팅방 진입(`chatRoomAsOwner` 올바름).
 3. 열려 있는 채팅방의 메시지는 배너 미표시(억제 규칙).
 4. 예약 확정 → 고객 배너 1회, 탭 시 예약 내역.
