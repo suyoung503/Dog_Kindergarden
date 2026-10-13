@@ -87,15 +87,7 @@ struct StoreDetailView: View {
             await reviewService.loadEligibility(storeKey: storeKey, userId: uid)
         }
         .task(id: storeKey) {
-            isStoreDetailLoading = true
-            storeDetailLoadFailed = false
-            do {
-                storeDetail = try await APIClient.shared.fetchStoreDetail(storeKey: storeKey)
-            } catch {
-                storeDetail = nil
-                storeDetailLoadFailed = true
-            }
-            isStoreDetailLoading = false
+            await loadStoreDetail()
         }
         .task(id: storeKey) {
             // 찜 여부 확인 — 내 찜 목록에서 같은 store_key 찾기
@@ -120,7 +112,7 @@ struct StoreDetailView: View {
         .task(id: "\(storeKey)|\(isPartner)") {
             // 네이버 블로그 후기 검색 (지역명 + 가게명)
             guard isPartner else {
-                blogService.posts = []
+                blogService.clear()
                 return
             }
             await blogService.load(storeKey: storeKey)
@@ -158,43 +150,73 @@ struct StoreDetailView: View {
     private var petReviewSection: some View {
         sectionWrapper(title: "🐾 우리 아이 리뷰") {
             VStack(alignment: .leading, spacing: 12) {
-                // 보호자들이 인증한 태그 (= 필터 데이터)
-                if let s = reviewService.summary, s.count > 0 {
-                    HStack(spacing: 6) {
-                        Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(Color.brandOrange)
-                        Text(String(format: "%.1f", s.avg_rating ?? 0))
-                            .font(.system(size: 14, weight: .bold)).foregroundStyle(Color.brandBrown)
-                        Text("· 보호자 \(s.count)명").font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
+                if reviewService.summary == nil && (reviewService.loadPhase == .idle || reviewService.loadPhase.isLoading) {
+                    inlineLoadingState("이용 인증 리뷰를 불러오는 중이에요")
+                } else if reviewService.summary == nil,
+                          case .failed(let message) = reviewService.loadPhase {
+                    AsyncLoadFailureView(message: message, compact: true) {
+                        Task { await reviewService.load(storeKey: storeKey) }
                     }
-                    FlowTags(tags: confirmedTags(s))
                 } else {
-                    Text("아직 이용 인증 리뷰가 없어요")
-                        .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
-                }
-
-                // 리뷰 목록
-                ForEach(reviewService.reviews.prefix(5)) { r in
-                    reviewRow(r)
-                }
-
-                // 작성 버튼
-                Button(action: { showWriteSheet = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: canWriteReview ? "checkmark.seal.fill" : "lock.fill")
-                            .font(.system(size: 13))
-                        Text(reviewButtonTitle).font(.system(size: 13, weight: .bold))
+                    if reviewService.loadPhase.isLoading {
+                        AsyncRefreshIndicator()
+                    } else if case .failed(let message) = reviewService.loadPhase {
+                        AsyncLoadFailureView(message: message, compact: true) {
+                            Task { await reviewService.load(storeKey: storeKey) }
+                        }
                     }
-                    .foregroundStyle(canWriteReview ? Color.brandOrange : Color.brandBrownLight)
-                    .frame(maxWidth: .infinity).frame(height: 40)
-                    .background(canWriteReview ? Color(hex: "#FFF1DC") : Color.white.opacity(0.65))
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                }
-                .disabled(!canWriteReview)
 
-                Text(reviewEligibilityMessage)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.brandBrownMid)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    // 보호자들이 인증한 태그 (= 필터 데이터)
+                    if let s = reviewService.summary, s.count > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(Color.brandOrange)
+                            Text(String(format: "%.1f", s.avg_rating ?? 0))
+                                .font(.system(size: 14, weight: .bold)).foregroundStyle(Color.brandBrown)
+                            Text("· 보호자 \(s.count)명").font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
+                        }
+                        FlowTags(tags: confirmedTags(s))
+                    } else {
+                        Text("아직 이용 인증 리뷰가 없어요")
+                            .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
+                    }
+
+                    // 리뷰 목록
+                    ForEach(reviewService.reviews.prefix(5)) { r in
+                        reviewRow(r)
+                    }
+
+                    // 작성 버튼
+                    Button(action: { showWriteSheet = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: canWriteReview ? "checkmark.seal.fill" : "lock.fill")
+                                .font(.system(size: 13))
+                            Text(reviewButtonTitle).font(.system(size: 13, weight: .bold))
+                        }
+                        .foregroundStyle(canWriteReview ? Color.brandOrange : Color.brandBrownLight)
+                        .frame(maxWidth: .infinity).frame(height: 40)
+                        .background(canWriteReview ? Color(hex: "#FFF1DC") : Color.white.opacity(0.65))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                    }
+                    .disabled(!canWriteReview)
+
+                    Text(reviewEligibilityMessage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.brandBrownMid)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    if case .failed = reviewService.eligibilityLoadPhase,
+                       let uid = authSession.userId {
+                        Button("작성 자격 다시 확인") {
+                            Task {
+                                await reviewService.loadEligibility(storeKey: storeKey, userId: uid)
+                            }
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.brandOrange)
+                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -213,6 +235,9 @@ struct StoreDetailView: View {
             return "로그인 후 이용 내역이 확인된 보호자만 작성할 수 있어요"
         }
         if reviewService.isCheckingEligibility { return "확정된 이용 완료 내역을 확인하고 있어요" }
+        if case .failed = reviewService.eligibilityLoadPhase {
+            return "리뷰 작성 자격을 불러오지 못했어요"
+        }
         return reviewService.eligibility?.guidanceMessage ?? "리뷰 작성 자격을 불러오지 못했어요"
     }
 
@@ -475,18 +500,12 @@ struct StoreDetailView: View {
 
     private var capabilityErrorSection: some View {
         sectionWrapper(title: "이용 안내") {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("업체 정보를 불러오지 못했어요", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.brandBrown)
-                Text("안전을 위해 예약과 채팅을 잠시 사용할 수 없습니다. 잠시 후 다시 열어주세요.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.brandBrownMid)
+            AsyncLoadFailureView(
+                message: "업체 정보를 불러오지 못했어요. 안전을 위해 예약과 채팅을 잠시 사용할 수 없습니다.",
+                compact: true
+            ) {
+                Task { await loadStoreDetail() }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         }
     }
 
@@ -696,15 +715,61 @@ struct StoreDetailView: View {
             .replacingOccurrences(of: " / ", with: "\n")
     }
 
+    private func loadStoreDetail() async {
+        let requestStoreKey = storeKey
+        isStoreDetailLoading = true
+        storeDetailLoadFailed = false
+        storeDetail = nil
+        do {
+            let loaded = try await APIClient.shared.fetchStoreDetail(storeKey: requestStoreKey)
+            guard requestStoreKey == storeKey else { return }
+            storeDetail = loaded
+        } catch {
+            guard requestStoreKey == storeKey else { return }
+            storeDetail = nil
+            storeDetailLoadFailed = true
+        }
+        if requestStoreKey == storeKey { isStoreDetailLoading = false }
+    }
+
+    private func inlineLoadingState(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(Color.brandOrange)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.brandBrownMid)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+    }
+
     // MARK: - 블로그 후기 (네이버)
 
     private var blogSection: some View {
         sectionWrapper(title: "블로그 후기") {
             VStack(alignment: .leading, spacing: 8) {
-                if blogService.posts.isEmpty {
-                    Text(blogService.isLoading ? "블로그 후기를 찾는 중…" : "관련 블로그 글을 찾지 못했어요.")
-                        .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
+                if blogService.posts.isEmpty && (blogService.loadPhase == .idle || blogService.loadPhase.isLoading) {
+                    inlineLoadingState("블로그 후기를 찾는 중이에요")
+                } else if blogService.posts.isEmpty,
+                          case .failed(let message) = blogService.loadPhase {
+                    AsyncLoadFailureView(message: message, compact: true) {
+                        Task { await blogService.load(storeKey: storeKey) }
+                    }
                 } else {
+                    if blogService.loadPhase.isLoading {
+                        AsyncRefreshIndicator()
+                    } else if case .failed(let message) = blogService.loadPhase {
+                        AsyncLoadFailureView(message: message, compact: true) {
+                            Task { await blogService.load(storeKey: storeKey) }
+                        }
+                    }
+
+                    if blogService.posts.isEmpty {
+                        Text("관련 블로그 글을 찾지 못했어요.")
+                            .font(.system(size: 12)).foregroundStyle(Color.brandBrownMid)
+                    }
                     ForEach(blogService.posts) { post in
                         if let url = URL(string: post.link) {
                             Link(destination: url) { blogRow(post) }
@@ -712,8 +777,10 @@ struct StoreDetailView: View {
                             blogRow(post)
                         }
                     }
-                    Text("네이버 블로그 검색 결과 · 광고성 글이 포함될 수 있어요")
-                        .font(.system(size: 9)).foregroundStyle(Color.brandBrownLight)
+                    if !blogService.posts.isEmpty {
+                        Text("네이버 블로그 검색 결과 · 광고성 글이 포함될 수 있어요")
+                            .font(.system(size: 9)).foregroundStyle(Color.brandBrownLight)
+                    }
                 }
             }
         }

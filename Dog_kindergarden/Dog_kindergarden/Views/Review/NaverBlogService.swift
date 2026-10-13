@@ -16,7 +16,10 @@ struct BlogPost: Identifiable {
 @Observable
 final class NaverBlogService {
     var posts: [BlogPost] = []
-    var isLoading = false
+    var loadPhase: AsyncLoadPhase = .idle
+    private var activeStoreKey: String?
+
+    var isLoading: Bool { loadPhase.isLoading }
 
     private struct Item: Decodable {
         let title: String
@@ -27,8 +30,9 @@ final class NaverBlogService {
     }
 
     func load(storeKey: String) async {
-        isLoading = true
-        defer { isLoading = false }
+        if activeStoreKey != storeKey { posts = [] }
+        activeStoreKey = storeKey
+        loadPhase = .loading
 
         var comps = URLComponents(
             url: APIEnvironment.apiBaseURL.appendingPathComponent("store-enrichment/blogs"),
@@ -37,7 +41,10 @@ final class NaverBlogService {
         comps.queryItems = [
             URLQueryItem(name: "storeKey", value: storeKey),
         ]
-        guard let url = comps.url else { return }
+        guard let url = comps.url else {
+            loadPhase = .failed("블로그 후기 주소를 만들지 못했어요.")
+            return
+        }
 
         do {
             let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
@@ -51,12 +58,25 @@ final class NaverBlogService {
                     date: item.date
                 )
             }
-            await MainActor.run { self.posts = mapped }
+            await MainActor.run {
+                guard self.activeStoreKey == storeKey else { return }
+                self.posts = mapped
+                self.loadPhase = .loaded
+            }
         } catch {
-            await MainActor.run { self.posts = [] }
+            await MainActor.run {
+                guard self.activeStoreKey == storeKey else { return }
+                self.loadPhase = .failed("블로그 후기를 불러오지 못했어요. 네트워크 연결을 확인해주세요.")
+            }
             #if DEBUG
             print("⚠️ 네이버 블로그 검색 실패: \(error)")
             #endif
         }
+    }
+
+    func clear() {
+        posts = []
+        loadPhase = .idle
+        activeStoreKey = nil
     }
 }

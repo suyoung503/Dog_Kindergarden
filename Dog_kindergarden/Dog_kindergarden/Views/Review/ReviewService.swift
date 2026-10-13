@@ -121,28 +121,49 @@ final class TagStore {
 final class ReviewService {
     var summary: ReviewSummary?
     var reviews: [PetReview] = []
-    var isLoading = false
+    var loadPhase: AsyncLoadPhase = .idle
     var eligibility: ReviewEligibility?
-    var isCheckingEligibility = false
+    var eligibilityLoadPhase: AsyncLoadPhase = .idle
+    private var activeStoreKey: String?
+    private var activeEligibilityKey: String?
+
+    var isLoading: Bool { loadPhase.isLoading }
+    var isCheckingEligibility: Bool { eligibilityLoadPhase.isLoading }
 
     func storeKey(name: String, address: String = "") -> String {
         address.isEmpty ? name : "\(name)|\(address)"
     }
 
     func load(storeKey: String) async {
-        isLoading = true
-        defer { isLoading = false }
-        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews"), resolvingAgainstBaseURL: false) else { return }
+        if activeStoreKey != storeKey {
+            summary = nil
+            reviews = []
+        }
+        activeStoreKey = storeKey
+        loadPhase = .loading
+        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews"), resolvingAgainstBaseURL: false) else {
+            loadPhase = .failed("리뷰 주소를 만들지 못했어요.")
+            return
+        }
         comps.queryItems = [URLQueryItem(name: "storeKey", value: storeKey)]
-        guard let url = comps.url else { return }
+        guard let url = comps.url else {
+            loadPhase = .failed("리뷰 주소를 만들지 못했어요.")
+            return
+        }
         do {
             let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             let decoded = try JSONDecoder().decode(ReviewListResponse.self, from: data)
             await MainActor.run {
+                guard self.activeStoreKey == storeKey else { return }
                 self.summary = decoded.summary
                 self.reviews = decoded.reviews
+                self.loadPhase = .loaded
             }
         } catch {
+            await MainActor.run {
+                guard self.activeStoreKey == storeKey else { return }
+                self.loadPhase = .failed("리뷰를 불러오지 못했어요. 네트워크 연결을 확인해주세요.")
+            }
             #if DEBUG
             print("⚠️ 리뷰 로드 실패: \(error)")
             #endif
@@ -151,31 +172,46 @@ final class ReviewService {
 
     func clearEligibility() {
         eligibility = nil
-        isCheckingEligibility = false
+        eligibilityLoadPhase = .idle
+        activeEligibilityKey = nil
     }
 
     func clear() {
         summary = nil
         reviews = []
+        loadPhase = .idle
+        activeStoreKey = nil
         clearEligibility()
     }
 
     func loadEligibility(storeKey: String, userId: Int) async {
-        isCheckingEligibility = true
-        defer { isCheckingEligibility = false }
+        let requestKey = "\(storeKey)|\(userId)"
+        if activeEligibilityKey != requestKey { eligibility = nil }
+        activeEligibilityKey = requestKey
+        eligibilityLoadPhase = .loading
 
-        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews/eligibility"), resolvingAgainstBaseURL: false) else { return }
+        guard var comps = URLComponents(url: APIEnvironment.apiBaseURL.appendingPathComponent("pet-reviews/eligibility"), resolvingAgainstBaseURL: false) else {
+            eligibilityLoadPhase = .failed("리뷰 작성 자격을 확인하지 못했어요.")
+            return
+        }
         comps.queryItems = [
             URLQueryItem(name: "storeKey", value: storeKey),
             URLQueryItem(name: "userId", value: String(userId)),
         ]
-        guard let url = comps.url else { return }
+        guard let url = comps.url else {
+            eligibilityLoadPhase = .failed("리뷰 작성 자격을 확인하지 못했어요.")
+            return
+        }
 
         do {
             let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
-            eligibility = try JSONDecoder().decode(ReviewEligibility.self, from: data)
+            let decoded = try JSONDecoder().decode(ReviewEligibility.self, from: data)
+            guard activeEligibilityKey == requestKey else { return }
+            eligibility = decoded
+            eligibilityLoadPhase = .loaded
         } catch {
-            eligibility = nil
+            guard activeEligibilityKey == requestKey else { return }
+            eligibilityLoadPhase = .failed("리뷰 작성 자격을 확인하지 못했어요.")
             #if DEBUG
             print("⚠️ 리뷰 작성 자격 확인 실패: \(error)")
             #endif
