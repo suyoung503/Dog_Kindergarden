@@ -82,7 +82,7 @@ struct HomeView: View {
         .task {
             await loadStores()
         }
-        .onChange(of: boarding.isLoaded) { loaded in
+        .onChange(of: boarding.isLoaded) { _, loaded in
             // RootView에서 시작한 동일 요청이 늦게 끝나도 오류 배너를 즉시 정상 상태로 되돌린다.
             if loaded { storeLoadPhase = .loaded }
         }

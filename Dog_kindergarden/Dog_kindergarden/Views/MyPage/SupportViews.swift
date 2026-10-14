@@ -100,6 +100,7 @@ struct SupportConversationView: View {
     @Environment(AuthSession.self) private var authSession
     @State private var viewModel = SupportConversationViewModel()
     @State private var didInitialScroll = false
+    @State private var messageAreaWidth: CGFloat = 0
 
     private let bottomAnchor = "support-conversation-bottom"
 
@@ -192,7 +193,7 @@ struct SupportConversationView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
             }
-            .onChange(of: viewModel.messages.count) { _ in
+            .onChange(of: viewModel.messages.count) { _, _ in
                 if didInitialScroll {
                     withAnimation { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 } else {
@@ -204,6 +205,16 @@ struct SupportConversationView: View {
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            messageAreaWidth = width
+        }
+    }
+
+    private var bubbleMaxWidth: CGFloat? {
+        guard messageAreaWidth > 0 else { return nil }
+        return max((messageAreaWidth - 32) * 0.75, 0)
     }
 
     private func messageBubble(_ message: SupportMessageResponse) -> some View {
@@ -233,7 +244,7 @@ struct SupportConversationView: View {
                             .stroke(Color.brandBeigeBorder, lineWidth: 1)
                     }
                 }
-                .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: mine ? .trailing : .leading)
+                .frame(maxWidth: bubbleMaxWidth, alignment: mine ? .trailing : .leading)
             if !mine { Spacer() }
         }
     }

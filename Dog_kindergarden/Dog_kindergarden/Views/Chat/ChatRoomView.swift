@@ -108,6 +108,7 @@ struct ChatRoomView: View {
     @Environment(AuthSession.self) private var authSession
     @State private var vm = ChatRoomViewModel()
     @State private var didInitialScroll = false
+    @State private var messageListWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -205,7 +206,7 @@ struct ChatRoomView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
             }
-            .onChange(of: vm.messages.count) { _ in
+            .onChange(of: vm.messages.count) { _, _ in
                 // 방 진입 시 첫 로드는 즉시 이동, 이후 새 메시지 도착 시에만 애니메이션
                 if didInitialScroll {
                     withAnimation { proxy.scrollTo(bottomAnchorId, anchor: .bottom) }
@@ -220,6 +221,16 @@ struct ChatRoomView: View {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            messageListWidth = width
+        }
+    }
+
+    private var bubbleMaxWidth: CGFloat? {
+        guard messageListWidth > 0 else { return nil }
+        return max((messageListWidth - 32) * 0.75, 0)
     }
 
     @ViewBuilder
@@ -256,7 +267,7 @@ struct ChatRoomView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 18).stroke(Color.brandBeigeBorder, lineWidth: 1)
                     )
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .leading)
+                    .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
                 Spacer()
             }
         case .me:
@@ -273,7 +284,7 @@ struct ChatRoomView: View {
                             bottomTrailingRadius: 6, topTrailingRadius: 18
                         )
                     )
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .trailing)
+                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
             }
         }
     }

@@ -248,7 +248,7 @@ final class AppNotificationService: NSObject {
 
     // MARK: - 백그라운드 갱신 (BGAppRefreshTask — 실행 시점은 iOS 재량, 보장 없음)
 
-    static let backgroundTaskId = "net.suyoung.Dog-kindergarden.refresh"
+    nonisolated static let backgroundTaskId = "net.suyoung.Dog-kindergarden.refresh"
 
     nonisolated static func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: backgroundTaskId)

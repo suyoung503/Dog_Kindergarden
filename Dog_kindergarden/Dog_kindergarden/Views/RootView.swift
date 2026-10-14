@@ -36,11 +36,10 @@ struct RootView: View {
                 await notificationService.pollLoop()   // 로그아웃/계정 전환 시 task 취소로 종료
             }
             // 알림 탭 딥링크 — 로그인 상태면 즉시, 콜드 스타트면 세션 복원 후 소비
-            // (주의: iOS 16 타깃 — onChange 클로저는 단일 파라미터(새 값) 형태만 사용 가능)
-            .onChange(of: notificationService.pendingDeepLink) { link in
+            .onChange(of: notificationService.pendingDeepLink) { _, link in
                 if let link, authSession.userId != nil { consumeDeepLink(link) }
             }
-            .onChange(of: authSession.userId) { uid in
+            .onChange(of: authSession.userId) { _, uid in
                 if uid == nil {
                     router.reset(to: .start)
                     return

@@ -397,26 +397,29 @@ struct AddDogSheet: View {
                 }
             }
         }
-        .onChange(of: selectedPhotoItem) { item in
+        .onChange(of: selectedPhotoItem) { _, item in
             Task { await vm.loadPhoto(from: item) }
         }
     }
 
     private var photoButton: some View {
-        PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+        let selectedPhotoData = vm.selectedPhotoData
+        let isPhotoLoading = vm.isPhotoLoading
+
+        return PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
             ZStack(alignment: .bottomTrailing) {
                 ZStack {
                     Circle()
                         .fill(Color(hex: "#FFE6CC"))
                         .frame(width: 96, height: 96)
                         .overlay(Circle().stroke(.white, lineWidth: 4).shadow(radius: 4))
-                    if let data = vm.selectedPhotoData, let image = UIImage(data: data) {
+                    if let data = selectedPhotoData, let image = UIImage(data: data) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 92, height: 92)
                             .clipShape(Circle())
-                    } else if vm.isPhotoLoading {
+                    } else if isPhotoLoading {
                         ProgressView().tint(Color.brandOrange)
                     } else {
                         EmojiIcon(emoji: "🐶", size: 48)
@@ -430,7 +433,7 @@ struct AddDogSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(vm.selectedPhotoData == nil ? "갤러리에서 강아지 사진 선택" : "강아지 사진 변경")
+        .accessibilityLabel(selectedPhotoData == nil ? "갤러리에서 강아지 사진 선택" : "강아지 사진 변경")
     }
 
     private func sheetField(_ label: String, text: Binding<String>, placeholder: String, multiline: Bool = false) -> some View {

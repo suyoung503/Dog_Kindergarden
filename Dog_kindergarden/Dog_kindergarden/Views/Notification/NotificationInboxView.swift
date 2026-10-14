@@ -16,7 +16,7 @@ struct NotificationInboxView: View {
         }
         .background(Color.brandCream.ignoresSafeArea())
         .task { notificationService.markAllInboxRead() }
-        .onChange(of: notificationService.inboxItems.count) { _ in
+        .onChange(of: notificationService.inboxItems.count) { _, _ in
             notificationService.markAllInboxRead()
         }
     }

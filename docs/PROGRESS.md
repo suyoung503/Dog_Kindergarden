@@ -6,6 +6,12 @@
 
 ## 완료된 작업
 
+### iOS Release 앱 소스 경고 정리
+
+- [x] **Swift 6 actor 격리 경고 제거** (2026-10-14) — 백그라운드 작업 식별자를 `nonisolated` 상수로 명시하고, 사진 선택기 라벨이 `@MainActor` ViewModel 상태를 비격리 클로저에서 직접 읽지 않도록 값 스냅샷을 전달했다.
+- [x] **폐기 API와 중복 URL 처리 정리** (2026-10-14) — 구형 단일 인자 `onChange`, `UIScreen.main`, `UIRequiresFullScreen` 사용을 제거했다. Kakao 로그인 URL은 Scene 기반 앱 구조에 맞춰 `SceneDelegate` 한 곳에서 처리하도록 중복 AppDelegate 콜백도 삭제했다.
+- [x] **Release 검증** (2026-10-14) — iOS Simulator Release 빌드와 완성 번들의 Secret·디버그 진입 검사를 통과했고, 맡겨멍 앱 소스에서 발생하는 컴파일러 경고가 **0건**임을 확인했다. 빌드 로그에는 Alamofire·Kakao SDK 및 Xcode 도구가 내는 외부 경고가 남아 있어 의존성 업데이트 시 별도로 확인한다.
+
 ### iOS 단위 테스트 타깃 복구와 핵심 회귀 테스트 추가
 
 - [x] **Kakao SDK 테스트 의존성 복구** (2026-10-14) — `Podfile`의 앱 타깃 아래에 `Dog_kindergardenTests`를 추가하고 CocoaPods 검색 경로를 상속했다. `pod install`로 테스트용 Pods 설정과 프로젝트 연결을 생성해, 기존 출시 감사에서 Kakao 모듈을 찾지 못해 실행 전 실패하던 테스트 타깃을 정상 빌드 상태로 복구했다.

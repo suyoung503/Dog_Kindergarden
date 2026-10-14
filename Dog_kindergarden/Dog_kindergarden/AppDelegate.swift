@@ -1,7 +1,6 @@
 import UIKit
 import KakaoMapsSDK
 import KakaoSDKCommon
-import KakaoSDKAuth
 import UserNotifications
 import BackgroundTasks
 
@@ -26,13 +25,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             AppNotificationService.handleBackgroundRefresh(refresh)
         }
         return true
-    }
-
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        if AuthApi.isKakaoTalkLoginUrl(url) {
-            return AuthController.handleOpenUrl(url: url)
-        }
-        return false
     }
 
     // MARK: UISceneSession Lifecycle
