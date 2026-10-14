@@ -100,9 +100,11 @@
 
 #### M-04. 자동 테스트 타깃이 빌드되지 않으며 실제 테스트도 비어 있음
 
-- 전체 `xcodebuild test`는 `Dog_kindergardenTests`가 `KakaoMapsSDK`, `KakaoSDKAuth`, `KakaoSDKCommon`, `KakaoSDKUser`를 찾지 못해 테스트 실행 전에 실패한다.
-- Podfile에는 앱 타깃만 있고 테스트 타깃 의존성 상속이 없다.
-- Unit test와 UI test는 Xcode 기본 예제만 존재한다.
+> **2026-10-14 수정 완료:** 테스트 타깃이 앱의 CocoaPods 검색 경로를 상속하도록 복구하고 기본 예제를 핵심 회귀 테스트 5개로 교체했다. iPhone 17 Pro·iOS 26.5 시뮬레이터에서 5/5 통과했다.
+
+- **수정 전:** 전체 `xcodebuild test`는 `Dog_kindergardenTests`가 `KakaoMapsSDK`, `KakaoSDKAuth`, `KakaoSDKCommon`, `KakaoSDKUser`를 찾지 못해 테스트 실행 전에 실패했다.
+- **수정 전:** Podfile에는 앱 타깃만 있고 테스트 타깃 의존성 상속이 없었다.
+- **수정 전:** Unit test와 UI test는 Xcode 기본 예제만 존재했다.
 - **근거:** `Dog_kindergarden/Podfile`, `Dog_kindergarden/Dog_kindergardenTests/Dog_kindergardenTests.swift:13`, `Dog_kindergarden/Dog_kindergardenUITests/Dog_kindergardenUITests.swift:26`
 - **조치:** 테스트 타깃 의존성을 복구한 뒤 인증·권한, 예약 상태, 파트너 제한, 주요 UI 흐름을 자동화한다.
 

@@ -6,6 +6,12 @@ target 'Dog_kindergarden' do
   pod 'KakaoSDKCommon'
   pod 'KakaoSDKAuth'
   pod 'KakaoSDKUser'
+
+  # Unit tests import the application module with @testable, so they must be
+  # able to resolve the Kakao frameworks referenced by that module as well.
+  target 'Dog_kindergardenTests' do
+    inherit! :search_paths
+  end
 end
 
 # Xcode 27 rejects the older deployment targets declared by these SDKs.
