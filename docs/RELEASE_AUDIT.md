@@ -155,6 +155,7 @@
 | N-02 | Minor | 위치 권한 문구는 있지만 앱에서 CoreLocation을 사용하지 않아 “현재 위치”가 구현되지 않음 | `Info.plist:52-55`; CoreLocation 참조 없음 |
 | N-03 | Minor | 문서에서는 삭제 완료라고 적었지만 `Dog_kindergarden/All_data.csv` 367KB가 다시 존재하며 실행 경로에서는 사용되지 않음 | **2026-10-10 수정:** 참조·과거 삭제 기록 확인 후 제거 |
 | N-04 | Minor | **2026-10-14 수정:** 알림 서비스 actor 격리, 사진 선택기 actor 캡처, 구형 `onChange`·`UIScreen.main`·`UIRequiresFullScreen`, 중복 URL 콜백을 정리해 맡겨멍 앱 소스 Release 경고를 0건으로 만들었다. Alamofire·Kakao SDK와 Xcode 도구 경고는 외부 의존성 업데이트 대상으로 분리했다. | iOS Simulator Release 빌드와 Secret·디버그 진입 검사 통과 |
+| N-05 | Major | **2026-10-15 수정:** Xcode 프로젝트 최소 버전이 iOS 26.2로 올라가 대부분의 기존 기기에 설치할 수 없던 설정을 iOS 17.0으로 정상화했다. iOS 16은 앱이 사용하는 Observation·SwiftUI API와 호환되지 않음을 별도 Release 빌드로 확인했다. | Xcode·Podfile iOS 17.0 통일, 완성 앱 `MinimumOSVersion` I04 자동 검사 추가 |
 | U-01 | UX | 홈 지도에서 가까운 핀이 겹쳐 가게를 선택하기 어려움 | 클러스터링 또는 확대 단계별 표시 개선 필요 |
 
 ---

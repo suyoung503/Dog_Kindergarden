@@ -26,6 +26,7 @@ scripts/release-audit-smoke.sh
 | I01 | iOS Simulator용 Release configuration 빌드 | 코드 서명 없이 Release 빌드 성공 |
 | I02 | 빌드된 앱의 Secret·개발용 진입 검사 | 서버용 API 자격 증명과 개발 진입 문구가 없음 |
 | I03 | 맡겨멍 앱 소스의 Release 컴파일러 경고 검사 | 앱 소스 경고가 0건이며, Pods·Xcode 도구 경고와 분리됨 |
+| I04 | 완성 앱의 최소 지원 iOS 검사 | `MinimumOSVersion`이 의도한 iOS 17.0으로 고정됨 |
 
 결과와 단계별 로그는 기본적으로 `/tmp/matgyeomung-release-smoke-실행시각`에 생성된다. 보존하려면 출력 경로를 지정한다.
 

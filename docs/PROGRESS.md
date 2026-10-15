@@ -6,6 +6,12 @@
 
 ## 완료된 작업
 
+### iOS 최소 지원 버전 정상화
+
+- [x] **설치 가능 범위 복구** (2026-10-15) — Xcode 프로젝트가 최소 iOS 26.2로 설정되어 그보다 낮은 기기에 설치할 수 없던 문제를 확인했다. iOS 16 강제 Release 빌드로 Observation·SwiftUI 상태 주입 API가 iOS 17 이상을 요구함을 확인한 뒤, 앱·단위 테스트·CocoaPods 최소 버전을 iOS 17.0으로 통일했다.
+- [x] **I04 배포 게이트 추가** (2026-10-15) — 완성된 Release 앱의 `MinimumOSVersion`이 iOS 17.0인지 검사해, Xcode 업데이트나 설정 변경으로 지원 기기 범위가 의도치 않게 축소되면 배포 smoke가 실패하도록 했다.
+- [x] **Release·회귀 검증** (2026-10-15) — iOS 17.0 설정으로 Simulator Release 빌드, Secret·디버그 진입 검사, 앱 소스 경고 0건, `MinimumOSVersion` 검사를 통과했고 핵심 단위 테스트도 **5/5 통과**했다.
+
 ### 앱 소스 Release 경고 자동 차단
 
 - [x] **I03 배포 게이트 추가** (2026-10-15) — `release-audit-smoke.sh`가 iOS Release 빌드 로그에서 맡겨멍 앱 소스 경고만 분리해 검사하도록 했다. 앱 경고가 하나라도 생기면 전체 smoke가 실패하며, 직접 수정할 수 없는 Pods·Xcode 도구 경고는 별도로 관리한다.

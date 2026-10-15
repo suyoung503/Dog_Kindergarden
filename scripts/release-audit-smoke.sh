@@ -50,6 +50,7 @@ SUMMARY_FILE="$RESULT_DIR/summary.tsv"
 REPORT_FILE="$RESULT_DIR/release-smoke-result.md"
 PORT="${RELEASE_SMOKE_PORT:-$((18000 + RANDOM % 1000))}"
 INTERNAL_KEY="release-smoke-local-only-key"
+EXPECTED_MIN_IOS="17.0"
 WORKER_PID=""
 FAILURES=0
 WARNINGS=0
@@ -296,6 +297,25 @@ ios_app_source_warning_gate() {
   echo "Pods·Xcode 도구 경고는 앱 소스 경고와 분리해 관리합니다."
 }
 
+ios_minimum_version_gate() {
+  local app
+  app="$(find "$WORK_DIR/DerivedData/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit 2>/dev/null)"
+  if [ -z "$app" ]; then
+    echo "검사할 Release .app을 찾지 못했습니다."
+    return 1
+  fi
+
+  local minimum_os
+  minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist" 2>/dev/null || true)"
+  if [ "$minimum_os" != "$EXPECTED_MIN_IOS" ]; then
+    echo "Release 앱 최소 지원 버전이 예상과 다릅니다: ${minimum_os:-미설정} (예상: $EXPECTED_MIN_IOS)"
+    echo "의도하지 않은 지원 기기 축소를 막기 위해 배포를 중단합니다."
+    return 1
+  fi
+
+  echo "Release 앱 최소 지원 버전 확인: iOS $minimum_os"
+}
+
 write_report() {
   local commit branch generated overall
   commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -383,14 +403,17 @@ if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
   if run_command I01 "iOS Simulator Release configuration 빌드" ios_release_build; then
     run_command I02 "Release 번들의 Secret·디버그 진입 검사" ios_release_bundle_gate || true
     run_command I03 "맡겨멍 앱 소스 Release 경고 차단" ios_app_source_warning_gate || true
+    run_command I04 "Release 최소 지원 버전 고정" ios_minimum_version_gate || true
   else
     skip I02 "Release 번들의 Secret·디버그 진입 검사(빌드 실패)"
     skip I03 "맡겨멍 앱 소스 Release 경고 차단(빌드 실패)"
+    skip I04 "Release 최소 지원 버전 고정(빌드 실패)"
   fi
 else
   skip I01 "iOS Simulator Release configuration 빌드"
   skip I02 "Release 번들의 Secret·디버그 진입 검사"
   skip I03 "맡겨멍 앱 소스 Release 경고 차단"
+  skip I04 "Release 최소 지원 버전 고정"
 fi
 
 write_report
