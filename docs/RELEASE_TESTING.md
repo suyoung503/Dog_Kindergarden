@@ -17,14 +17,15 @@ scripts/release-audit-smoke.sh
 | A01 | Node, npm, Wrangler 실행 도구와 Xcode 도구 확인 | 필수 도구가 모두 설치됨 |
 | A02 | 브랜치·커밋·작업 트리 상태 기록 | 실행 대상 상태가 결과에 기록됨 |
 | A03 | 인증서·환경변수 파일의 Git 추적 검사 | 민감 파일이 추적되지 않음 |
-| S01 | iOS xcconfig의 Naver Secret 리터럴 검사 | 서버용 Secret 리터럴이 없음 |
+| S01 | iOS 설정의 서버용 API 자격 증명 검사 | Naver·Kakao REST·공공데이터 자격 증명 리터럴이 없음 |
 | S02 | `All_data.csv` 등 문서와 저장소 불일치 확인 | 미정리 파일이 없음 |
 | B01 | Worker 배포 번들 dry-run | 번들 생성 성공 |
 | B02 | 빈 D1에 모든 마이그레이션 적용 | 전체 마이그레이션 성공 |
 | B03 | 격리된 로컬 Worker 기동 | 루트 상태 API 응답 성공 |
 | B04 | 인증·객체 권한·승인·예약 상태 회귀 | 기존 API 회귀 테스트 전체 성공 |
 | I01 | iOS Simulator용 Release configuration 빌드 | 코드 서명 없이 Release 빌드 성공 |
-| I02 | 빌드된 앱의 Secret·개발용 진입 검사 | Naver Secret과 개발 진입 문구가 없음 |
+| I02 | 빌드된 앱의 Secret·개발용 진입 검사 | 서버용 API 자격 증명과 개발 진입 문구가 없음 |
+| I03 | 맡겨멍 앱 소스의 Release 컴파일러 경고 검사 | 앱 소스 경고가 0건이며, Pods·Xcode 도구 경고와 분리됨 |
 
 결과와 단계별 로그는 기본적으로 `/tmp/matgyeomung-release-smoke-실행시각`에 생성된다. 보존하려면 출력 경로를 지정한다.
 
@@ -63,7 +64,7 @@ scripts/release-audit-smoke.sh --ios-only
 ## 3. 기존 테스트 현황과 한계
 
 - 백엔드의 `backend-cloudflare/scripts/test-auth-permissions.mjs`는 인증·역할·객체 소유권·가게 승인·예약 상태 회귀를 검사하며 자동 smoke에서 재사용한다.
-- iOS의 `Dog_kindergardenTests`와 `Dog_kindergardenUITests`는 현재 Xcode 기본 예제 수준이다. 핵심 기능 회귀를 보장하는 테스트로 계산하지 않는다.
+- iOS의 `Dog_kindergardenTests`는 로딩 상태, 강아지 기본값, 파트너 capability 디코딩, 알림 딥링크, 예약 가격표 변환을 검사하는 단위 테스트 5개를 포함한다. 전체 사용자 흐름과 UI 회귀는 아직 실제 기기 수동 검사 대상이다.
 - 실제 iPhone, 외부 계정, APNs, TestFlight가 필요한 항목은 스크립트에서 임의로 성공 처리하지 않는다.
 - Simulator Release 빌드 성공은 실제 기기 코드 서명, capability, provisioning, APNs, 외부 SDK 동작 성공을 의미하지 않는다.
 

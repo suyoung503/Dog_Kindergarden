@@ -272,6 +272,30 @@ ios_release_bundle_gate() {
   return "$failed"
 }
 
+ios_app_source_warning_gate() {
+  local build_log="$LOG_DIR/I01.log"
+  if [ ! -f "$build_log" ]; then
+    echo "iOS Release 빌드 로그를 찾지 못했습니다: $build_log"
+    return 1
+  fi
+
+  local source_prefix="$IOS_DIR/Dog_kindergarden/"
+  local warnings
+  warnings="$(awk -v prefix="$source_prefix" '
+    index($0, prefix) == 1 && $0 ~ /:[0-9]+:[0-9]+: warning:/ { print }
+  ' "$build_log")"
+
+  if [ -n "$warnings" ]; then
+    echo "맡겨멍 앱 소스에서 Release 컴파일러 경고를 발견했습니다:"
+    printf '%s\n' "$warnings"
+    echo "Pods·Xcode 도구 경고는 이 검사에서 제외합니다."
+    return 1
+  fi
+
+  echo "맡겨멍 앱 소스의 Release 컴파일러 경고가 없습니다."
+  echo "Pods·Xcode 도구 경고는 앱 소스 경고와 분리해 관리합니다."
+}
+
 write_report() {
   local commit branch generated overall
   commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -358,12 +382,15 @@ fi
 if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
   if run_command I01 "iOS Simulator Release configuration 빌드" ios_release_build; then
     run_command I02 "Release 번들의 Secret·디버그 진입 검사" ios_release_bundle_gate || true
+    run_command I03 "맡겨멍 앱 소스 Release 경고 차단" ios_app_source_warning_gate || true
   else
     skip I02 "Release 번들의 Secret·디버그 진입 검사(빌드 실패)"
+    skip I03 "맡겨멍 앱 소스 Release 경고 차단(빌드 실패)"
   fi
 else
   skip I01 "iOS Simulator Release configuration 빌드"
   skip I02 "Release 번들의 Secret·디버그 진입 검사"
+  skip I03 "맡겨멍 앱 소스 Release 경고 차단"
 fi
 
 write_report
