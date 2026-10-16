@@ -188,14 +188,23 @@ backend_migrations() {
 
 start_worker() {
   local log="$LOG_DIR/B04-worker.log"
+  local env_file="$WORK_DIR/release-smoke.env"
+
+  # 개발자 로컬의 .dev.vars 유무에 따라 회귀 결과가 달라지지 않도록
+  # 출시 점검 전용 환경 파일만 명시적으로 로드한다. 외부 API Secret은
+  # 의도적으로 넣지 않아 Secret 미설정(503) 경로를 항상 검증한다.
+  umask 077
+  cat > "$env_file" <<EOF
+ALLOW_DEV_AUTH=true
+INTERNAL_API_KEY=$INTERNAL_KEY
+EOF
   (
     cd "$BACKEND_DIR" || exit 1
     exec env WRANGLER_LOG_PATH="$LOG_DIR/wrangler-debug.log" npx wrangler dev \
       --local \
       --persist-to "$WORK_DIR/d1" \
       --port "$PORT" \
-      --var ALLOW_DEV_AUTH:true \
-      --var INTERNAL_API_KEY:"$INTERNAL_KEY"
+      --env-file "$env_file"
   ) >"$log" 2>&1 &
   WORKER_PID=$!
 
