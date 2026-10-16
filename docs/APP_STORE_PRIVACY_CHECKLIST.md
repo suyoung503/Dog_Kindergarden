@@ -131,7 +131,7 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 - [x] 개인정보처리방침의 운영자 이메일 확정 — `yikum503@naver.com`
 - [x] 개인정보처리방침의 계정·예약·채팅·알림장·리뷰·백업 보유기간 확정 — 세션 30일, 법령 적용 예약 5년, 분쟁 기록 3년, 수동 백업 30일
 - [x] 회원 탈퇴와 서버 삭제·익명화 기능을 실제 동작과 대조 — 진행 예약 차단, 개인정보 삭제, 운영 기록 익명화, 전 세션 폐기 반영
-- [ ] 공개 HTTPS URL에 최종 개인정보처리방침 게시
+- [x] 공개 HTTPS URL에 최종 개인정보처리방침 게시 — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`
 - [ ] App Store Connect의 Privacy Policy URL 입력
 - [ ] 실제 iPhone에서 카카오 로그인, 캘린더 권한, 알림 권한과 거부 흐름 확인
 - [ ] 위치·사진·APNs·분석 SDK를 추가하거나 SDK 버전을 올릴 때 manifest와 App Privacy를 재검토
@@ -139,8 +139,7 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 ## 7. 현재 남아 있는 출시 차단 사항
 
 1. App Store Connect의 App Privacy 응답을 실제 Archive Privacy Report와 최종 대조
-2. 공개 Privacy Policy URL 미생성
-4. 실제 Archive Privacy Report 미생성
-5. App Store Connect App Privacy 미입력
+2. 실제 Archive Privacy Report 미생성
+3. App Store Connect App Privacy 미입력
 
 따라서 이번 작업은 **코드·문서 준비 완료**이지, 개인정보 관련 출시 요건 전체 완료가 아니다.

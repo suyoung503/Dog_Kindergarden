@@ -56,6 +56,13 @@ expect(
   typeof privacyPolicy.data === "string" && privacyPolicy.data.includes("보유기간과 파기"),
   true,
 );
+const supportPage = await request("GET", "/support");
+expect("고객지원 페이지 공개", supportPage.status, 200);
+expect(
+  "고객지원 연락처 표시",
+  typeof supportPage.data === "string" && supportPage.data.includes("yikum503@naver.com"),
+  true,
+);
 expect(
   "보유기간 정리 API 무인증 차단",
   (await request("POST", "/api/internal/data-retention")).status,

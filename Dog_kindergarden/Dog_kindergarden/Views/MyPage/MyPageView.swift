@@ -242,6 +242,9 @@ struct MyPageView: View {
                 }
             }
             MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
+            MyPageItem(icon: "questionmark.circle", label: "도움말·지원") {
+                UIApplication.shared.open(APIEnvironment.supportURL)
+            }
             MyPageItem(icon: "hand.raised",        label: "개인정보처리방침") {
                 UIApplication.shared.open(APIEnvironment.privacyPolicyURL)
             }

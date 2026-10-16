@@ -438,8 +438,8 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 - [ ] Keywords
 - [ ] 카테고리와 연령 등급
 - [ ] 필수 기기별 스크린샷
-- [ ] Privacy Policy URL
-- [ ] Support URL과 지원 이메일
+- [x] Privacy Policy URL — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`
+- [x] Support URL과 지원 이메일 — `https://matgyeomung-api.dog-kindergarden.workers.dev/support`, `yikum503@naver.com`
 - [ ] App Privacy 데이터 수집 라벨
 - [ ] 심사 노트
 - [ ] 외부 지도·예약·결제 방식 설명

@@ -32,6 +32,10 @@ enum APIEnvironment {
     static var privacyPolicyURL: URL {
         apiBaseURL.deletingLastPathComponent().appendingPathComponent("privacy")
     }
+
+    static var supportURL: URL {
+        apiBaseURL.deletingLastPathComponent().appendingPathComponent("support")
+    }
 }
 
 enum AuthTokenStore {

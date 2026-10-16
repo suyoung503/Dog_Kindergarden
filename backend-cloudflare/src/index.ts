@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { privacyPolicyHTML } from "./privacyPolicy";
+import { supportPageHTML } from "./supportPage";
 import { refreshStaleStoreDetails } from "./storeDetailRefresh";
 
 const REVIEW_REQUEST_CRON = "0 9 * * *";
@@ -813,6 +814,14 @@ async function findRoomId(
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME }));
 app.get("/privacy", (c) =>
   c.html(privacyPolicyHTML, 200, {
+    "Cache-Control": "public, max-age=3600",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+app.get("/support", (c) =>
+  c.html(supportPageHTML, 200, {
     "Cache-Control": "public, max-age=3600",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
     "Referrer-Policy": "no-referrer",
