@@ -478,6 +478,7 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 - [ ] Sign in with Apple 제공
 - [ ] iOS 번들에 서버용 Secret이 없음
 - [ ] 운영 노출 데이터의 출처와 사용 권한 확인
+- [ ] `emoji_bone`·`emoji_hotel` 원본 제작자와 Flaticon 개별 출처를 확인해 앱의 `오픈소스·아이콘 출처` 화면에 추가
 - [ ] Privacy Manifest·개인정보처리방침·App Privacy 일치
 - [ ] 실제 기기 Release 전체 흐름 통과
 - [ ] TestFlight와 실제 가게 파일럿 완료
