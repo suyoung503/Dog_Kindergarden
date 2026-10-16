@@ -242,6 +242,7 @@ struct MyPageView: View {
                 }
             }
             MyPageItem(icon: "megaphone",         label: "공지사항") { router.go(.noticeList) }
+            MyPageItem(icon: "info.circle",        label: "오픈소스·아이콘 출처") { router.go(.attributions) }
             MyPageItem(icon: "rectangle.portrait.and.arrow.right", label: "로그아웃") { showLogoutConfirm = true }
             MyPageItem(icon: "person.crop.circle.badge.minus", label: "회원 탈퇴", bg: Color(hex: "#FFE3E3")) {
                 accountDeletionError = nil

@@ -95,6 +95,7 @@ struct RootView: View {
         case .diary:       DiaryTimelineView()
         case .noticeList:  NoticeListView()
         case .noticeDetail: NoticeDetailView()
+        case .attributions: AttributionView()
         case .ownerApplications: OwnerApplicationAdminView()
         case .supportConversationList: SupportConversationListView()
         case .supportConversation: SupportConversationView()

@@ -21,6 +21,7 @@ enum AppScreen {
     case diary
     case noticeList
     case noticeDetail
+    case attributions
     case ownerApplications
     case supportConversationList
     case supportConversation
