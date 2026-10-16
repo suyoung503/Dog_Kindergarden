@@ -95,7 +95,8 @@ UserDefaults.standard.set(
 - 사장님 API는 사장님 역할과 `stores.owner_id`를 모두 확인합니다.
 - `POST /api/auth/logout`은 현재 서버 세션을 폐기합니다.
 - `/api/admin/*`, `/api/internal/*`는 `X-Internal-Key`가 Worker Secret `INTERNAL_API_KEY`와 같을 때만 허용합니다.
-- 공개 조회는 가게·공지·검증된 리뷰 목록으로 제한됩니다.
+- 공개 조회는 가게·공지·검증된 리뷰 목록과 `GET /privacy` 개인정보처리방침으로 제한됩니다.
+- 매일 Cron과 `POST /api/internal/data-retention`은 공개 방침의 보유기간에 맞춰 만료 세션과 오래된 예약·관련 콘텐츠·종료 이력을 정리합니다.
 
 가게
 - `GET /api/stores` — 일반 업체는 기본정보와 capability만 반환하며 미검증 가격·영업시간·이미지는 숨김

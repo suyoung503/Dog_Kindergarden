@@ -129,7 +129,7 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 - [ ] Archive 안의 앱 루트에 `PrivacyInfo.xcprivacy`가 존재하는지 확인
 - [ ] App Store Connect에서 제2절의 데이터 유형·연결·추적·목적을 동일하게 입력
 - [x] 개인정보처리방침의 운영자 이메일 확정 — `yikum503@naver.com`
-- [ ] 개인정보처리방침의 계정·예약·채팅·알림장·리뷰·백업 보유기간 TODO 확정
+- [x] 개인정보처리방침의 계정·예약·채팅·알림장·리뷰·백업 보유기간 확정 — 세션 30일, 법령 적용 예약 5년, 분쟁 기록 3년, 수동 백업 30일
 - [x] 회원 탈퇴와 서버 삭제·익명화 기능을 실제 동작과 대조 — 진행 예약 차단, 개인정보 삭제, 운영 기록 익명화, 전 세션 폐기 반영
 - [ ] 공개 HTTPS URL에 최종 개인정보처리방침 게시
 - [ ] App Store Connect의 Privacy Policy URL 입력
@@ -138,7 +138,7 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 
 ## 7. 현재 남아 있는 출시 차단 사항
 
-1. 개인정보 항목별 보유기간과 탈퇴 시 삭제·익명화 기준 미확정
+1. App Store Connect의 App Privacy 응답을 실제 Archive Privacy Report와 최종 대조
 2. 공개 Privacy Policy URL 미생성
 4. 실제 Archive Privacy Report 미생성
 5. App Store Connect App Privacy 미입력

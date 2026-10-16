@@ -49,6 +49,24 @@ function notificationPath(userId, cursor) {
   return `/api/users/${userId}/notifications${query}`;
 }
 
+const privacyPolicy = await request("GET", "/privacy");
+expect("개인정보처리방침 공개", privacyPolicy.status, 200);
+expect(
+  "개인정보처리방침 보유기간 표시",
+  typeof privacyPolicy.data === "string" && privacyPolicy.data.includes("보유기간과 파기"),
+  true,
+);
+expect(
+  "보유기간 정리 API 무인증 차단",
+  (await request("POST", "/api/internal/data-retention")).status,
+  401,
+);
+expect(
+  "보유기간 정리 API 내부 키 허용",
+  (await request("POST", "/api/internal/data-retention", { internal: internalKey })).status,
+  200,
+);
+
 const guardianLogin = await request("POST", "/api/auth/dev", {
   body: { identity: "auth-test-guardian", nickname: "권한테스트 보호자", is_owner: false },
 });

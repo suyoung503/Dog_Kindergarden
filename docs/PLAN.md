@@ -35,7 +35,7 @@
 9. [ ] 알림장 사진 업로드(R2) 구현
 10. [ ] APNs 원격 Push 구현
 11. [ ] 미연결 버튼·UX·권한 전체 정리 — 실제 1:1 문의, 강아지 사진 선택, 주요 목록 오류·재시도, 캘린더·알림 권한 요청 시점까지 로컬 구현 완료. 실제 기기 검증 대기
-12. [ ] Privacy Manifest·개인정보처리방침·App Privacy 준비 — 앱 manifest와 공개용 방침 초안·입력 체크리스트 작성 완료, 공개 운영 이메일 `yikum503@naver.com` 확정. 보유기간·공개 URL·Archive Privacy Report·App Store Connect 입력 대기
+12. [ ] Privacy Manifest·개인정보처리방침·App Privacy 준비 — 앱 manifest·보유기간·공개 운영 이메일 확정, Worker 공개 URL과 앱 내부 링크 구현. 실제 Archive Privacy Report·App Store Connect 입력 대기
 13. [ ] 실제 iPhone Release 빌드 전체 테스트
 14. [ ] TestFlight 소규모 테스트
 15. [ ] 실제 애견유치원 1곳 이상 파일럿
@@ -177,7 +177,7 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 - [x] 로컬 세션·Keychain·UserDefaults·알림 커서 정리
 - [x] 탈퇴 후 로그인 화면으로 이동
 - [x] 기존 Access/Refresh Token 즉시 무효화 — 현재 구조의 동일 계정 세션을 전부 폐기
-- [x] 개인정보처리방침에 탈퇴 방법과 데이터 처리 기준 반영 — 구체적인 법정·운영 보유기간과 백업 삭제 주기는 출시 전 확정 필요
+- [x] 개인정보처리방침에 탈퇴 방법과 데이터 처리 기준 반영 — 법령 적용 예약 5년, 분쟁 기록 3년, 수동 백업 30일로 확정하고 서버 정리 작업에 반영
 
 참고: [Apple 계정 삭제 요구사항](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion/)
 
@@ -366,11 +366,11 @@ Issue에는 재현 단계, 기대 결과, 실제 결과, 환경, 스크린샷·�
 
 ### 12.2 개인정보처리방침
 
-- [ ] 공개 URL로 개인정보처리방침 게시(Cloudflare Pages 또는 GitHub Pages 가능)
+- [x] 공개 URL로 개인정보처리방침 게시 — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`, 로그인 화면·마이페이지 연결
 - [x] 서비스명과 운영자·문의 이메일 — 맡겨멍 운영자, `yikum503@naver.com`
 - [x] 수집 정보와 수집 방법 — 현재 코드·DB 기준 공개용 초안 작성
 - [x] 이용 목적 — 앱 기능·권한 흐름 기준 작성
-- [ ] 보유 기간과 파기 방법 — 세션 30일 외 계정·콘텐츠·백업 기간 TODO
+- [x] 보유 기간과 파기 방법 — 세션 30일, 법령 적용 예약 5년, 분쟁 기록 3년, 수동 백업 30일 및 매일 서버 정리 작업 반영
 - [x] 제3자 SDK·API·처리 위탁 — Cloudflare·Kakao·Naver·Apple 사용 현황 작성, 출시 전 계약·국외처리 최종 확인 필요
 - [x] 사진·채팅·반려견 정보 처리 — 채팅·반려견 수집과 사진 업로드 미구현 상태를 구분해 작성
 - [x] 회원 탈퇴 방법 — 앱의 `마이페이지 → 회원 탈퇴`, 진행 예약 제한, 삭제·익명화 및 전 세션 폐기 기준을 초안에 반영

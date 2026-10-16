@@ -154,11 +154,18 @@ struct StartView: View {
 
     private var footerText: some View {
         VStack(spacing: 8) {
-            Text("처음이라면 자동으로 회원가입 돼요 · 3초면 시작\n시작 시 이용약관 및 개인정보처리방침에 동의합니다")
+            Text("처음이라면 자동으로 회원가입 돼요 · 3초면 시작")
                 .font(.system(size: 10))
                 .foregroundStyle(Color.brandBrownMid)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
+            HStack(spacing: 2) {
+                Text("시작 시 이용약관 및")
+                Link("개인정보처리방침", destination: APIEnvironment.privacyPolicyURL)
+                    .underline()
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(Color.brandBrownMid)
 #if DEBUG
             if APIEnvironment.isLocalDevelopment {
                 Button("개발자 진입 (로컬 서버용)") {

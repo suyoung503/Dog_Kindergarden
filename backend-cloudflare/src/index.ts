@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { privacyPolicyHTML } from "./privacyPolicy";
 import { refreshStaleStoreDetails } from "./storeDetailRefresh";
 
 const REVIEW_REQUEST_CRON = "0 9 * * *";
@@ -810,6 +811,14 @@ async function findRoomId(
 }
 
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME }));
+app.get("/privacy", (c) =>
+  c.html(privacyPolicyHTML, 200, {
+    "Cache-Control": "public, max-age=3600",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
 
 // 공지사항 목록 — 본문 제외, 최신순
 app.get("/api/notices", async (c) => {
@@ -3133,7 +3142,87 @@ app.get("/api/users/:id/favorites", async (c) => {
   return c.json(results);
 });
 
-// MARK: - 리뷰 요청 자동 메시지 (이용일 다음날, Cron Trigger)
+// MARK: - 보유기간 정리 + 리뷰 요청 자동 메시지 (매일 Cron Trigger)
+
+type DataRetentionResult = {
+  expired_sessions: number;
+  expired_diary_photos: number;
+  expired_diaries: number;
+  detached_reviews: number;
+  expired_reservations: number;
+  expired_support_conversations: number;
+  expired_owner_applications: number;
+};
+
+async function enforceDataRetention(db: D1Database): Promise<DataRetentionResult> {
+  const expiredReservationWhere = `
+    (
+      status = 'CANCELED'
+      AND unixepoch(COALESCE(canceled_at, created_at)) <= unixepoch('now', '-5 years')
+    )
+    OR
+    (
+      status = 'CONFIRMED'
+      AND date(substr(end_date, 1, 10)) <= date('now', '-5 years')
+    )
+  `;
+
+  const results = await db.batch([
+    db.prepare(
+      `DELETE FROM auth_sessions
+       WHERE unixepoch(expires_at) <= unixepoch('now', '-30 days')`,
+    ),
+    db.prepare(
+      `DELETE FROM diary_photos
+       WHERE diary_id IN (
+         SELECT diary_id FROM diaries
+         WHERE reservation_id IN (
+           SELECT reservation_id FROM reservations WHERE ${expiredReservationWhere}
+         )
+       )`,
+    ),
+    db.prepare(
+      `DELETE FROM diaries
+       WHERE reservation_id IN (
+         SELECT reservation_id FROM reservations WHERE ${expiredReservationWhere}
+       )`,
+    ),
+    db.prepare(
+      `UPDATE pet_reviews SET reservation_id = NULL
+       WHERE reservation_id IN (
+         SELECT reservation_id FROM reservations WHERE ${expiredReservationWhere}
+       )`,
+    ),
+    db.prepare(`DELETE FROM reservations WHERE ${expiredReservationWhere}`),
+    db.prepare(
+      `DELETE FROM support_conversations
+       WHERE status = 'CLOSED'
+         AND unixepoch(updated_at) <= unixepoch('now', '-3 years')`,
+    ),
+    db.prepare(
+      `DELETE FROM store_owner_applications AS application
+       WHERE application.status IN ('APPROVED', 'REJECTED')
+         AND unixepoch(application.reviewed_at) <= unixepoch('now', '-3 years')
+         AND NOT EXISTS (
+           SELECT 1 FROM stores
+           WHERE stores.store_id = application.store_id
+             AND stores.owner_id = application.user_id
+             AND stores.partner_status = 'ACTIVE'
+         )`,
+    ),
+  ]);
+
+  const changes = (index: number) => results[index]?.meta.changes ?? 0;
+  return {
+    expired_sessions: changes(0),
+    expired_diary_photos: changes(1),
+    expired_diaries: changes(2),
+    detached_reviews: changes(3),
+    expired_reservations: changes(4),
+    expired_support_conversations: changes(5),
+    expired_owner_applications: changes(6),
+  };
+}
 
 // KST 기준 어제 — 신형 start_date("2026-07-12 (일) 14:00")는 연·월·일 정확 대조(iso),
 // 구형("토 7/12 14:00", 연도 없음)은 월/일 문자열 대조(monthDay)로 계속 처리한다
@@ -3200,6 +3289,10 @@ app.post("/api/internal/review-requests", async (c) => {
   return c.json({ sent });
 });
 
+app.post("/api/internal/data-retention", async (c) => {
+  return c.json(await enforceDataRetention(c.env.DB));
+});
+
 // 데이터 정비용 임시 엔드포인트 — 네이버 플레이스 업체사진이 가격표인지 비전 모델로 판별하고,
 // 가격표면 텍스트를 추출한다 (crawl-results 가격 이미지 스캔 스크립트 전용).
 app.post("/api/internal/vision-price-ocr", async (c) => {
@@ -3241,6 +3334,7 @@ export default {
     }
 
     if (event.cron === REVIEW_REQUEST_CRON) {
+      console.log("daily data retention", await enforceDataRetention(env.DB));
       await sendReviewRequests(env.DB);
     }
   },

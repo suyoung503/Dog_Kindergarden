@@ -28,6 +28,10 @@ enum APIEnvironment {
         guard let host = apiBaseURL.host else { return false }
         return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
+
+    static var privacyPolicyURL: URL {
+        apiBaseURL.deletingLastPathComponent().appendingPathComponent("privacy")
+    }
 }
 
 enum AuthTokenStore {

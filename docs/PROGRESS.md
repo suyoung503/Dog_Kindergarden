@@ -8,7 +8,7 @@
 
 ### 공개 운영 이메일 확정
 
-- [x] **개인정보 문의 연락처 반영** (2026-10-16) — 공개 운영 이메일을 `yikum503@naver.com`으로 확정하고 개인정보처리방침의 문의처, 출시 계획과 App Store 개인정보 체크리스트에 동일하게 반영했다. 운영 이메일 미확정 항목은 해소했으며, 데이터 보유기간과 공개 Privacy Policy URL은 계속 출시 전 과제로 유지한다.
+- [x] **개인정보 문의 연락처 반영** (2026-10-16) — 공개 운영 이메일을 `yikum503@naver.com`으로 확정하고 개인정보처리방침의 문의처, 출시 계획과 App Store 개인정보 체크리스트에 동일하게 반영했다.
 
 ### Flaticon 아이콘 출처 화면 추가
 
@@ -136,7 +136,7 @@
 ### Privacy Manifest·개인정보처리방침 준비
 
 - [x] **앱 Privacy Manifest 작성** (2026-10-10) — 현재 코드에서 계정과 연결해 처리하는 이름·이메일·전화번호·주소·사용자 ID·채팅·기타 사용자 콘텐츠·제품 상호작용을 `PrivacyInfo.xcprivacy`에 선언하고, 추적하지 않음과 앱 기능 목적을 명시했다. 앱이 직접 사용하는 UserDefaults의 Required Reason API 사유 `CA92.1`도 기록했으며 plist 형식과 빌드 리소스 포함을 확인했다.
-- [x] **SDK·App Privacy 매핑과 공개 방침 초안** (2026-10-10) — Alamofire·Kakao SDK의 manifest 현황과 App Store Connect 입력 항목을 `APP_STORE_PRIVACY_CHECKLIST.md`에 정리하고, 실제 서버 스키마와 앱 기능을 기준으로 공개용 `PRIVACY_POLICY.md` 초안을 작성했다. 운영자 이메일·데이터별 보유기간·공개 HTTPS URL·실제 Archive Privacy Report·App Store Connect 입력은 사람이 확정해야 하므로 완료 처리하지 않았다.
+- [x] **SDK·App Privacy 매핑과 공개 방침 초안** (2026-10-10) — Alamofire·Kakao SDK의 manifest 현황과 App Store Connect 입력 항목을 `APP_STORE_PRIVACY_CHECKLIST.md`에 정리하고, 실제 서버 스키마와 앱 기능을 기준으로 공개용 `PRIVACY_POLICY.md` 초안을 작성했다. 이후 운영자 이메일·데이터별 보유기간·공개 HTTPS URL을 확정했으며 실제 Archive Privacy Report·App Store Connect 입력만 남았다.
 
 ### 출시 전 회귀 점검 자동화
 
@@ -259,6 +259,7 @@
 - [x] **예약 확정 자동 채팅 메시지 + 알림 축 정리 + 채팅 UX 개선 + 예약취소 목록 반영 수정** (2026-09-01) — 여러 건을 한 커밋으로 묶어 반영. **(1) 예약 확정 자동 채팅 메시지:** `PATCH /api/reservations/:id/confirm`이 확정 시 고객 채팅방에 `sender_id=0` 자동 메시지("{가게명} 예약({이용일})이 확정되었어요. 예약 내역에서 확인해주세요")를 남기도록 추가 — "이벤트당 정확히 한 축" 불변식에 따라 예약 확정 이벤트를 예약 축에서 채팅 축으로 이전(`NotificationCursor`/`NotificationItem`의 `confirmed_at`/`"reservation_confirmed"` 및 예약 축의 "고객 예약 확정" 조회 블록 제거, iOS `AppNotificationService`의 대응 딥링크 분기도 함께 제거). docs/ARCHITECTURE.md의 채팅/예약 축 분리 규칙 문구도 실제 동작에 맞게 갱신. **(2) 채팅 UX 개선:** `RootView`의 `.ignoresSafeArea()`를 `.ignoresSafeArea(.container)`로 좁혀 전 화면에서 시스템 키보드 세이프에어리어 회피가 다시 정상 동작하도록 복구, `ChatRoomView` 메시지 목록이 `keyboardWillShowNotification`을 관찰해 키보드가 올라올 때 즉시 하단으로 스크롤(별도 애니메이션을 걸면 시스템 리사이즈 애니메이션과 겹쳐 두 번 움직이는 문제 방지). **(3) 예약취소 목록 반영 수정:** `ReservationListView.cancel`이 취소된 예약의 `status`만 바꿔 목록에 그대로 남아 있던 버그를, `reservations.remove(at:)`로 즉시 제거하고 실패 시 원래 자리로 롤백하는 낙관적 업데이트로 변경. **(4) 원복된 시도:** 채팅방 스와이프 제스처 2건(키보드를 아래로 스와이프해 닫기, 왼쪽→오른쪽 스와이프로 채팅 목록으로 뒤로가기)도 이번 세션에 시도 — `DragGesture` 기반(+`scrollDismissesKeyboard`), `UIScreenEdgePanGestureRecognizer` 기반 두 가지 구현 모두 실기기에서 동작하지 않는다는 피드백을 받아 전부 원복(관련 코드 변경 없음, 근본 원인은 미진단 상태로 보류 — 재시도 시 온디바이스 진단부터 필요). xcodebuild BUILD SUCCEEDED, 백엔드 배포 완료. 커밋 `1b16a4b`, 원격 푸시 완료.
 - [x] **운영 인증·사장님 승인·고객센터 백엔드 배포** (2026-10-16) — 배포 직전 운영 D1을 `/tmp/dog_kindergarden_remote_before_0020_0025_20261016.sql`로 백업하고 마이그레이션 `0020`~`0025`(세션 인증, 사장님 승인, 회원 탈퇴, 파트너 분리, 보강 캐시, 고객센터)를 적용했다. 기존 사장님 연결 3건은 삭제하지 않고 `PENDING` 신청으로 전환됐으며 승인 전 `stores.owner_id`는 연결되지 않는다. 실제 개발자 카카오 계정(`user_id=2`)에만 `is_admin=1`을 부여하고, 별도 무작위 `INTERNAL_API_KEY`를 Worker Secret으로 등록한 뒤 Worker 버전 `1a7a5b78-f6ee-46e5-bfdf-6a4905478af4`를 배포했다. 운영 URL 검증 결과 공개 가게 목록은 `200`, 무인증 예약 조회·사장님 승인·사용자/관리자 고객센터 API는 모두 `401`, 원격 D1은 적용 대기 마이그레이션 0건이다. 이후 Naver API Hub Client ID/Secret과 Kakao REST API Key도 운영 Worker Secret으로 등록해 서버 측 파트너 장소·블로그 보강의 Secret 준비를 마쳤다. 비밀값은 Git·문서에 기록하지 않았다.
 - [x] **출시 점검의 로컬 Secret 의존성 제거** (2026-10-16) — 실제 외부 API 키를 `.dev.vars`에 설정한 뒤 출시 smoke의 장소·블로그 “Secret 미설정” 회귀 검사가 로컬 키를 자동 로드해 외부 호출 결과에 따라 실패하는 문제를 발견했다. `release-audit-smoke.sh`가 권한 `600`의 격리 환경 파일만 명시적으로 로드하도록 바꿔 개발자별 `.dev.vars` 유무와 무관하게 동일한 인증·권한 결과를 검증한다. 수정 후 백엔드 출시 점검 전체 PASS.
+- [x] **개인정보처리방침 보유기간 확정·공개 URL 연결** (2026-10-16) — 계정 관련 정보는 탈퇴 시 즉시 삭제·익명화, 세션 30일과 만료 후 30일 내 해시 정리, 관련 법령이 적용되는 완료·취소 예약 5년, 분쟁 기록 3년, 사장님 등록 이력은 관계 종료 후 3년, 운영 수동 백업 30일로 기준을 확정했다. Worker `/privacy`에 모바일 대응 공개 페이지를 추가하고 로그인 화면과 마이페이지에서 열 수 있게 연결했다. 매일 Cron이 만료 세션·오래된 예약/알림장·종료된 문의·파트너 신청 이력을 정리하도록 서버 정책도 일치시켰다. 운영 Worker 버전 `7e809fd1-9062-4af5-bedd-efc84cae2d34` 배포 후 공개 페이지 `200`, 보안 헤더, 내부 정리 API 무인증 `401`을 확인했으며 현재 보유기간 초과 대상은 전 항목 0건이다.
 
 ---
 
@@ -305,7 +306,7 @@
 - [ ] Sign in with Apple 추가 — 카카오 로그인만 제공 중이라 Apple 가이드라인 4.8 위반 소지, 심사 거절 가능성 높음
 - [x] 회원 탈퇴 기능 — 앱 내 2단계 확인, 본인 인증 API, 개인정보 삭제·익명화, 전 세션 폐기를 구현하고 2026-10-16 운영 반영
 - [ ] Apple Developer Program 유료 멤버십 가입 ($99/년) — App Store 배포 자체에 필요, 유료 멤버십 확보 시 원격 푸시(APNs)도 함께 재검토 가능
-- [ ] 개인정보처리방침 URL 작성·게시 — App Store Connect 등록 필수 항목
+- [x] 개인정보처리방침 URL 작성·게시 — 운영 Worker의 `/privacy`에 공개하고 로그인 화면·마이페이지에서 접근 가능하도록 연결
 - [ ] 심사관용 테스트 계정 안내 준비 — 카카오 로그인 필수 앱이라 심사 노트에 로그인 가능한 계정 안내 필요
 - [ ] App Privacy 데이터 수집 라벨 작성
 - [ ] 스크린샷·메타데이터(설명·키워드·카테고리·연령등급) 준비
