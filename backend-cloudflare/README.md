@@ -26,7 +26,7 @@ npx wrangler d1 migrations apply dog_kindergarden_db
 ```
 
 ## 4) 로컬 실행
-`.dev.vars.example`을 `.dev.vars`로 복사하고 로컬 전용 키를 설정한 뒤 실행합니다. `ALLOW_DEV_AUTH`는 운영 환경에 절대 설정하지 않습니다.
+`.dev.vars.example`을 `.dev.vars`로 복사하고 로컬 전용 키를 설정한 뒤 실행합니다. `.dev.vars`는 Git에서 제외되므로 실제 값을 넣을 수 있지만, 강제 추가(`git add -f`)하거나 문서·이슈·채팅에 값을 복사하지 않습니다. `ALLOW_DEV_AUTH`는 운영 환경에 절대 설정하지 않습니다.
 
 ```bash
 cp .dev.vars.example .dev.vars
@@ -40,15 +40,20 @@ INTERNAL_API_KEY=<.dev.vars와 같은 값> npm run test:auth
 ```
 
 ## 5) 배포
-운영에서는 먼저 내부 관리 API 키를 Worker Secret으로 등록합니다.
+운영에서는 먼저 내부 관리 API 키를 Worker Secret으로 등록합니다. `INTERNAL_API_KEY`는 네이버·카카오 키가 아니라 운영자/수집 도구의 `/api/admin/*`, `/api/internal/*` 호출을 보호하는 별도 무작위 비밀값이며 필수입니다.
 
 ```bash
 npx wrangler secret put INTERNAL_API_KEY
+npx wrangler d1 migrations apply dog_kindergarden_db --remote
+npm run deploy
+```
+
+아래 외부 서비스 키는 파트너 업체의 서버 측 장소·블로그 보강 기능을 사용할 때만 등록합니다. 인증·예약·승인·고객센터의 핵심 동작에는 필요하지 않으며, 값이 없으면 해당 보강 API만 `503`을 반환합니다.
+
+```bash
 npx wrangler secret put NAVER_API_HUB_CLIENT_ID
 npx wrangler secret put NAVER_API_HUB_CLIENT_SECRET
 npx wrangler secret put KAKAO_REST_API_KEY
-npx wrangler d1 migrations apply dog_kindergarden_db --remote
-npm run deploy
 ```
 
 `ALLOW_DEV_AUTH`는 운영 Worker에 등록하지 않습니다. 인증 변경은 구버전 앱과 호환되지 않으므로 iOS 업데이트와 Worker 배포를 함께 진행해야 합니다.
