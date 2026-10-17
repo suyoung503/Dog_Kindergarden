@@ -75,7 +75,7 @@ flowchart LR
 모노레포로 구성되어 있습니다.
 
 ```
-Dog_kindergarden/       iOS 앱 (Swift, SwiftUI + Observation, iOS 16+)
+Dog_kindergarden/       iOS 앱 (Swift, SwiftUI + Observation, iOS 17+)
 backend-cloudflare/     백엔드 (TypeScript, Hono, Cloudflare Workers + D1)
 docs/                   기획·진행상황·포트폴리오 문서
 ```

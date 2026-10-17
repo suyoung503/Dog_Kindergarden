@@ -433,16 +433,16 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 ## 15. P1 — App Store 제출 준비
 
 - [ ] App Icon 최종 확인
-- [ ] 앱 이름과 Subtitle
-- [ ] Description
-- [ ] Keywords
-- [ ] 카테고리와 연령 등급
+- [x] 앱 이름과 Subtitle — `맡겨멍`, `강아지 유치원·호텔 찾기`
+- [x] Description — `docs/APP_STORE_METADATA.md`에 실제 제공 기능 기준 원고 확정
+- [x] Keywords — UTF-8 94/100바이트 입력안 확정
+- [x] 카테고리와 연령 등급 입력안 — Lifestyle을 Xcode와 일치시키고, UGC·메시지 포함 설문 기준 문서화. 최종 등급은 App Store Connect 산정 후 기록
 - [ ] 필수 기기별 스크린샷
 - [x] Privacy Policy URL — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`
 - [x] Support URL과 지원 이메일 — `https://matgyeomung-api.dog-kindergarden.workers.dev/support`, `yikum503@naver.com`
 - [ ] App Privacy 데이터 수집 라벨
-- [ ] 심사 노트
-- [ ] 외부 지도·예약·결제 방식 설명
+- [x] 심사 노트 초안 — 미결정 계정 정보를 제외한 기능·권한·탈퇴 설명 작성
+- [x] 외부 지도·예약·결제 방식 설명 — 특정 Kakao/Naver 외부 페이지, 실물 돌봄 예약 요청, 앱 내 결제 없음 명시
 - [ ] 보호자 Demo 계정 또는 심사 가능한 Demo 환경
 - [ ] 사장님 Demo 계정 또는 심사 가능한 Demo 환경
 - [ ] 양쪽 역할에서 모든 기능을 확인할 수 있는 구체적인 심사 순서

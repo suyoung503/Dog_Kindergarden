@@ -51,6 +51,8 @@ REPORT_FILE="$RESULT_DIR/release-smoke-result.md"
 PORT="${RELEASE_SMOKE_PORT:-$((18000 + RANDOM % 1000))}"
 INTERNAL_KEY="release-smoke-local-only-key"
 EXPECTED_MIN_IOS="17.0"
+EXPECTED_DISPLAY_NAME="맡겨멍"
+EXPECTED_APP_CATEGORY="public.app-category.lifestyle"
 WORKER_PID=""
 FAILURES=0
 WARNINGS=0
@@ -325,6 +327,36 @@ ios_minimum_version_gate() {
   echo "Release 앱 최소 지원 버전 확인: iOS $minimum_os"
 }
 
+ios_store_identity_gate() {
+  local app
+  app="$(find "$WORK_DIR/DerivedData/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit 2>/dev/null)"
+  if [ -z "$app" ]; then
+    echo "검사할 Release .app을 찾지 못했습니다."
+    return 1
+  fi
+
+  local display_name category failed
+  display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Info.plist" 2>/dev/null || true)"
+  category="$(/usr/libexec/PlistBuddy -c 'Print :LSApplicationCategoryType' "$app/Info.plist" 2>/dev/null || true)"
+  failed=0
+
+  if [ "$display_name" != "$EXPECTED_DISPLAY_NAME" ]; then
+    echo "Release 앱 표시 이름 불일치: ${display_name:-미설정} (예상: $EXPECTED_DISPLAY_NAME)"
+    failed=1
+  else
+    echo "Release 앱 표시 이름 확인: $display_name"
+  fi
+
+  if [ "$category" != "$EXPECTED_APP_CATEGORY" ]; then
+    echo "Release 앱 카테고리 불일치: ${category:-미설정} (예상: $EXPECTED_APP_CATEGORY)"
+    failed=1
+  else
+    echo "Release 앱 카테고리 확인: $category"
+  fi
+
+  return "$failed"
+}
+
 write_report() {
   local commit branch generated overall
   commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -413,16 +445,19 @@ if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
     run_command I02 "Release 번들의 Secret·디버그 진입 검사" ios_release_bundle_gate || true
     run_command I03 "맡겨멍 앱 소스 Release 경고 차단" ios_app_source_warning_gate || true
     run_command I04 "Release 최소 지원 버전 고정" ios_minimum_version_gate || true
+    run_command I05 "App Store 표시 이름·카테고리 고정" ios_store_identity_gate || true
   else
     skip I02 "Release 번들의 Secret·디버그 진입 검사(빌드 실패)"
     skip I03 "맡겨멍 앱 소스 Release 경고 차단(빌드 실패)"
     skip I04 "Release 최소 지원 버전 고정(빌드 실패)"
+    skip I05 "App Store 표시 이름·카테고리 고정(빌드 실패)"
   fi
 else
   skip I01 "iOS Simulator Release configuration 빌드"
   skip I02 "Release 번들의 Secret·디버그 진입 검사"
   skip I03 "맡겨멍 앱 소스 Release 경고 차단"
   skip I04 "Release 최소 지원 버전 고정"
+  skip I05 "App Store 표시 이름·카테고리 고정"
 fi
 
 write_report
