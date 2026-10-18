@@ -432,7 +432,8 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 
 ## 15. P1 — App Store 제출 준비
 
-- [ ] App Icon 최종 확인
+- [x] App Icon 기술 규격·Release 포함 최종 확인 — 1024×1024 RGB, alpha 없음, 축소 식별성·빌드 확인 및 A04 자동 검사 추가
+- [ ] App Icon 원본 제작·사용권 증빙 비공개 보관 — 저장소에는 2026-09-01 등록 이력만 있어 원본 또는 상업적 이용 권한 자료를 별도로 확인
 - [x] 앱 이름과 Subtitle — `맡겨멍`, `강아지 유치원·호텔 찾기`
 - [x] Description — `docs/APP_STORE_METADATA.md`에 실제 제공 기능 기준 원고 확정
 - [x] Keywords — UTF-8 94/100바이트 입력안 확정

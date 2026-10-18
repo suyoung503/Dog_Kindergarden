@@ -17,6 +17,7 @@ scripts/release-audit-smoke.sh
 | A01 | Node, npm, Wrangler 실행 도구와 Xcode 도구 확인 | 필수 도구가 모두 설치됨 |
 | A02 | 브랜치·커밋·작업 트리 상태 기록 | 실행 대상 상태가 결과에 기록됨 |
 | A03 | 인증서·환경변수 파일의 Git 추적 검사 | 민감 파일이 추적되지 않음 |
+| A04 | App Icon 소스 규격 검사 | 기본 1024×1024 슬롯, 8-bit RGB PNG, alpha 없음 |
 | S01 | iOS 설정의 서버용 API 자격 증명 검사 | Naver·Kakao REST·공공데이터 자격 증명 리터럴이 없음 |
 | S02 | `All_data.csv` 등 문서와 저장소 불일치 확인 | 미정리 파일이 없음 |
 | B01 | Worker 배포 번들 dry-run | 번들 생성 성공 |

@@ -145,6 +145,11 @@ check_tracked_sensitive_files() {
   return "$found"
 }
 
+validate_app_icon() {
+  cd "$REPO_ROOT" || return 1
+  node scripts/validate-app-icon.mjs
+}
+
 check_ios_server_secrets() {
   cd "$REPO_ROOT" || return 1
   local files pattern
@@ -402,6 +407,7 @@ echo
 run_command A01 "필수 로컬 도구 확인" check_tools || true
 run_command A02 "검사 대상 Git 상태 기록" check_repository_state || true
 run_command A03 "민감 파일 Git 추적 여부" check_tracked_sensitive_files || true
+run_command A04 "App Icon 소스 규격 검사" validate_app_icon || true
 
 if [ "$RUN_IOS" -eq 1 ]; then
   run_command S01 "iOS 설정의 서버용 API 자격 증명 차단" check_ios_server_secrets || true
