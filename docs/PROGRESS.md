@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### Privacy Manifest와 App Privacy 선언 회귀 방지
+
+- [x] **App Privacy 입력안 자동 검증** (2026-10-19) — `PrivacyInfo.xcprivacy`의 수집 데이터 9종, 사용자 연결, 추적 안 함, 앱 기능 목적과 UserDefaults `CA92.1` 선언이 `docs/APP_STORE_PRIVACY_CHECKLIST.md`의 입력안과 달라지면 실패하는 `scripts/validate-privacy-declarations.mjs`를 추가했다.
+- [x] **Release 번들 포함 검사** (2026-10-19) — 출시 smoke에 `A05`와 `I06`을 추가해 소스 선언뿐 아니라 Release 앱 루트의 Privacy Manifest 포함 여부와 소스 파일 일치까지 검사한다. 의도적으로 수집 유형을 바꾼 잘못된 manifest가 차단되는 것도 확인했으며, 전체 Release audit는 경고 없이 통과했다. App Store Connect 실제 입력과 Archive Privacy Report 생성은 계정·서명 작업으로 별도 남겨 두었다.
+
 ### 화면별 아이콘 의미와 에셋 매핑 정리
 
 - [x] **이미지·파일명·호출 화면 전수 대조** (2026-10-18) — `dog_b`·`dog_c`·유치원·호텔·발자국·달력·채팅·알림장·뼈다귀 이미지의 실제 모양과 `EmojiIcon` 매핑, 모든 호출 화면을 비교했다. `kindergarden`과 `emoji_hotel`이 서로 뒤바뀐 곳은 없었으며 상세 결과를 `docs/ICON_USAGE_AUDIT.md`에 기록했다.

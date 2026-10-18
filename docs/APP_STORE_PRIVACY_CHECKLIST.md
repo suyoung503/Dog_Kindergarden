@@ -1,6 +1,6 @@
 # 맡겨멍 App Store App Privacy 매핑 체크리스트
 
-**점검 기준일:** 2026-10-11
+**점검 기준일:** 2026-10-19
 **대상:** 현재 저장소의 iOS 앱, Cloudflare Worker·D1 스키마, CocoaPods SDK
 **주의:** 이 문서는 App Store Connect 입력을 준비하기 위한 코드 기반 매핑이다. 실제 Archive의 Xcode Privacy Report와 운영 환경을 다시 대조한 후 제출해야 한다.
 
@@ -115,6 +115,13 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 
 ## 6. 제출 전 수동 체크리스트
 
+### 자동 회귀 검사
+
+- `scripts/validate-privacy-declarations.mjs`가 앱 Privacy Manifest의 수집 데이터 9종, 사용자 연결 여부, 추적 여부, 사용 목적, UserDefaults 사유 코드와 이 문서의 입력안을 비교한다.
+- `scripts/release-audit-smoke.sh`의 `A05`가 소스 선언을 검사하고, Release 빌드 후 `I06`이 앱 루트에 포함된 manifest가 소스와 동일한지 다시 검사한다.
+- 자동 검사는 App Store Connect 입력과 Xcode Archive Privacy Report 생성을 대신하지 않는다.
+- 2026-10-19 전체 Release audit에서 `A05`·`I06`을 포함한 모든 검사가 통과했으며 경고는 0건이었다.
+
 ### 2026-10-09 로컬 검증 결과
 
 - `plutil -lint`로 앱 `PrivacyInfo.xcprivacy` 형식 검증 통과
@@ -136,7 +143,13 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 - [ ] 실제 iPhone에서 카카오 로그인, 캘린더 권한, 알림 권한과 거부 흐름 확인
 - [ ] 위치·사진·APNs·분석 SDK를 추가하거나 SDK 버전을 올릴 때 manifest와 App Privacy를 재검토
 
-## 7. 현재 남아 있는 출시 차단 사항
+## 7. Apple 공식 기준
+
+- [App Store Connect — Manage app privacy](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy): 앱과 통합한 제3자 파트너의 수집 관행을 포함해 데이터 유형별 질문을 완료하고 게시해야 한다.
+- [Privacy manifest files](https://developer.apple.com/documentation/BundleResources/privacy-manifest-files): 앱과 SDK가 수집하는 데이터 및 Required Reason API 사용을 manifest에 선언한다.
+- [Describing use of required reason API](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api): Required Reason API를 사용하는 실행 파일과 SDK 번들마다 승인된 사유를 정확히 선언해야 한다.
+
+## 8. 현재 남아 있는 출시 차단 사항
 
 1. App Store Connect의 App Privacy 응답을 실제 Archive Privacy Report와 최종 대조
 2. 실제 Archive Privacy Report 미생성

@@ -443,6 +443,8 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 - [x] Privacy Policy URL — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`
 - [x] Support URL과 지원 이메일 — `https://matgyeomung-api.dog-kindergarden.workers.dev/support`, `yikum503@naver.com`
 - [ ] App Privacy 데이터 수집 라벨
+  - [x] Privacy Manifest·App Privacy 입력안의 수집 유형/연결/추적/목적 자동 일치 검사와 Release 번들 포함 검사 추가
+  - [ ] App Store Connect에 입력 후 Xcode Archive Privacy Report와 최종 대조
 - [x] 심사 노트 초안 — 미결정 계정 정보를 제외한 기능·권한·탈퇴 설명 작성
 - [x] 외부 지도·예약·결제 방식 설명 — 특정 Kakao/Naver 외부 페이지, 실물 돌봄 예약 요청, 앱 내 결제 없음 명시
 - [ ] 보호자 Demo 계정 또는 심사 가능한 Demo 환경

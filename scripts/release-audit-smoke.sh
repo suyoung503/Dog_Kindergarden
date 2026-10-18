@@ -107,6 +107,12 @@ check_tools() {
       missing=1
     fi
   done
+  if [ "$RUN_IOS" -eq 1 ]; then
+    if ! command -v /usr/bin/plutil >/dev/null 2>&1; then
+      echo "필수 도구 없음: /usr/bin/plutil"
+      missing=1
+    fi
+  fi
   if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
     for tool in xcodebuild /usr/libexec/PlistBuddy; do
       if ! command -v "$tool" >/dev/null 2>&1; then
@@ -148,6 +154,11 @@ check_tracked_sensitive_files() {
 validate_app_icon() {
   cd "$REPO_ROOT" || return 1
   node scripts/validate-app-icon.mjs
+}
+
+validate_privacy_declarations() {
+  cd "$REPO_ROOT" || return 1
+  node scripts/validate-privacy-declarations.mjs
 }
 
 check_ios_server_secrets() {
@@ -362,6 +373,29 @@ ios_store_identity_gate() {
   return "$failed"
 }
 
+ios_privacy_manifest_gate() {
+  local app bundled_manifest source_manifest
+  app="$(find "$WORK_DIR/DerivedData/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit 2>/dev/null)"
+  if [ -z "$app" ]; then
+    echo "검사할 Release .app을 찾지 못했습니다."
+    return 1
+  fi
+
+  bundled_manifest="$app/PrivacyInfo.xcprivacy"
+  source_manifest="$IOS_DIR/Dog_kindergarden/PrivacyInfo.xcprivacy"
+  if [ ! -f "$bundled_manifest" ]; then
+    echo "Release 앱 루트에 PrivacyInfo.xcprivacy가 없습니다."
+    return 1
+  fi
+  if ! cmp -s "$source_manifest" "$bundled_manifest"; then
+    echo "Release 앱의 PrivacyInfo.xcprivacy가 소스 선언과 다릅니다."
+    return 1
+  fi
+
+  node "$REPO_ROOT/scripts/validate-privacy-declarations.mjs" "$bundled_manifest"
+  echo "Release 앱 루트 Privacy Manifest 포함 및 소스 일치 확인"
+}
+
 write_report() {
   local commit branch generated overall
   commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -410,6 +444,7 @@ run_command A03 "민감 파일 Git 추적 여부" check_tracked_sensitive_files 
 run_command A04 "App Icon 소스 규격 검사" validate_app_icon || true
 
 if [ "$RUN_IOS" -eq 1 ]; then
+  run_command A05 "Privacy Manifest·App Privacy 입력안 일치 검사" validate_privacy_declarations || true
   run_command S01 "iOS 설정의 서버용 API 자격 증명 차단" check_ios_server_secrets || true
   consistency_log="$LOG_DIR/S02.log"
   if check_repository_consistency >"$consistency_log" 2>&1; then
@@ -423,6 +458,7 @@ if [ "$RUN_IOS" -eq 1 ]; then
     fi
   fi
 else
+  skip A05 "Privacy Manifest·App Privacy 입력안 일치 검사"
   skip S01 "iOS 설정의 서버용 API 자격 증명 차단"
   skip S02 "저장소와 출시 문서 일치 검사"
 fi
@@ -452,11 +488,13 @@ if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
     run_command I03 "맡겨멍 앱 소스 Release 경고 차단" ios_app_source_warning_gate || true
     run_command I04 "Release 최소 지원 버전 고정" ios_minimum_version_gate || true
     run_command I05 "App Store 표시 이름·카테고리 고정" ios_store_identity_gate || true
+    run_command I06 "Release Privacy Manifest 포함·내용 검사" ios_privacy_manifest_gate || true
   else
     skip I02 "Release 번들의 Secret·디버그 진입 검사(빌드 실패)"
     skip I03 "맡겨멍 앱 소스 Release 경고 차단(빌드 실패)"
     skip I04 "Release 최소 지원 버전 고정(빌드 실패)"
     skip I05 "App Store 표시 이름·카테고리 고정(빌드 실패)"
+    skip I06 "Release Privacy Manifest 포함·내용 검사(빌드 실패)"
   fi
 else
   skip I01 "iOS Simulator Release configuration 빌드"
@@ -464,6 +502,7 @@ else
   skip I03 "맡겨멍 앱 소스 Release 경고 차단"
   skip I04 "Release 최소 지원 버전 고정"
   skip I05 "App Store 표시 이름·카테고리 고정"
+  skip I06 "Release Privacy Manifest 포함·내용 검사"
 fi
 
 write_report
