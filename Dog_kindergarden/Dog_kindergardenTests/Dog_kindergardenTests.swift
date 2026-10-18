@@ -104,6 +104,22 @@ struct DogKindergardenTests {
         #expect(viewModel.services.allSatisfy { $0.price == "가격 업체 확인" })
     }
 
+    @Test("Icon assets and store types map to the intended meaning")
+    func iconSemanticMapping() {
+        #expect("🏠".petAssetName == "kindergarden")
+        #expect("🏨".petAssetName == "emoji_hotel")
+        #expect("📅".petAssetName == "emoji_calendar")
+        #expect("💬".petAssetName == "emoji_chat")
+        #expect("📔".petAssetName == "emoji_note")
+        #expect("🦴".petAssetName == "emoji_bone")
+
+        #expect(storeTypeEmoji("유치원") == "🏠")
+        #expect(storeTypeEmoji("호텔") == "🏨")
+        #expect(storeTypeEmoji("유치원·호텔") == "🐾")
+        #expect(storeTypeEmoji(nil) == "🐾")
+        #expect(storeTypeEmoji("미분류") == "🐾")
+    }
+
     private func inboxItem(
         type: String,
         roomId: Int? = nil,

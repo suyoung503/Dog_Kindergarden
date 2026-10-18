@@ -193,7 +193,7 @@ struct KakaoMapView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .fill(pin.type == "호텔" ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
                         .frame(width: 64, height: 64)
-                    EmojiIcon(emoji: pin.type == "호텔" ? "🏨" : "🏠", size: 30)
+                    EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 30)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -275,7 +275,7 @@ struct KakaoMapView: View {
         Button(action: { selectedPin = pin }) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    EmojiIcon(emoji: pin.type == "호텔" ? "🏨" : "🏠", size: 14)
+                    EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 14)
                     Text(pin.name)
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Color.brandBrown)

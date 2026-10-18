@@ -21,10 +21,12 @@ final class BoardingStore {
             let mapped: [MapPin] = stores.compactMap { store in
                 guard let name = store.name, !name.isEmpty,
                       let key = store.storeKey, !key.isEmpty,
-                      let lat = store.latitude, let lon = store.longitude else { return nil }
+                      let lat = store.latitude, let lon = store.longitude,
+                      let type = store.storeType?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      type == "호텔" || type == "유치원" else { return nil }
                 return MapPin(
                     name: name,
-                    type: store.storeType ?? "호텔",
+                    type: type,
                     rating: 0,
                     distance: "",
                     latitude: lat,

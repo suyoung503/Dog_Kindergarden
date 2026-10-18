@@ -169,7 +169,7 @@ struct BookingDoneView: View {
                     router.selectedRoomId = b.roomId
                 }
                 router.chatRoomAsOwner = false
-                router.chatRoomAvatar = (router.selectedPin?.type == "호텔") ? "🏨" : "🏠"
+                router.chatRoomAvatar = storeTypeEmoji(router.selectedPin?.type)
                 router.go(.chatRoom)
             }) {
                 Text("가게와 채팅하기")

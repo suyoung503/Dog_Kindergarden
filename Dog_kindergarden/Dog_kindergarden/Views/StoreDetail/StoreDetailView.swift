@@ -346,9 +346,7 @@ struct StoreDetailView: View {
     }
 
     private var defaultStoreEmoji: String {
-        let type = pin?.type ?? ""
-        if type.contains("호텔") && type.contains("유치원") { return "🐾" }
-        return type.contains("호텔") ? "🏨" : "🏠"
+        storeTypeEmoji(pin?.type)
     }
 
     private var defaultHeroColors: [Color] {
@@ -407,7 +405,7 @@ struct StoreDetailView: View {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color(hex: "#FFE6CC"))
                     .frame(width: 56, height: 56)
-                EmojiIcon(emoji: "🐶", size: 28)
+                EmojiIcon(emoji: defaultStoreEmoji, size: 28)
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -899,7 +897,7 @@ struct StoreDetailView: View {
             router.selectedChat = name
             router.selectedRoomId = rid
             router.chatRoomAsOwner = false
-            router.chatRoomAvatar = (pin?.type == "호텔") ? "🏨" : "🏠"
+            router.chatRoomAvatar = storeTypeEmoji(pin?.type)
             router.go(.chatRoom)
         }
     }

@@ -8,6 +8,18 @@ func dogAvatarName(_ index: Int) -> String {
     dogAvatars[((index % dogAvatars.count) + dogAvatars.count) % dogAvatars.count]
 }
 
+/// 가게 유형에 맞는 아이콘을 한 곳에서 결정한다.
+/// 알 수 없는 유형을 유치원이나 호텔로 단정하지 않고 공통 발자국으로 표시한다.
+func storeTypeEmoji(_ storeType: String?) -> String {
+    let value = storeType?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let hasHotel = value.contains("호텔")
+    let hasKindergarten = value.contains("유치원")
+    if hasHotel && hasKindergarten { return "🐾" }
+    if hasHotel { return "🏨" }
+    if hasKindergarten { return "🏠" }
+    return "🐾"
+}
+
 // 이모지 문자열 → 에셋 이미지 이름 매핑 (PNG가 있는 것만)
 extension String {
     var petAssetName: String? {

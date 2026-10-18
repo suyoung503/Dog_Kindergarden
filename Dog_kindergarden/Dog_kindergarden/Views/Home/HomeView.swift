@@ -398,7 +398,7 @@ struct HomeView: View {
                         default:
                             ZStack {
                                 RoundedRectangle(cornerRadius: Radius.lg).fill(bg)
-                                EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 34)
+                                EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 34)
                             }
                         }
                     }
@@ -408,7 +408,7 @@ struct HomeView: View {
                     RoundedRectangle(cornerRadius: Radius.lg)
                         .fill(bg)
                         .frame(height: 64)
-                    EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 34)
+                    EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 34)
                 }
                 Text(pin.type)
                     .font(.system(size: 9, weight: .semibold))

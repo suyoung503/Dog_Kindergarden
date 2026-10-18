@@ -58,7 +58,7 @@ struct RootView: View {
             router.chatRoomAsOwner = asOwner
             router.chatRoomAvatar = asOwner
                 ? "img:\(dogAvatarName(roomId))"
-                : ((storeType == "호텔") ? "🏨" : "🏠")
+                : storeTypeEmoji(storeType)
             router.go(.chatRoom)
         case .reservationList:
             router.go(.reservationList)

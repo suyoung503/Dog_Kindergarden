@@ -105,7 +105,7 @@ struct FavoritesView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
                         .frame(width: 56, height: 56)
-                    EmojiIcon(emoji: isHotel ? "🏨" : "🏠", size: 28)
+                    EmojiIcon(emoji: storeTypeEmoji(favorite.storeType), size: 28)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(favorite.name)

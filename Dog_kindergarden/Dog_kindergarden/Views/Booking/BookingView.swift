@@ -217,7 +217,7 @@ struct BookingView: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14).fill(Color(hex: "#FFE6CC")).frame(width: 48, height: 48)
-                EmojiIcon(emoji: "🐶", size: 24)
+                EmojiIcon(emoji: storeTypeEmoji(router.selectedPin?.type), size: 24)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(router.selectedStore)

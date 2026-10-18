@@ -199,8 +199,8 @@ struct ChatListView: View {
 
     private func chatRow(_ room: ChatRoomSummary) -> some View {
         // 가게 프로필 — 타입별 호텔/유치원 아이콘
-        let isHotel = (room.store_type ?? "") == "호텔"
-        let avatar = isHotel ? "🏨" : "🏠"
+        let isHotel = room.store_type == "호텔"
+        let avatar = storeTypeEmoji(room.store_type)
         return Button(action: {
             router.selectedChat = room.store_name ?? "채팅"
             router.selectedRoomId = room.room_id
