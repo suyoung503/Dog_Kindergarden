@@ -6,6 +6,11 @@
 
 ## 완료된 작업
 
+### iOS 사용 권한과 Background Mode 최소화
+
+- [x] **구형 캘린더 권한 선언 제거** (2026-10-19) — 최소 지원 버전이 iOS 17이고 실제 코드가 `requestFullAccessToEvents()`만 사용하므로 iOS 10~16 호환용 `NSCalendarsUsageDescription`과 도달 불가능한 구형 요청 분기를 제거했다. 예약 취소 일정을 조회·삭제해야 하므로 `NSCalendarsFullAccessUsageDescription`은 유지했다.
+- [x] **실사용 백그라운드 기능 확인** (2026-10-19) — `UIBackgroundModes=fetch`와 BGTask 식별자는 앱 내부 알림 피드 갱신에 실제 사용되므로 제거하지 않았다. 출시 smoke `I07`이 불필요한 위치·카메라·사진첩·구형 캘린더 권한이 다시 들어오거나 Background Fetch 선언과 코드 식별자가 어긋나는 경우 실패하도록 보강했다. 전체 Release audit는 경고 없이, iOS 단위 테스트는 6/6 통과했다.
+
 ### Privacy Manifest와 App Privacy 선언 회귀 방지
 
 - [x] **App Privacy 입력안 자동 검증** (2026-10-19) — `PrivacyInfo.xcprivacy`의 수집 데이터 9종, 사용자 연결, 추적 안 함, 앱 기능 목적과 UserDefaults `CA92.1` 선언이 `docs/APP_STORE_PRIVACY_CHECKLIST.md`의 입력안과 달라지면 실패하는 `scripts/validate-privacy-declarations.mjs`를 추가했다.

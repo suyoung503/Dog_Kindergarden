@@ -39,8 +39,6 @@
 		<string>kakaotalk</string>
 		<string>storekit</string>
 	</array>
-	<key>NSCalendarsUsageDescription</key>
-	<string>사용자가 선택한 예약 신청 일정을 캘린더에 추가하기 위해 접근 권한이 필요합니다.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>사용자가 선택한 예약 신청 일정을 캘린더에 추가하고, 예약 취소 시 해당 일정을 삭제하기 위해 접근 권한이 필요합니다.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>

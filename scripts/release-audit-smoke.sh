@@ -396,6 +396,55 @@ ios_privacy_manifest_gate() {
   echo "Release 앱 루트 Privacy Manifest 포함 및 소스 일치 확인"
 }
 
+ios_permission_declarations_gate() {
+  local app info_plist full_access_description background_mode background_identifier failed key
+  app="$(find "$WORK_DIR/DerivedData/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit 2>/dev/null)"
+  if [ -z "$app" ]; then
+    echo "검사할 Release .app을 찾지 못했습니다."
+    return 1
+  fi
+
+  info_plist="$app/Info.plist"
+  failed=0
+  full_access_description="$(/usr/libexec/PlistBuddy -c 'Print :NSCalendarsFullAccessUsageDescription' "$info_plist" 2>/dev/null || true)"
+  if [ -z "$full_access_description" ]; then
+    echo "캘린더 전체 접근 설명이 없습니다."
+    failed=1
+  else
+    echo "캘린더 전체 접근 설명 확인"
+  fi
+
+  for key in NSCalendarsUsageDescription NSCalendarsWriteOnlyAccessUsageDescription NSCameraUsageDescription NSPhotoLibraryUsageDescription NSLocationWhenInUseUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription; do
+    if /usr/libexec/PlistBuddy -c "Print :$key" "$info_plist" >/dev/null 2>&1; then
+      echo "현재 기능에서 사용하지 않는 권한 설명이 남아 있습니다: $key"
+      failed=1
+    fi
+  done
+
+  background_mode="$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "$info_plist" 2>/dev/null || true)"
+  background_identifier="$(/usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:0' "$info_plist" 2>/dev/null || true)"
+  if [ "$background_mode" != "fetch" ]; then
+    echo "알림 피드 갱신용 Background Fetch 선언이 없습니다."
+    failed=1
+  elif /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:1' "$info_plist" >/dev/null 2>&1; then
+    echo "검토되지 않은 추가 Background Mode가 선언되어 있습니다."
+    failed=1
+  else
+    echo "실사용 Background Fetch 선언 확인"
+  fi
+  if [ "$background_identifier" != "net.suyoung.Dog-kindergarden.refresh" ]; then
+    echo "BGTask 식별자가 앱 코드와 다릅니다: ${background_identifier:-미설정}"
+    failed=1
+  elif /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:1' "$info_plist" >/dev/null 2>&1; then
+    echo "검토되지 않은 추가 BGTask 식별자가 선언되어 있습니다."
+    failed=1
+  else
+    echo "BGTask 식별자 일치 확인: $background_identifier"
+  fi
+
+  return "$failed"
+}
+
 write_report() {
   local commit branch generated overall
   commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -489,12 +538,14 @@ if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
     run_command I04 "Release 최소 지원 버전 고정" ios_minimum_version_gate || true
     run_command I05 "App Store 표시 이름·카테고리 고정" ios_store_identity_gate || true
     run_command I06 "Release Privacy Manifest 포함·내용 검사" ios_privacy_manifest_gate || true
+    run_command I07 "사용 권한·Background Mode 최소 선언 검사" ios_permission_declarations_gate || true
   else
     skip I02 "Release 번들의 Secret·디버그 진입 검사(빌드 실패)"
     skip I03 "맡겨멍 앱 소스 Release 경고 차단(빌드 실패)"
     skip I04 "Release 최소 지원 버전 고정(빌드 실패)"
     skip I05 "App Store 표시 이름·카테고리 고정(빌드 실패)"
     skip I06 "Release Privacy Manifest 포함·내용 검사(빌드 실패)"
+    skip I07 "사용 권한·Background Mode 최소 선언 검사(빌드 실패)"
   fi
 else
   skip I01 "iOS Simulator Release configuration 빌드"
@@ -503,6 +554,7 @@ else
   skip I04 "Release 최소 지원 버전 고정"
   skip I05 "App Store 표시 이름·카테고리 고정"
   skip I06 "Release Privacy Manifest 포함·내용 검사"
+  skip I07 "사용 권한·Background Mode 최소 선언 검사"
 fi
 
 write_report

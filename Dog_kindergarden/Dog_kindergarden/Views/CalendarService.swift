@@ -80,16 +80,8 @@ enum CalendarService {
     }
 
     private static func requestAccess() async -> Bool {
-        if #available(iOS 17.0, *) {
-            // 이벤트 삭제(취소 시)에는 조회가 필요하므로 쓰기 전용이 아닌 전체 접근을 받는다
-            return (try? await store.requestFullAccessToEvents()) ?? false
-        } else {
-            return await withCheckedContinuation { continuation in
-                store.requestAccess(to: .event) { granted, _ in
-                    continuation.resume(returning: granted)
-                }
-            }
-        }
+        // 최소 지원 버전이 iOS 17이고, 취소 일정 조회·삭제가 필요하므로 전체 접근을 요청한다.
+        return (try? await store.requestFullAccessToEvents()) ?? false
     }
 
     private static func eventIdentifier(for reservationId: Int) -> String? {
