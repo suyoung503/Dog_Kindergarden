@@ -13,7 +13,7 @@
 | 영역 | 결과 | 근거 |
 |---|---|---|
 | 백엔드 의존성 | PASS | Hono 4.13.13, Wrangler 4.151.1, 깨끗한 설치 `npm audit` 0건 |
-| Worker 번들·운영 배포 | PASS | 갱신된 Wrangler dry-run 및 운영 버전 `eaaf69e9-783d-486e-8064-937f79f18959` 배포 |
+| Worker 번들·운영 배포 | PASS | 갱신된 Wrangler dry-run 및 운영 버전 `1ae53f87-4ba4-4d9d-8bbe-7d803f6a3bfc` 배포 |
 | 로컬 D1·권한 회귀 | PASS | 빈 D1 전체 마이그레이션과 인증·객체 소유권 회귀 통과 |
 | 운영 공개 URL | PASS | `/`, `/privacy`, `/support`, `/api/stores`, `/api/notices` HTTP 200 |
 | 운영 인증 경계 | PASS | 예약·사장님 가게·승인함·고객센터 무인증 조회 HTTP 401 |
@@ -22,7 +22,7 @@
 | Xcode·SDK | PASS | Xcode 27.0, iPhoneOS SDK 27.0 |
 | Git 민감 파일 | PASS | `.dev.vars`, 인증서, 개인키, 프로비저닝 파일 미추적 |
 | GitHub CI | 준비 | main push·Pull Request에서 audit·Worker dry-run·로컬 D1·권한 회귀 실행 |
-| API 입력 상한 | PASS | `/api/*` 본문 2MiB 초과 시 인증·D1 처리 전 HTTP 413 |
+| API 입력 상한 | PASS | `/api/*` 본문 2MiB 초과 시 인증·D1 처리 전 HTTP 413, 운영 응답 확인 |
 
 ## 확인된 제한
 

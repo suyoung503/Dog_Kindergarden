@@ -10,12 +10,12 @@
 
 - [x] Hono·Wrangler와 전이 의존성을 안전 버전으로 갱신하고 깨끗한 설치에서 `npm audit` **0건** 확인
 - [x] 갱신된 Wrangler로 Worker 배포 번들 dry-run 성공
-- [x] 취약점이 해결된 Worker 운영 배포 — 버전 `eaaf69e9-783d-486e-8064-937f79f18959`
+- [x] 취약점 갱신과 API 입력 상한이 적용된 Worker 운영 배포 — 버전 `1ae53f87-4ba4-4d9d-8bbe-7d803f6a3bfc`
 - [x] 운영 Worker 공개 상태·개인정보처리방침·고객지원·가게·공지 조회 확인
 - [x] 운영 Worker에서 예약·사장님 가게·운영자 승인함·고객센터 무인증 요청이 모두 `401`인지 확인
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
 - [x] main push·Pull Request마다 의존성 audit, Worker dry-run, 빈 D1 마이그레이션, 인증·권한 회귀를 실행하는 GitHub Actions 추가
-- [x] 모든 API 요청 본문을 2MiB로 제한하고 초과 요청을 D1·외부 API 처리 전에 HTTP `413`으로 차단
+- [x] 모든 API 요청 본문을 2MiB로 제한하고 초과 요청을 D1·외부 API 처리 전에 HTTP `413`으로 차단 — 운영 응답까지 확인
 - [x] iOS Simulator Release, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 포함한 Release audit 실행
 - [x] 실제 iPhone용 unsigned `arm64` Archive와 완성 번들의 Secret·개발 메뉴·Privacy Manifest 검사
 - [x] Xcode 27.0·iPhoneOS SDK 27.0이 현재 제출 최소 기준을 충족하는지 확인
