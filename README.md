@@ -83,6 +83,7 @@ docs/                   기획·진행상황·포트폴리오 문서
 - iOS 앱 빌드는 [`Dog_kindergarden/README.md`](Dog_kindergarden/README.md) 참고
 - 백엔드 배포는 [`backend-cloudflare/README.md`](backend-cloudflare/README.md) 참고
 - 개발 계획·진행상황은 [`docs/PLAN.md`](docs/PLAN.md), [`docs/PROGRESS.md`](docs/PROGRESS.md) 참고
+- 배포까지 남은 일과 사용자 준비 항목은 [`docs/DEPLOYMENT_REMAINING.md`](docs/DEPLOYMENT_REMAINING.md) 참고
 
 ## 기술 스택
 

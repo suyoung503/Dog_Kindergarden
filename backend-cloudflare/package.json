@@ -9,6 +9,7 @@
     "d1:migrate": "wrangler d1 migrations apply dog_kindergarden_db",
     "d1:migrate:local": "wrangler d1 migrations apply dog_kindergarden_db --local",
     "test:auth": "node scripts/test-auth-permissions.mjs",
+    "test:production": "node ../scripts/production-readonly-smoke.mjs",
     "crawl:seoul": "node scripts/crawl-store-details.mjs --region=서울 --limit=600",
     "crawl:seoul:local": "node scripts/crawl-store-details.mjs --region=서울 --limit=600 --apply-local",
     "scrape:naver-prices": "node scripts/scrape-naver-place-prices.mjs --limit=50",
@@ -22,9 +23,9 @@
     "ocr:prices:local": "node scripts/ocr-price-images-local.mjs --input=crawl-results/price-ocr-input-2026-10-01.json --limit=10 --apply-local"
   },
   "dependencies": {
-    "hono": "^4.6.10"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
-    "wrangler": "^4.93.0"
+    "wrangler": "^4.151.1"
   }
 }

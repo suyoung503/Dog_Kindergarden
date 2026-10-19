@@ -6,6 +6,14 @@
 
 ## 완료된 작업
 
+### 배포 잔여 작업 통합·운영 회귀·의존성 보안 갱신
+
+- [x] **배포 단일 현황표 정리** (2026-10-19) — 코드만으로 실행 가능한 작업과 Apple 계정·실기기·심사 계정·데이터 권리처럼 사용자 준비가 필요한 작업을 `docs/DEPLOYMENT_REMAINING.md`로 분리했다. 오래된 배포 리포트와 README·FEATURES·Release 테스트 문서를 현재 인증·파트너 승인·가격·캘린더·알림함 동작에 맞게 갱신했다.
+- [x] **운영 읽기 전용 smoke 추가** (2026-10-19) — `scripts/production-readonly-smoke.mjs`가 운영 상태·개인정보처리방침·고객지원·가게·공지 응답과 예약·사장님 가게·승인함·고객센터의 무인증 `401`을 검사한다. 실제 데이터를 생성·수정·삭제하는 요청은 사용하지 않는다.
+- [x] **백엔드 취약 의존성 갱신** (2026-10-19) — 새로 발견된 Hono·Wrangler 전이 의존성 취약점을 Hono 4.13.13과 Wrangler 4.151.1로 갱신했다. 깨끗한 `npm ci`에서 audit 0건과 Worker dry-run을 확인했다.
+- [x] **GitHub Release gate 자동화** (2026-10-19) — main push와 Pull Request에서 잠금 의존성 설치·audit, Worker dry-run, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 실행하는 최소 권한 GitHub Actions를 추가했다. 운영 Secret이나 운영 D1에는 접근하지 않는다.
+- [ ] **운영 D1 권한 재확인 필요** — Worker 배포 이력 조회는 성공했지만 원격 D1 마이그레이션 목록은 Cloudflare API `7403` 권한 오류로 거부됐다. 현재 로그인 계정의 D1 접근 권한을 확인한 뒤 미적용 마이그레이션 0건을 다시 검증해야 한다.
+
 ### iPhone용 Release Archive 배포 사전검사
 
 - [x] **실제 기기용 Archive 경로 검증** (2026-10-19) — Simulator 빌드만으로는 확인할 수 없던 iPhoneOS Archive를 `generic/platform=iOS`와 Release configuration으로 생성하고, 실행 파일이 실제 기기용 `arm64`인지 자동 확인하는 `scripts/release-device-archive-preflight.sh`를 추가했다.
@@ -305,7 +313,7 @@
 
 ## 남은 작업
 
-> 출시 후보 전환 이후의 상세 작업 순서와 체크리스트는 `docs/PLAN.md`의 **맡겨멍 v1.0 출시 후보 전환 로드맵**을 기준으로 한다. Critical/Major 문제가 0건이 되기 전에는 후순위 기능을 추가하지 않는다.
+> 최신 배포 순서와 사용자 준비 항목은 `docs/DEPLOYMENT_REMAINING.md`를 단일 현황표로 사용한다. `docs/PLAN.md`는 상세 설계, `docs/RELEASE_TEST_CHECKLIST.md`는 실제 기기 절차를 담당한다. Critical/Major 문제가 0건이 되기 전에는 후순위 기능을 추가하지 않는다.
 
 ### 단기 (배포 전 필수)
 
@@ -348,9 +356,9 @@
 - [ ] Apple Developer Program 유료 멤버십 가입 ($99/년) — App Store 배포 자체에 필요, 유료 멤버십 확보 시 원격 푸시(APNs)도 함께 재검토 가능
 - [x] 개인정보처리방침 URL 작성·게시 — 운영 Worker의 `/privacy`에 공개하고 로그인 화면·마이페이지에서 접근 가능하도록 연결
 - [ ] 심사관용 테스트 계정 안내 준비 — 카카오 로그인 필수 앱이라 심사 노트에 로그인 가능한 계정 안내 필요
-- [ ] App Privacy 데이터 수집 라벨 작성
-- [ ] 스크린샷·메타데이터(설명·키워드·카테고리·연령등급) 준비
-- [ ] 결제 방식 심사 노트 준비 — 네이버예약 외부 리다이렉트는 실물 서비스 예외(가이드라인 3.1.1)로 IAP 불필요 추정, 심사 노트에 설명 추가 권장
+- [x] App Privacy 데이터 수집 라벨 입력안 작성 — 실제 App Store Connect 입력과 Archive Privacy Report 대조는 Apple 계정·서명 후 수행
+- [ ] 최종 App Store 스크린샷 준비 — 현재 `docs/screenshots`는 개발 화면 소개용이며 최종 제출 빌드로 다시 촬영 필요
+- [x] 메타데이터·연령등급·실물 서비스 결제 방식 심사 노트 초안 — `docs/APP_STORE_METADATA.md`, 실제 App Store Connect 입력 결과는 별도 확인
 
 ---
 
@@ -390,6 +398,6 @@
 
 ## Git 현황
 
-- **저장소:** 모노레포 단일 repo, `main` 브랜치. 최신 푸시 커밋 `1b16a4b` — 예약 확정 자동 채팅 메시지 + 채팅 UX 개선, 예약취소 목록 반영 수정
+- **저장소:** 모노레포 단일 repo, `main` 브랜치. 정확한 현재 커밋은 `git log -1 --oneline`으로 확인하며 문서에 고정 해시를 중복 기록하지 않는다.
 - **백엔드:** `backend-cloudflare/` — Cloudflare Workers 배포 완료
 - **배포 URL:** `https://matgyeomung-api.dog-kindergarden.workers.dev`

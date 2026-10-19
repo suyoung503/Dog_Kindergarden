@@ -18,6 +18,7 @@ scripts/release-audit-smoke.sh
 | A02 | 브랜치·커밋·작업 트리 상태 기록 | 실행 대상 상태가 결과에 기록됨 |
 | A03 | 인증서·환경변수 파일의 Git 추적 검사 | 민감 파일이 추적되지 않음 |
 | A04 | App Icon 소스 규격 검사 | 기본 1024×1024 슬롯, 8-bit RGB PNG, alpha 없음 |
+| A05 | Privacy Manifest와 App Privacy 입력안 일치 | 수집 유형·연결·추적·목적과 Required Reason API가 문서와 일치 |
 | S01 | iOS 설정의 서버용 API 자격 증명 검사 | Naver·Kakao REST·공공데이터 자격 증명 리터럴이 없음 |
 | S02 | `All_data.csv` 등 문서와 저장소 불일치 확인 | 미정리 파일이 없음 |
 | B01 | Worker 배포 번들 dry-run | 번들 생성 성공 |
@@ -29,6 +30,8 @@ scripts/release-audit-smoke.sh
 | I03 | 맡겨멍 앱 소스의 Release 컴파일러 경고 검사 | 앱 소스 경고가 0건이며, Pods·Xcode 도구 경고와 분리됨 |
 | I04 | 완성 앱의 최소 지원 iOS 검사 | `MinimumOSVersion`이 의도한 iOS 17.0으로 고정됨 |
 | I05 | App Store 표시 이름·카테고리 검사 | `CFBundleDisplayName=맡겨멍`, `LSApplicationCategoryType=public.app-category.lifestyle` |
+| I06 | Release Privacy Manifest 검사 | 앱 루트 포함, 소스와 동일, App Privacy 입력안과 일치 |
+| I07 | 권한·Background Mode 최소 선언 검사 | 실사용 권한과 Background Fetch 식별자만 포함 |
 
 결과와 단계별 로그는 기본적으로 `/tmp/matgyeomung-release-smoke-실행시각`에 생성된다. 보존하려면 출력 경로를 지정한다.
 
@@ -47,6 +50,15 @@ scripts/release-audit-smoke.sh --ios-only
 
 자동 검사 하나라도 실패하면 명령은 종료 코드 `1`을 반환한다. 다른 단계는 가능한 범위에서 계속 실행되어 한 번의 실행으로 전체 실패 목록을 남긴다.
 
+실제 iPhone용 unsigned Archive 구조와 운영 서버의 읽기 전용 인증 경계는 별도 명령으로 확인한다.
+
+```bash
+scripts/release-device-archive-preflight.sh
+node scripts/production-readonly-smoke.mjs
+```
+
+첫 명령은 Apple Distribution 서명을 생략한 `arm64` Archive 검사이며 최종 서명·업로드를 대신하지 않는다. 두 번째 명령은 운영 서버에 데이터를 쓰지 않고 공개 URL과 무인증 차단만 확인한다.
+
 ## 2. 자동 통과로 판단하지 않는 항목
 
 다음 항목은 로컬 Simulator나 개발용 인증 우회로 검증할 수 없다. 자동 결과가 `PASS`여도 별도 수동 검사가 필요하다.
@@ -54,7 +66,7 @@ scripts/release-audit-smoke.sh --ios-only
 - 실제 iPhone의 Release 빌드 설치와 실행
 - 실제 카카오 계정 로그인·재로그인·로그아웃
 - Sign in with Apple 실계정 인증과 자격 철회
-- 실제 위치·사진·캘린더·알림 권한 허용, 거부, 설정 변경
+- 실제 사진 선택·캘린더·알림 권한 허용, 거부, 설정 변경(현재 빌드는 위치 권한을 요청하지 않음)
 - APNs Push의 포그라운드·백그라운드·강제 종료 수신
 - OAuth·알림·외부 링크 딥링크
 - TestFlight 설치·업데이트·크래시 수집
