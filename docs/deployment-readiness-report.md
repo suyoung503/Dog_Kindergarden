@@ -1,6 +1,6 @@
 # 맡겨멍 배포 준비 점검 결과
 
-**최종 점검:** 2026-10-19 KST
+**최종 점검:** 2026-10-20 KST
 
 **스택:** SwiftUI iOS 앱 + Cloudflare Workers/Hono + D1
 
@@ -22,6 +22,7 @@
 | Xcode·SDK | PASS | Xcode 27.0, iPhoneOS SDK 27.0 |
 | Git 민감 파일 | PASS | `.dev.vars`, 인증서, 개인키, 프로비저닝 파일 미추적 |
 | GitHub CI | 준비 | main push·Pull Request에서 audit·Worker dry-run·로컬 D1·권한 회귀 실행 |
+| API 입력 상한 | PASS | `/api/*` 본문 2MiB 초과 시 인증·D1 처리 전 HTTP 413 |
 
 ## 확인된 제한
 

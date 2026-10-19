@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import { privacyPolicyHTML } from "./privacyPolicy";
 import { supportPageHTML } from "./supportPage";
 import { refreshStaleStoreDetails } from "./storeDetailRefresh";
@@ -204,11 +205,26 @@ type Variables = {
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const MAX_API_BODY_BYTES = 2 * 1024 * 1024;
 app.use(
   "*",
   cors({
     allowHeaders: ["Content-Type", "Authorization", "X-Internal-Key"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }),
+);
+app.use(
+  "/api/*",
+  bodyLimit({
+    maxSize: MAX_API_BODY_BYTES,
+    onError: (c) => c.json(
+      {
+        message: "request body too large",
+        code: "PAYLOAD_TOO_LARGE",
+        max_bytes: MAX_API_BODY_BYTES,
+      },
+      413,
+    ),
   }),
 );
 

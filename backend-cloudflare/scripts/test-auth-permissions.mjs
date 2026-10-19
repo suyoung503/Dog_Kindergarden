@@ -63,6 +63,11 @@ expect(
   typeof supportPage.data === "string" && supportPage.data.includes("yikum503@naver.com"),
   true,
 );
+const oversizedRequest = await request("POST", "/api/auth/dev", {
+  body: { nickname: "가".repeat(2 * 1024 * 1024) },
+});
+expect("API 대용량 요청 차단", oversizedRequest.status, 413);
+expect("API 대용량 요청 오류 코드", oversizedRequest.data?.code, "PAYLOAD_TOO_LARGE");
 expect(
   "보유기간 정리 API 무인증 차단",
   (await request("POST", "/api/internal/data-retention")).status,
