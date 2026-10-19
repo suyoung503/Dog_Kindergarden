@@ -1,10 +1,16 @@
 # 맡겨멍 — 현재 진행상황 및 다음 단계
 
-**마지막 업데이트:** 2026-10-18
+**마지막 업데이트:** 2026-10-19
 
 ---
 
 ## 완료된 작업
+
+### iPhone용 Release Archive 배포 사전검사
+
+- [x] **실제 기기용 Archive 경로 검증** (2026-10-19) — Simulator 빌드만으로는 확인할 수 없던 iPhoneOS Archive를 `generic/platform=iOS`와 Release configuration으로 생성하고, 실행 파일이 실제 기기용 `arm64`인지 자동 확인하는 `scripts/release-device-archive-preflight.sh`를 추가했다.
+- [x] **완성 번들 출시 조건 검사** (2026-10-19) — Archive 안의 앱을 대상으로 서버 Secret·개발용 진입 문구 미포함, 표시 이름 `맡겨멍`, Lifestyle 카테고리, 최소 iOS 17.0, Privacy Manifest 포함·입력안 일치, 앱 소스 경고 0건을 검사한다. 실패 시 Archive를 제출 후보로 사용할 수 없도록 비정상 종료한다.
+- [x] **현행 제출 도구 요구사항 확인** (2026-10-19) — Apple의 현재 최소 기준인 Xcode 26·iOS 26 SDK와 로컬 Xcode 27.0·iPhoneOS SDK 27.0을 비교해 충족함을 확인했고, 사전검사에도 최소 기준 검증을 넣었다. 이 검사는 코드 서명을 생략하므로 최종 Apple Distribution 서명, Organizer `Validate App`, App Store Connect 업로드와 제출 당일 요구사항 재확인은 남아 있다.
 
 ### iOS 사용 권한과 Background Mode 최소화
 

@@ -399,9 +399,13 @@ Simulator만으로 제출하지 않는다. 실제 iPhone의 Release configuratio
 - [ ] 회원 탈퇴와 토큰 무효화
 - [ ] 네트워크 단절·느린 연결·서버 오류
 - [ ] Release Archive에 Secret·디버그 메뉴·테스트 계정 정보가 포함되지 않는지 확인
+- [x] unsigned iPhone Archive에서 arm64 기기 빌드, Secret·개발 진입 문구, 표시 이름·카테고리·최소 iOS, Privacy Manifest 자동 검사
 - [ ] 제출 시점의 필수 Xcode·iOS SDK 버전 재확인
+  - [x] 2026-10-19 기준 Xcode 27.0·iPhoneOS SDK 27.0이 현행 최소 기준(Xcode 26·iOS 26 SDK)을 충족하는지 확인
 
 참고: [Apple 제출 도구 요구사항](https://developer.apple.com/news/upcoming-requirements/)
+
+자동 사전검사는 `scripts/release-device-archive-preflight.sh`로 실행한다. 이 검사는 서명 없는 실제 기기용 Archive의 구조와 번들을 확인하며, Apple Distribution으로 서명한 최종 Archive의 Organizer `Validate App`·업로드 검증을 대체하지 않는다.
 
 ---
 
