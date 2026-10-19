@@ -13,7 +13,7 @@
 | 영역 | 결과 | 근거 |
 |---|---|---|
 | 백엔드 의존성 | PASS | Hono 4.13.13, Wrangler 4.151.1, 깨끗한 설치 `npm audit` 0건 |
-| Worker 번들 | PASS | 갱신된 Wrangler의 `deploy --dry-run` 성공 |
+| Worker 번들·운영 배포 | PASS | 갱신된 Wrangler dry-run 및 운영 버전 `eaaf69e9-783d-486e-8064-937f79f18959` 배포 |
 | 로컬 D1·권한 회귀 | PASS | 빈 D1 전체 마이그레이션과 인증·객체 소유권 회귀 통과 |
 | 운영 공개 URL | PASS | `/`, `/privacy`, `/support`, `/api/stores`, `/api/notices` HTTP 200 |
 | 운영 인증 경계 | PASS | 예약·사장님 가게·승인함·고객센터 무인증 조회 HTTP 401 |

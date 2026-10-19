@@ -10,7 +10,7 @@
 
 - [x] **배포 단일 현황표 정리** (2026-10-19) — 코드만으로 실행 가능한 작업과 Apple 계정·실기기·심사 계정·데이터 권리처럼 사용자 준비가 필요한 작업을 `docs/DEPLOYMENT_REMAINING.md`로 분리했다. 오래된 배포 리포트와 README·FEATURES·Release 테스트 문서를 현재 인증·파트너 승인·가격·캘린더·알림함 동작에 맞게 갱신했다.
 - [x] **운영 읽기 전용 smoke 추가** (2026-10-19) — `scripts/production-readonly-smoke.mjs`가 운영 상태·개인정보처리방침·고객지원·가게·공지 응답과 예약·사장님 가게·승인함·고객센터의 무인증 `401`을 검사한다. 실제 데이터를 생성·수정·삭제하는 요청은 사용하지 않는다.
-- [x] **백엔드 취약 의존성 갱신** (2026-10-19) — 새로 발견된 Hono·Wrangler 전이 의존성 취약점을 Hono 4.13.13과 Wrangler 4.151.1로 갱신했다. 깨끗한 `npm ci`에서 audit 0건과 Worker dry-run을 확인했다.
+- [x] **백엔드 취약 의존성 갱신·운영 배포** (2026-10-19) — 새로 발견된 Hono·Wrangler 전이 의존성 취약점을 Hono 4.13.13과 Wrangler 4.151.1로 갱신했다. 깨끗한 `npm ci`에서 audit 0건과 Worker dry-run을 확인하고 운영 Worker 버전 `eaaf69e9-783d-486e-8064-937f79f18959`를 배포했다. 배포 후 읽기 전용 smoke 9/9가 통과했다.
 - [x] **GitHub Release gate 자동화** (2026-10-19) — main push와 Pull Request에서 잠금 의존성 설치·audit, Worker dry-run, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 실행하는 최소 권한 GitHub Actions를 추가했다. 운영 Secret이나 운영 D1에는 접근하지 않는다.
 - [ ] **운영 D1 권한 재확인 필요** — Worker 배포 이력 조회는 성공했지만 원격 D1 마이그레이션 목록은 Cloudflare API `7403` 권한 오류로 거부됐다. 현재 로그인 계정의 D1 접근 권한을 확인한 뒤 미적용 마이그레이션 0건을 다시 검증해야 한다.
 

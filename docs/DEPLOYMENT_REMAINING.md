@@ -10,6 +10,7 @@
 
 - [x] Hono·Wrangler와 전이 의존성을 안전 버전으로 갱신하고 깨끗한 설치에서 `npm audit` **0건** 확인
 - [x] 갱신된 Wrangler로 Worker 배포 번들 dry-run 성공
+- [x] 취약점이 해결된 Worker 운영 배포 — 버전 `eaaf69e9-783d-486e-8064-937f79f18959`
 - [x] 운영 Worker 공개 상태·개인정보처리방침·고객지원·가게·공지 조회 확인
 - [x] 운영 Worker에서 예약·사장님 가게·운영자 승인함·고객센터 무인증 요청이 모두 `401`인지 확인
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
