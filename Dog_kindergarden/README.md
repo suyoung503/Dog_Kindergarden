@@ -1,6 +1,6 @@
 # 맡겨멍 iOS 앱
 
-Swift 5.9 · SwiftUI + Observation · iOS 16+ · CocoaPods
+Swift 5.9 · SwiftUI + Observation · iOS 17+ · CocoaPods
 
 ## 빌드 방법
 
@@ -19,7 +19,7 @@ open Dog_kindergarden.xcworkspace
 
 `KakaoSDKCommon`, `KakaoSDKUser`, `KakaoMapsSDK` 등에 `Unable to resolve module dependency`가 뜨면, 기존 `.xcodeproj` 창 대신 위 워크스페이스를 열어 실행하세요. 프로젝트만 열면 CocoaPods의 SDK 타깃이 함께 빌드되지 않습니다.
 
-Xcode 27에서는 오래된 SDK의 iOS 10/13 배포 대상 설정도 빌드 오류가 됩니다. `Podfile`의 `post_install`이 Pods의 최소 배포 대상을 iOS 16 이상으로 보정하므로, Xcode 업데이트 후에도 `pod install`을 실행하세요. 생성된 `Pods.xcodeproj`를 직접 수정할 필요는 없습니다.
+Xcode 27에서는 오래된 SDK의 iOS 10/13 배포 대상 설정도 빌드 오류가 됩니다. `Podfile`의 `post_install`이 Pods의 최소 배포 대상을 iOS 17 이상으로 보정하므로, Xcode 업데이트 후에도 `pod install`을 실행하세요. 생성된 `Pods.xcodeproj`를 직접 수정할 필요는 없습니다.
 
 ### 2. iOS 공개 앱 키 설정 (필수)
 

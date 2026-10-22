@@ -140,6 +140,11 @@ UserDefaults.standard.set(
 - `GET /api/pet-reviews`
 - `GET /api/pet-reviews/tags`
 
+공지사항
+- `GET /api/notices` — 본문을 제외한 최신 공지 목록
+- `GET /api/notices/:id` — 공지 상세
+- v1에는 앱 작성 화면과 공개 쓰기 API를 두지 않는다. 운영자가 권한 있는 D1 환경에서 `notices(title, body)`를 직접 등록한다.
+
 사용자·강아지·찜·기타
 - `POST /api/auth/kakao` — 바디 `access_token`; 카카오 서버 검증 후 세션 발급. 역할은 최초 가입 시 귀속, 반대 역할 로그인은 409
 - `POST /api/auth/logout` — 현재 세션 폐기

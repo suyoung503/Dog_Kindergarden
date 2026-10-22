@@ -5,17 +5,17 @@
 ## 프로젝트 개요
 
 **맡겨멍** — 반려견을 맡길 수 있는 애견 유치원·호텔을 지도 기반으로 탐색하고 예약하는 iOS 플랫폼.
-공공데이터 동물위탁관리업 API로 전국 업체를 표시하고, 리뷰·채팅·예약 기능을 통합 제공한다.
+공공데이터를 출발점으로 검수한 서울 지역 업체를 D1에서 제공하고, 승인된 파트너에 리뷰·채팅·예약 기능을 제공한다.
 
 **목표:** 포트폴리오 완성 → 이후 App Store 실제 출시까지 이어가는 로드맵.
 
 모노레포 구성:
 
-- `Dog_kindergarden/` — iOS 앱 (Swift 5.9, SwiftUI + Observation, iOS 16+, CocoaPods)
+- `Dog_kindergarden/` — iOS 앱 (Swift 5.9, SwiftUI + Observation, iOS 17+, CocoaPods)
 - `backend-cloudflare/` — 백엔드 (TypeScript, Hono, Cloudflare Workers + D1)
-- `docs/` — 계획(`PLAN.md`), 진행상황(`PROGRESS.md`), 포트폴리오 기술 문서(`PORTFOLIO.md`), 기능 명세(`FEATURES.md`)
+- `docs/` — 기능 명세(`FEATURES.md`), 배포 현황(`DEPLOYMENT_REMAINING.md`), 포트폴리오 기술 문서(`PORTFOLIO.md`), 출시 테스트 문서
 
-커밋 메시지·문서·코드 주석은 한국어를 사용한다. 작업 세션이 끝나면 `docs/PROGRESS.md`를 갱신한다.
+커밋 메시지·문서·코드 주석은 한국어를 사용한다. 현재 배포 상태가 달라진 작업은 `docs/DEPLOYMENT_REMAINING.md`를 함께 갱신한다.
 
 ## 명령어
 
@@ -30,7 +30,7 @@ npm run d1:migrate   # D1 마이그레이션 적용 (로컬 DB 기본; 배포 DB
 
 - 배포 URL: `https://matgyeomung-api.dog-kindergarden.workers.dev`
 - 스키마 변경은 반드시 `migrations/`에 번호 순 SQL 파일 추가로만 한다 (기존 파일 다음 번호를 사용한다).
-- 테스트/린트 인프라는 없음. 타입 검사는 `npx tsc --noEmit`.
+- `backend-cloudflare/scripts/test-auth-permissions.mjs`가 인증·인가 회귀를 검사하고 GitHub Actions가 의존성 audit, Worker dry-run, 빈 D1 마이그레이션과 회귀 테스트를 실행한다. 전체 출시 전 검사는 저장소 루트의 `scripts/release-audit-smoke.sh`를 사용한다.
 
 ### iOS 앱 (Dog_kindergarden/)
 
@@ -83,12 +83,12 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 - `store_key`의 주소 부분은 공공데이터의 **마스킹 원본**(`***`)이다 — 정체성 키라서 **절대 변경 금지**. 표시용 `stores.address` 컬럼만 검증된 실주소로 백필할 수 있다(2026-07-17, 16곳 완료). 백엔드 upsert는 기존 행의 address를 덮어쓰지 않으므로(phone·store_type·좌표만 COALESCE 보강) 백필 값이 유지된다.
 - 채팅방은 `chat_rooms(user_id, store_id UNIQUE)`, 찜은 `favorites(user_id, store_id UNIQUE)` — 둘 다 **(사용자+가게) 조합당 1개**. 예약 API가 방을 자동 생성/조회하고 `{reservation_id, room_id}`를 함께 반환한다.
 - 사장님-가게 소유는 `stores.owner_id`와 `partner_status`를 함께 사용한다. 마이페이지 '내 가게'에서 신청하면 `PENDING`일 뿐이며 운영자가 신청자 자료를 확인해 승인해야 `owner_id`가 연결되고 `ACTIVE`가 된다. 예약·채팅·알림장·리뷰 capability는 `ACTIVE` 파트너에만 열리며 일반 업체는 전화·외부 지도·찜만 제공한다. 과거 즉시 등록 `owner_id`도 승인 이력이 없으면 마이그레이션에서 대기열로 되돌린다.
-- 예약 캘린더 일정은 **고객 기기**에만 쓴다(사장님 기기 금지) — 추가는 예약 요청 시점(`BookingView` 성공 직후), 삭제는 본인 취소 시 즉시 + 사장님 취소는 고객이 예약 내역(`ReservationListView`)을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 삭제(서버 푸시 없음).
+- 예약 캘린더 일정은 **고객 기기**에만 쓴다(사장님 기기 금지) — 예약 완료 화면에서 사용자가 `캘린더에 추가`를 눌렀을 때만 권한을 요청해 저장한다. 삭제는 본인 취소 시 즉시, 사장님 취소는 고객이 예약 내역(`ReservationListView`)을 열 때 `CalendarService.syncReservationEvents`가 CANCELED를 관찰해 처리한다.
 - 예약 취소는 고객·사장님 공용 `PATCH /api/reservations/:id/cancel` 하나 — 사장님 취소만 바디 `by_owner`로 구분해 고객 채팅방에 취소 안내 자동 메시지(sender 0)를 남긴다(iOS는 `cancelReservation(byOwner:)`, `OwnerModeView`에서만 true). 고객 본인 취소에 메시지를 보내지 말 것.
 - 채팅방 진입 시 `router.chatRoomAsOwner`를 반드시 설정할 것(받은 문의에서만 true) — '응답중' 표시가 이 플래그를 따른다. 자동메시지(sender 0)는 시점과 무관하게 화자 없는 **중앙 시스템 안내문**으로 렌더링한다(2026-07-18 말풍선에서 분리 — 좌/우 말풍선으로 되돌리지 말 것). 방은 여전히 (손님+가게)당 1개 — 사장님용 방을 따로 만들지 않고 같은 방에 `sender_id`로 참여하며, `ChatRoomView` 말풍선도 `sender_id == 내 userId` 기준이라 양쪽 시점 모두 그대로 동작한다.
 - 안 읽은 채팅(홈 종 아이콘 빨간 점)은 `chat_room_reads(room_id, user_id)`의 `last_read_message_id`로 추적한다 — 읽음 처리는 `ChatRoomView`가 열람(최초 로드·폴링 신규분)마다 `ChatService.markRead` 호출, 카운트는 `GET /api/users/:id/unread-count` — 손님 시점(내가 손님인 방)은 모든 계정 공통이고 사장님 계정은 내 가게로 온 손님 메시지를 **합산**한다(사장님도 다른 가게엔 손님이므로 분기가 아니라 합산; 사장님 몫은 sender 0 제외 + 내가 손님인 방 제외로 중복 집계 방지). 채팅 로드 경로를 바꿀 때 markRead 호출을 빼먹지 말 것.
 - 알림장(diary)은 **예약당 타임라인** — `diaries` 테이블(0001부터 존재)을 예약에 1:N으로 묶어 `GET/POST/PATCH/DELETE /api/reservations/:id/diaries`·`/api/diaries/:id`로 다룬다. 사진용 `diary_photos`(0011)는 R2 미활성이라 **스키마만** 두고 API는 항상 `photos:[]`를 반환한다(전방호환 — R2 켜지면 업로드/서빙만 추가). 사장님이 **작성할 때만** 보호자 채팅방에 자동 메시지(sender 0)를 남긴다 — 수정·삭제엔 보내지 말 것(취소·리뷰요청과 같은 sender 0 패턴이라 안 읽은 카운트에 자동 반영). iOS는 `DiaryTimelineView` 하나를 `router.diaryContext.canWrite`로 공유한다 — 사장님(홈 FAB [사장님 메뉴] '확정예약·알림장' → `OwnerDiaryListView`, 맡은 아이들 = `GET /api/owners/:id/reservations/confirmed` → 작성/수정/삭제)과 보호자(홈 FAB '확정예약·알림장' → `MyDiaryListView`, 확정된 내 예약 = `GET /api/users/:id/reservations`에서 CONFIRMED만 필터 → 열람 전용)가 같은 화면을 쓴다(채팅 말풍선과 같은 플래그 분리). 두 FAB 항목은 라벨이 같지만(발견성 위해 의도적으로 통일) 사장님용은 별도 '사장님 메뉴' 섹션(짙은 갈색 배지로 구분)에 노출된다 — 보호자용은 원래 예약 내역 확정 카드의 '알림장 보기' 버튼이었으나 사장님 전용 버튼들과 섞여 혼동을 준다는 피드백으로 사이드바로 옮겼다(2026-07-24). 보호자 화면 강아지 이름은 `GET /api/users/:id/reservations`의 `pets` 조인값(없으면 '우리 아이'). 상세는 `docs/PORTFOLIO.md` §10.
-- 알림 피드(`GET /api/users/:id/notifications`, opaque 커서)는 이벤트당 정확히 한 축으로만 들어간다 — 이미 채팅 메시지를 남기는 이벤트(알림장 도착·사장님 취소 안내·리뷰 요청 등)는 채팅 축으로만 노출하고, 메시지가 없는 이벤트(새 예약 요청·확정·고객 취소)만 예약 축에 넣는다 — 이벤트당 알림 1회 보장이 이 분리에 의존하므로 어느 한쪽에 중복 추가하지 말 것. 상세는 `docs/superpowers/specs/2026-07-18-push-notifications-design.md`.
+- 알림 피드(`GET /api/users/:id/notifications`, opaque 커서)는 이벤트당 정확히 한 축으로만 들어간다 — 이미 채팅 메시지를 남기는 이벤트(알림장 도착·사장님 취소 안내·리뷰 요청 등)는 채팅 축으로만 노출하고, 메시지가 없는 이벤트(새 예약 요청·확정·고객 취소)만 예약 축에 넣는다. 이벤트당 알림 1회 보장이 이 분리에 의존하므로 어느 한쪽에 중복 추가하지 말 것.
 - 이 패턴을 깨는 변경(예약마다 방 생성, 이름만으로 가게 식별 등)은 하지 않는다.
 - iOS에서 서버가 보강한 `store_key`로 화면을 다시 그릴 때(`FavoritesView` 등)는 `MapPin.storeKeyOverride`에 원본 키를 담아 재계산으로 키가 어긋나지 않게 한다.
 
@@ -103,5 +103,5 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 ## 현재 미완성 영역 (작업 시 주의)
 
 - 알림장 사진: `diary_photos` 스키마만 준비(R2 미활성) — API는 항상 `photos:[]` 반환.
-- API 무인증: `user_id`를 클라이언트 신뢰로 받는 데모 범위 — App Store 실출시 전 JWT 등 인증 레이어 필수 (`docs/FEATURES.md` §13).
+- Sign in with Apple: 상세 설계만 있으며 Apple Developer 설정과 서버·iOS 구현, 실계정 검증이 남아 있다.
 - 원격 푸시(APNs)는 유료 Apple Developer 멤버십 확보 후 v2 — 현재는 서버 폴링 피드 + 로컬 알림으로 대체.

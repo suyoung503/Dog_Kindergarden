@@ -184,7 +184,7 @@ check_ios_server_secrets() {
 check_repository_consistency() {
   cd "$REPO_ROOT" || return 1
   if git ls-files --error-unmatch Dog_kindergarden/All_data.csv >/dev/null 2>&1; then
-    echo "경고: docs/PLAN.md에서 재확인을 요구한 Dog_kindergarden/All_data.csv가 Git에 남아 있습니다."
+    echo "경고: 실행 경로가 없는 Dog_kindergarden/All_data.csv가 Git에 남아 있습니다."
     return 2
   fi
   echo "Dog_kindergarden/All_data.csv는 Git 추적 대상이 아닙니다."

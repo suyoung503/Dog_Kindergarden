@@ -1,10 +1,10 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-10-20
+**기준일:** 2026-10-22
 **기준 브랜치:** `main`
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
-이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. `docs/PLAN.md`는 상세 설계, `docs/RELEASE_TEST_CHECKLIST.md`는 실제 기기 테스트 절차를 담당한다.
+이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
@@ -16,6 +16,7 @@
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
 - [x] main push·Pull Request마다 의존성 audit, Worker dry-run, 빈 D1 마이그레이션, 인증·권한 회귀를 실행하는 GitHub Actions 추가
 - [x] 모든 API 요청 본문을 2MiB로 제한하고 초과 요청을 D1·외부 API 처리 전에 HTTP `413`으로 차단 — 운영 응답까지 확인
+- [x] 모든 JSON 쓰기 API가 문법 오류·`null`·배열 본문을 HTTP `400 / INVALID_JSON`으로 일관되게 거부하고, 예약 취소의 정상 빈 본문만 허용 — 인증·권한 회귀 171건 통과
 - [x] iOS Simulator Release, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 포함한 Release audit 실행
 - [x] 실제 iPhone용 unsigned `arm64` Archive와 완성 번들의 Secret·개발 메뉴·Privacy Manifest 검사
 - [x] Xcode 27.0·iPhoneOS SDK 27.0이 현재 제출 최소 기준을 충족하는지 확인
@@ -71,6 +72,7 @@
 
 - [ ] Kakao Developers에서 iOS 번들 ID `net.suyoung.Dog-kindergarden` 제한 확인
 - [ ] Naver·Kakao·공공데이터 키의 서비스·도메인·사용량 제한 확인
+- [ ] 과거 앱 번들이나 Git 이력에 포함된 공급자 키가 현재 운영 키와 같지 않은지 확인하고, 같다면 새 키로 교체한 뒤 기존 키 폐기
 - [ ] Cloudflare 계정 권한을 복구해 운영 D1 미적용 마이그레이션이 0건인지 다시 확인
 
 현재 CLI는 Worker 배포 이력은 읽지만 원격 D1 조회가 Cloudflare 오류 `7403`으로 거부된다. Cloudflare에서 현재 로그인 계정이 D1 데이터베이스 `dog_kindergarden_db`에 접근 가능한지 확인해야 한다.

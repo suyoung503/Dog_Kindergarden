@@ -23,7 +23,7 @@
 
 - **지도 기반 업체 탐색** — 서울 지역 유치원·호텔을 카카오맵에서 탐색합니다. 지역을 네모 버튼으로 선택하던 초기 디자인 대신 지도를 직접 보며 업체를 찾고, CCTV·픽업·대형견 등 조건으로 필터링합니다.
 - **예약** — 날짜·서비스를 선택해 예약 신청. 예약과 동시에 업체와의 채팅방이 자동 생성됩니다.
-- **실시간 채팅** — 보호자와 업체 간 1:1 채팅 (사용자+가게 조합당 채팅방 1개).
+- **1:1 채팅** — 보호자와 업체 간 대화를 화면 내 3초 폴링으로 갱신합니다(사용자+가게 조합당 채팅방 1개).
 - **리뷰** — 실제 이용자가 남기는 펫 특화 리뷰(CCTV, 픽업, 대형견 가능 여부 등 태그 포함), 네이버 블로그 후기 연동.
 - **찜한 가게** — 가게 상세에서 하트로 찜하고, 마이페이지에서 목록으로 모아보기.
 - **카카오 로그인** — 프로필(이름·연락처·주소) 저장 및 수정.
@@ -82,8 +82,9 @@ docs/                   기획·진행상황·포트폴리오 문서
 
 - iOS 앱 빌드는 [`Dog_kindergarden/README.md`](Dog_kindergarden/README.md) 참고
 - 백엔드 배포는 [`backend-cloudflare/README.md`](backend-cloudflare/README.md) 참고
-- 개발 계획·진행상황은 [`docs/PLAN.md`](docs/PLAN.md), [`docs/PROGRESS.md`](docs/PROGRESS.md) 참고
+- 현재 기능은 [`docs/FEATURES.md`](docs/FEATURES.md), 구조와 불변식은 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 참고
 - 배포까지 남은 일과 사용자 준비 항목은 [`docs/DEPLOYMENT_REMAINING.md`](docs/DEPLOYMENT_REMAINING.md) 참고
+- 문제 해결 경험은 [`docs/PORTFOLIO.md`](docs/PORTFOLIO.md) 참고
 
 ## 기술 스택
 
@@ -98,4 +99,4 @@ docs/                   기획·진행상황·포트폴리오 문서
 
 ## 배포 상태
 
-포트폴리오 완성 후 App Store 출시까지 이어가는 것을 목표로 진행 중입니다. 현재 진행상황은 [`docs/PROGRESS.md`](docs/PROGRESS.md)에서 확인할 수 있습니다.
+포트폴리오 완성 후 App Store 출시까지 이어가는 것을 목표로 진행 중입니다. 현재 배포 상태와 남은 작업은 [`docs/DEPLOYMENT_REMAINING.md`](docs/DEPLOYMENT_REMAINING.md)에서 확인할 수 있습니다.
