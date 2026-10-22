@@ -14,15 +14,20 @@ if (!internalKey) throw new Error("INTERNAL_API_KEY 환경변수가 필요합니
 
 const results = [];
 
-async function request(method, path, { body, token, internal } = {}) {
+async function request(method, path, { body, rawBody, token, internal } = {}) {
   const headers = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined || rawBody !== undefined)
+    headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   if (internal) headers["X-Internal-Key"] = internal;
   const response = await fetch(`${base}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: rawBody !== undefined
+      ? rawBody
+      : body === undefined
+        ? undefined
+        : JSON.stringify(body),
   });
   const text = await response.text();
   let data = null;
@@ -68,6 +73,21 @@ const oversizedRequest = await request("POST", "/api/auth/dev", {
 });
 expect("API 대용량 요청 차단", oversizedRequest.status, 413);
 expect("API 대용량 요청 오류 코드", oversizedRequest.data?.code, "PAYLOAD_TOO_LARGE");
+const malformedJson = await request("POST", "/api/auth/dev", {
+  rawBody: '{"identity":',
+});
+expect("잘못된 JSON 요청 차단", malformedJson.status, 400);
+expect("잘못된 JSON 오류 코드", malformedJson.data?.code, "INVALID_JSON");
+const nonObjectJson = await request("POST", "/api/auth/dev", {
+  rawBody: "null",
+});
+expect("객체가 아닌 JSON 요청 차단", nonObjectJson.status, 400);
+expect("객체가 아닌 JSON 오류 코드", nonObjectJson.data?.code, "INVALID_JSON");
+const arrayJson = await request("POST", "/api/auth/dev", {
+  rawBody: "[]",
+});
+expect("배열 JSON 요청 차단", arrayJson.status, 400);
+expect("배열 JSON 오류 코드", arrayJson.data?.code, "INVALID_JSON");
 expect(
   "보유기간 정리 API 무인증 차단",
   (await request("POST", "/api/internal/data-retention")).status,
@@ -85,6 +105,16 @@ const guardianLogin = await request("POST", "/api/auth/dev", {
 expectOneOf("보호자 로컬 로그인", guardianLogin.status, [200, 201]);
 const guardianId = guardianLogin.data.user_id;
 const guardianToken = guardianLogin.data.session_token;
+const malformedPetRequest = await request("POST", `/api/users/${guardianId}/pets`, {
+  token: guardianToken,
+  rawBody: '{"name":',
+});
+expect("인증 API 잘못된 JSON 요청 차단", malformedPetRequest.status, 400);
+expect(
+  "인증 API 잘못된 JSON 오류 코드",
+  malformedPetRequest.data?.code,
+  "INVALID_JSON",
+);
 
 const ownerLogin = await request("POST", "/api/auth/dev", {
   body: { identity: "auth-test-owner", nickname: "권한테스트 사장님", is_owner: true },
@@ -647,6 +677,18 @@ const createdReservation = await request("POST", "/api/reservations", {
 expect("본인 예약 생성", createdReservation.status, 201);
 const reservationId = createdReservation.data.reservation_id;
 const roomId = createdReservation.data.room_id;
+
+const malformedCancellation = await request(
+  "PATCH",
+  `/api/reservations/${reservationId}/cancel`,
+  { token: guardianToken, rawBody: '{"by_owner":' },
+);
+expect("예약 취소 잘못된 JSON 요청 차단", malformedCancellation.status, 400);
+expect(
+  "예약 취소 잘못된 JSON 오류 코드",
+  malformedCancellation.data?.code,
+  "INVALID_JSON",
+);
 
 expect(
   "타인 예약 취소 차단",

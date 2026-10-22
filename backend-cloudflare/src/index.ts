@@ -336,6 +336,35 @@ function sameUser(authUserId: number, requestedUserId: number): boolean {
   return Number.isInteger(requestedUserId) && requestedUserId === authUserId;
 }
 
+type JsonReadableRequest = {
+  text(): Promise<string>;
+};
+
+async function readJsonObject<T extends object>(
+  request: JsonReadableRequest,
+  allowEmpty = false,
+): Promise<T | null> {
+  try {
+    const raw = await request.text();
+    if (!raw.trim()) return allowEmpty ? ({} as T) : null;
+    const value: unknown = JSON.parse(raw);
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      return null;
+    return value as T;
+  } catch {
+    return null;
+  }
+}
+
+function invalidJsonBody(c: {
+  json: (body: Record<string, unknown>, status: 400) => Response;
+}): Response {
+  return c.json(
+    { message: "invalid JSON body", code: "INVALID_JSON" },
+    400,
+  );
+}
+
 async function hasActiveSupportAdmin(db: D1Database): Promise<boolean> {
   const row = await db.prepare(
     `SELECT 1 AS available
@@ -1005,7 +1034,8 @@ function flagValue(value: boolean | number | undefined): number | null {
 // 로컬/관리자용 상세 데이터 업서트.
 // 크롤링 스크립트가 store_key 기준으로 대표 이미지, 추가 이미지, 가격/태그를 저장한다.
 app.post("/api/admin/stores/import", async (c) => {
-  const body = await c.req.json<StoreDetailImportBody>();
+  const body = await readJsonObject<StoreDetailImportBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   if (!storeKey) return c.json({ message: "store_key is required" }, 400);
 
@@ -1078,7 +1108,8 @@ app.post("/api/admin/stores/import", async (c) => {
 
 // 사장님 가게 등록 요청. owner_id는 여기서 바꾸지 않고 운영자 승인 시에만 연결한다.
 app.post("/api/stores/claim", async (c) => {
-  const body = await c.req.json<StoreClaimBody>();
+  const body = await readJsonObject<StoreClaimBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = c.get("authUserId");
   const requestedUserId = body.user_id ?? body.userId;
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
@@ -1377,7 +1408,8 @@ app.get("/api/owners/:id/chatrooms", async (c) => {
 });
 
 app.post("/api/reservations", async (c) => {
-  const body = await c.req.json<ReservationBody>();
+  const body = await readJsonObject<ReservationBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = c.get("authUserId");
   const requestedUserId = body.user_id ?? body.userId;
   const petId = body.pet_id ?? body.petId;
@@ -1496,9 +1528,8 @@ type ReservationCancelBody = {
 
 app.patch("/api/reservations/:id/cancel", async (c) => {
   const reservationId = Number(c.req.param("id"));
-  const body = await c.req
-    .json<ReservationCancelBody>()
-    .catch(() => ({}) as ReservationCancelBody);
+  const body = await readJsonObject<ReservationCancelBody>(c.req, true);
+  if (!body) return invalidJsonBody(c);
   const byOwner = body.by_owner ?? body.byOwner ?? false;
 
   const access = await reservationAccess(
@@ -1734,7 +1765,8 @@ app.post("/api/reservations/:id/diaries", async (c) => {
     return c.json({ message: "forbidden" }, 403);
   if (access.status !== "CONFIRMED")
     return c.json({ message: "confirmed reservation required" }, 409);
-  const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
+  const body = await readJsonObject<DiaryBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const content = body.content?.trim();
   if (!content) return c.json({ message: "content is required" }, 400);
 
@@ -1804,7 +1836,8 @@ app.patch("/api/diaries/:diaryId", async (c) => {
   );
   if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
     return c.json({ message: "forbidden" }, 403);
-  const body = await c.req.json<DiaryBody>().catch(() => ({}) as DiaryBody);
+  const body = await readJsonObject<DiaryBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const content = body.content?.trim();
   if (!content) return c.json({ message: "content is required" }, 400);
 
@@ -1968,7 +2001,8 @@ app.post("/api/support/conversations/:id/messages", async (c) => {
     );
   }
 
-  const body = await c.req.json<SupportMessageBody>().catch(() => ({}));
+  const body = await readJsonObject<SupportMessageBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const content = body.content?.trim() ?? "";
   if (!content) return c.json({ message: "content is required" }, 400);
   if (content.length > 4000)
@@ -2013,7 +2047,8 @@ app.get("/api/chatrooms/:id/messages", async (c) => {
 
 app.post("/api/chatrooms/:id/messages", async (c) => {
   const roomId = Number(c.req.param("id"));
-  const body = await c.req.json<ChatMessageBody>();
+  const body = await readJsonObject<ChatMessageBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const authUserId = c.get("authUserId");
   if (!(await canAccessRoom(c.env.DB, roomId, authUserId)))
     return c.json({ message: "forbidden" }, 403);
@@ -2074,7 +2109,8 @@ app.get("/api/chatrooms/lookup", async (c) => {
 
 // 문의 방 get-or-create (첫 메시지 전송 시 호출) — 자동 메시지 없음
 app.post("/api/chatrooms", async (c) => {
-  const body = await c.req.json<ChatRoomBody>();
+  const body = await readJsonObject<ChatRoomBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = c.get("authUserId");
   const requestedUserId = body.user_id ?? body.userId;
   if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
@@ -2135,7 +2171,8 @@ type ChatReadBody = {
 
 app.post("/api/chatrooms/:id/read", async (c) => {
   const roomId = Number(c.req.param("id"));
-  const body = await c.req.json<ChatReadBody>();
+  const body = await readJsonObject<ChatReadBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = c.get("authUserId");
   const requestedUserId = body.user_id ?? body.userId;
   if (requestedUserId !== undefined && !sameUser(userId, requestedUserId))
@@ -2205,7 +2242,7 @@ app.get("/api/users/:id/unread-count", async (c) => {
   return c.json({ unread });
 });
 
-// MARK: - 통합 알림 피드 (설계: docs/superpowers/specs/2026-07-18-push-notifications-design.md)
+// MARK: - 통합 알림 피드 (불변식: docs/ARCHITECTURE.md)
 // 중복 방지 불변식: 채팅 메시지를 남기는 이벤트(알림장·예약 확정·사장님 취소·리뷰 요청 등)는 채팅 축으로만,
 // 메시지가 없는 이벤트(새 요청·고객 취소)는 예약 축으로만 들어간다 — 이벤트당 알림 1회.
 
@@ -2582,7 +2619,8 @@ app.get("/api/pet-reviews/eligibility", async (c) => {
 });
 
 app.post("/api/pet-reviews", async (c) => {
-  const body = await c.req.json<PetReviewBody>();
+  const body = await readJsonObject<PetReviewBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = Number(body.user_id ?? body.userId);
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
   if (!Number.isInteger(userId) || userId <= 0 || !storeKey) {
@@ -2778,7 +2816,8 @@ async function authResponse(
 
 // 카카오 액세스 토큰은 서버가 카카오 사용자 API로 직접 검증한다.
 app.post("/api/auth/kakao", async (c) => {
-  const body = await c.req.json<KakaoAuthBody>();
+  const body = await readJsonObject<KakaoAuthBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const accessToken = (body.access_token ?? body.accessToken ?? "").trim();
   const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
   if (!accessToken) return c.json({ message: "access_token is required" }, 400);
@@ -2829,7 +2868,8 @@ app.post("/api/auth/kakao", async (c) => {
 app.post("/api/auth/dev", async (c) => {
   if (c.env.ALLOW_DEV_AUTH !== "true")
     return c.json({ message: "not found" }, 404);
-  const body = await c.req.json<DevAuthBody>().catch(() => ({}) as DevAuthBody);
+  const body = await readJsonObject<DevAuthBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const isOwner = (body.is_owner ?? body.isOwner ?? false) ? 1 : 0;
   const isAdmin = (body.is_admin ?? body.isAdmin ?? false) ? 1 : 0;
   const identity =
@@ -3001,7 +3041,8 @@ app.put("/api/users/:id", async (c) => {
   const userId = Number(c.req.param("id"));
   if (!sameUser(c.get("authUserId"), userId))
     return c.json({ message: "forbidden" }, 403);
-  const body = await c.req.json<UpdateUserBody>();
+  const body = await readJsonObject<UpdateUserBody>(c.req);
+  if (!body) return invalidJsonBody(c);
 
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -3035,7 +3076,8 @@ app.post("/api/users/:id/pets", async (c) => {
   const userId = Number(c.req.param("id"));
   if (!sameUser(c.get("authUserId"), userId))
     return c.json({ message: "forbidden" }, 403);
-  const body = await c.req.json<CreatePetBody>();
+  const body = await readJsonObject<CreatePetBody>(c.req);
+  if (!body) return invalidJsonBody(c);
 
   if (!body.name) return c.json({ message: "name is required" }, 400);
 
@@ -3091,7 +3133,8 @@ app.delete("/api/pets/:petId", async (c) => {
 // 찜 추가: store_key로 stores upsert 후 (user_id, store_id) 등록.
 // 찜 시점에 알게 된 전화·유형·좌표는 비어 있는 컬럼만 채움 (기존 값 보존)
 app.post("/api/favorites", async (c) => {
-  const body = await c.req.json<FavoriteBody>();
+  const body = await readJsonObject<FavoriteBody>(c.req);
+  if (!body) return invalidJsonBody(c);
   const userId = c.get("authUserId");
   const requestedUserId = body.user_id ?? body.userId;
   const storeKey = (body.store_key ?? body.storeKey ?? "").trim();
@@ -3321,7 +3364,8 @@ app.post("/api/internal/data-retention", async (c) => {
 // 데이터 정비용 임시 엔드포인트 — 네이버 플레이스 업체사진이 가격표인지 비전 모델로 판별하고,
 // 가격표면 텍스트를 추출한다 (crawl-results 가격 이미지 스캔 스크립트 전용).
 app.post("/api/internal/vision-price-ocr", async (c) => {
-  const body = await c.req.json<{ image_url?: string; model?: string }>();
+  const body = await readJsonObject<{ image_url?: string; model?: string }>(c.req);
+  if (!body) return invalidJsonBody(c);
   const imageUrl = (body.image_url ?? "").trim();
   if (!imageUrl) return c.json({ error: "image_url이 필요합니다" }, 400);
   // llava-1.5-7b-hf는 프롬프트를 그대로 되풀이하거나 없는 가격을 지어내는 사례가 확인되어(2026-08-09) 기본값 교체.
