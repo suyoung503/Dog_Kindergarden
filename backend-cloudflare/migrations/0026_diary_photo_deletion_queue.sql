@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS diary_photo_deletion_queue (
+  r2_key TEXT PRIMARY KEY,
+  queued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+

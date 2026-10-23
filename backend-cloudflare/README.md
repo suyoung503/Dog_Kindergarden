@@ -20,6 +20,13 @@ npx wrangler d1 create dog_kindergarden_db
 
 생성 후 나온 `database_id`를 `wrangler.toml`의 `database_id`에 넣어주세요.
 
+알림장 사진은 공개 URL이 없는 R2 버킷에 저장합니다. 최초 1회 생성하며, 버킷 이름은 `wrangler.toml`의 `DIARY_PHOTOS` 바인딩과 같아야 합니다.
+
+```bash
+npx wrangler r2 bucket create matgyeomung-diary-photos
+npx wrangler r2 bucket create matgyeomung-diary-photos-preview
+```
+
 ## 3) 마이그레이션
 ```bash
 npx wrangler d1 migrations apply dog_kindergarden_db
@@ -118,6 +125,14 @@ UserDefaults.standard.set(
 - `PATCH /api/reservations/:id/cancel` — 바디 `{"by_owner": true}`면 사장님 취소로 간주해 고객 채팅방에 취소 안내 자동 메시지 발송
 - `PATCH /api/reservations/:id/confirm`
 - `GET /api/owners/:id/reservations/pending` — 사장님이 받은 예약 요청 (내 가게만)
+
+알림장
+- `GET·POST /api/reservations/:id/diaries` — 예약 참여자 조회, 승인된 가게 사장님 작성
+- `PATCH·DELETE /api/diaries/:diaryId` — 승인된 가게 사장님 수정·삭제
+- `POST /api/diaries/:diaryId/photos` — 사장님 전용 raw JPEG 업로드(장당 1.5MB, 알림장당 3장). 사진 선택 UUID를 `Idempotency-Key`로 보내 응답 유실 후 재시도 중복을 방지
+- `GET /api/diary-photos/:photoId` — 해당 예약 보호자·가게 사장님만 비공개 R2 사진 조회
+- `DELETE /api/diary-photos/:photoId` — 해당 가게 사장님만 사진 삭제
+- `diary_photo_deletion_queue`가 업로드 중단·R2 삭제 실패를 복구하며, 알림장 삭제·보호자 회원 탈퇴·5년 보유기간 정리 시 연결된 R2 객체와 D1 메타데이터를 함께 삭제
 
 채팅
 - `GET /api/chatrooms/:id/messages`

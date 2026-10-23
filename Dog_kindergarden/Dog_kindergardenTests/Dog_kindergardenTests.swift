@@ -7,6 +7,7 @@
 
 import Foundation
 import Testing
+import UIKit
 @testable import Dog_kindergarden
 
 @Suite("Core application regression tests")
@@ -118,6 +119,60 @@ struct DogKindergardenTests {
         #expect(storeTypeEmoji("유치원·호텔") == "🐾")
         #expect(storeTypeEmoji(nil) == "🐾")
         #expect(storeTypeEmoji("미분류") == "🐾")
+    }
+
+    @Test("Diary photos never offer more than three total selections")
+    func diaryPhotoSelectionLimit() {
+        #expect(DiaryPhotoPolicy.remainingSelectionCount(existingCount: 0, newSelectionCount: 0) == 3)
+        #expect(DiaryPhotoPolicy.remainingSelectionCount(existingCount: 2, newSelectionCount: 0) == 1)
+        #expect(DiaryPhotoPolicy.remainingSelectionCount(existingCount: 1, newSelectionCount: 2) == 0)
+        #expect(DiaryPhotoPolicy.remainingSelectionCount(existingCount: 3, newSelectionCount: 1) == 0)
+    }
+
+    @Test("Diary photo URLs resolve relative API paths and preserve absolute URLs")
+    func diaryPhotoURLResolution() {
+        let baseURL = URL(string: "https://example.com/api")!
+
+        #expect(
+            DiaryPhotoURLResolver.resolve("/api/diary-photos/12", baseURL: baseURL)?.absoluteString
+                == "https://example.com/api/diary-photos/12"
+        )
+        #expect(
+            DiaryPhotoURLResolver.resolve("diary-photos/13", baseURL: baseURL)?.absoluteString
+                == "https://example.com/api/diary-photos/13"
+        )
+        #expect(
+            DiaryPhotoURLResolver.resolve("https://cdn.example.com/photo.jpg", baseURL: baseURL)?.absoluteString
+                == "https://cdn.example.com/photo.jpg"
+        )
+    }
+
+    @Test("Diary photo normalization rejects originals larger than five megabytes")
+    func diaryPhotoOriginalSizeLimit() {
+        let oversized = Data(repeating: 0, count: DiaryPhotoPolicy.maxOriginalByteCount + 1)
+
+        #expect(throws: DiaryPhotoNormalizationError.originalTooLarge) {
+            try DiaryPhotoNormalizer.normalize(oversized)
+        }
+    }
+
+    @Test("Diary photo normalization outputs bounded JPEG data")
+    func diaryPhotoNormalizationBounds() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2_400, height: 1_200))
+        let sourceImage = renderer.image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1_200, height: 1_200))
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 1_200, y: 0, width: 1_200, height: 1_200))
+        }
+        let sourceData = try #require(sourceImage.jpegData(compressionQuality: 1))
+
+        let normalized = try DiaryPhotoNormalizer.normalize(sourceData)
+        let normalizedImage = try #require(UIImage(data: normalized))
+
+        #expect(max(normalizedImage.size.width, normalizedImage.size.height) <= DiaryPhotoPolicy.maxDimension)
+        #expect(normalized.count <= DiaryPhotoPolicy.maxUploadByteCount)
+        #expect(normalized.starts(with: [0xFF, 0xD8, 0xFF]))
     }
 
     private func inboxItem(

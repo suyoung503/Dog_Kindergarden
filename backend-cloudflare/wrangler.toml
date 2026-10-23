@@ -17,5 +17,10 @@ binding = "DB"
 database_name = "dog_kindergarden_db"
 database_id = "02c8c308-32cb-4a5c-b785-a0d6ba01d236"
 
+[[r2_buckets]]
+binding = "DIARY_PHOTOS"
+bucket_name = "matgyeomung-diary-photos"
+preview_bucket_name = "matgyeomung-diary-photos-preview"
+
 [ai]
 binding = "AI"

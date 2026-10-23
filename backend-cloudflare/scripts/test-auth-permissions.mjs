@@ -14,12 +14,17 @@ if (!internalKey) throw new Error("INTERNAL_API_KEY 환경변수가 필요합니
 
 const results = [];
 
-async function request(method, path, { body, rawBody, token, internal } = {}) {
+async function request(
+  method,
+  path,
+  { body, rawBody, token, internal, contentType, idempotencyKey } = {},
+) {
   const headers = { Accept: "application/json" };
   if (body !== undefined || rawBody !== undefined)
-    headers["Content-Type"] = "application/json";
+    headers["Content-Type"] = contentType ?? "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   if (internal) headers["X-Internal-Key"] = internal;
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -29,10 +34,11 @@ async function request(method, path, { body, rawBody, token, internal } = {}) {
         ? undefined
         : JSON.stringify(body),
   });
-  const text = await response.text();
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  return { status: response.status, data };
+  return { status: response.status, data, bytes, headers: response.headers };
 }
 
 function expect(name, actual, expected) {
@@ -750,13 +756,205 @@ expect(
   })).status,
   403,
 );
-expect(
-  "가게 사장님 알림장 작성",
-  (await request("POST", `/api/reservations/${reservationId}/diaries`, {
+const createdDiary = await request(
+  "POST",
+  `/api/reservations/${reservationId}/diaries`,
+  {
     body: { content: "정상 알림장" },
+    token: ownerToken,
+  },
+);
+expect("가게 사장님 알림장 작성", createdDiary.status, 200);
+const diaryId = createdDiary.data.diary_id;
+
+const jpeg = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDfooor8eP1U//Z",
+  "base64",
+);
+expect(
+  "보호자 알림장 사진 업로드 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: jpeg,
+    token: guardianToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  403,
+);
+expect(
+  "JPEG가 아닌 Content-Type 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: jpeg,
+    token: ownerToken,
+    contentType: "image/png",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  400,
+);
+expect(
+  "JPEG magic byte 누락 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: Uint8Array.from([0x89, 0x50, 0x4e, 0x47]),
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  400,
+);
+expect(
+  "디코딩할 수 없는 JPEG 모양 데이터 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]),
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  400,
+);
+const oversizedJpeg = new Uint8Array(1.5 * 1024 * 1024 + 1);
+oversizedJpeg.set([0xff, 0xd8, 0xff]);
+expect(
+  "1.5MB 초과 알림장 사진 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: oversizedJpeg,
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  413,
+);
+
+const uploadedPhotos = [];
+const uploadRequestIds = [];
+for (let index = 0; index < 3; index += 1) {
+  const idempotencyKey = crypto.randomUUID();
+  const uploaded = await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: jpeg,
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey,
+  });
+  expect(`알림장 사진 ${index + 1}장 업로드`, uploaded.status, 201);
+  expect(
+    `알림장 사진 ${index + 1}장 URL 계약`,
+    uploaded.data.url,
+    `/api/diary-photos/${uploaded.data.photo_id}`,
+  );
+  uploadedPhotos.push(uploaded.data);
+  uploadRequestIds.push(idempotencyKey);
+}
+const repeatedUpload = await request("POST", `/api/diaries/${diaryId}/photos`, {
+  rawBody: jpeg,
+  token: ownerToken,
+  contentType: "image/jpeg",
+  idempotencyKey: uploadRequestIds[0],
+});
+expect("알림장 사진 업로드 재시도 멱등 성공", repeatedUpload.status, 200);
+expect("알림장 사진 업로드 재시도 ID 유지", repeatedUpload.data.photo_id, uploadedPhotos[0].photo_id);
+expect(
+  "알림장 사진 4번째 업로드 차단",
+  (await request("POST", `/api/diaries/${diaryId}/photos`, {
+    rawBody: jpeg,
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  })).status,
+  409,
+);
+
+const diariesWithPhotos = await request(
+  "GET",
+  `/api/reservations/${reservationId}/diaries`,
+  { token: guardianToken },
+);
+expect("보호자 알림장 사진 목록 조회", diariesWithPhotos.status, 200);
+const listedDiary = diariesWithPhotos.data.find((item) => item.diary_id === diaryId);
+expect("알림장 사진 목록 최대 3장", listedDiary.photos.length, 3);
+expect(
+  "알림장 사진 목록 URL 계약",
+  listedDiary.photos[0].url,
+  `/api/diary-photos/${uploadedPhotos[0].photo_id}`,
+);
+const updatedDiaryWithPhotos = await request("PATCH", `/api/diaries/${diaryId}`, {
+  token: ownerToken,
+  body: { content: "사진이 유지되는 수정 알림장" },
+});
+expect("알림장 수정 후 사진 유지", updatedDiaryWithPhotos.data.photos.length, 3);
+
+const ownerPhoto = await request(
+  "GET",
+  `/api/diary-photos/${uploadedPhotos[0].photo_id}`,
+  { token: ownerToken },
+);
+expect("가게 소유자 알림장 사진 조회", ownerPhoto.status, 200);
+expect("알림장 사진 JPEG Content-Type", ownerPhoto.headers.get("content-type"), "image/jpeg");
+expect("알림장 사진 private/no-store", ownerPhoto.headers.get("cache-control"), "private, no-store");
+expect("알림장 사진 원본 바이트", Buffer.from(ownerPhoto.bytes).equals(Buffer.from(jpeg)), true);
+expect(
+  "예약 보호자 알림장 사진 조회",
+  (await request("GET", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
+    token: guardianToken,
+  })).status,
+  200,
+);
+expect(
+  "다른 사용자 알림장 사진 조회 차단",
+  (await request("GET", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
+    token: otherOwnerToken,
+  })).status,
+  403,
+);
+expect(
+  "보호자 알림장 사진 삭제 차단",
+  (await request("DELETE", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
+    token: guardianToken,
+  })).status,
+  403,
+);
+expect(
+  "가게 소유자 알림장 사진 삭제",
+  (await request("DELETE", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
     token: ownerToken,
   })).status,
   200,
+);
+expect(
+  "삭제한 알림장 사진 조회 불가",
+  (await request("GET", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
+    token: ownerToken,
+  })).status,
+  404,
+);
+expect(
+  "삭제한 알림장 사진 재삭제 멱등 성공",
+  (await request("DELETE", `/api/diary-photos/${uploadedPhotos[0].photo_id}`, {
+    token: ownerToken,
+  })).status,
+  200,
+);
+expect(
+  "알림장 삭제",
+  (await request("DELETE", `/api/diaries/${diaryId}`, { token: ownerToken })).status,
+  200,
+);
+for (const photo of uploadedPhotos.slice(1)) {
+  expect(
+    "알림장 삭제 후 사진 조회 불가",
+    (await request("GET", `/api/diary-photos/${photo.photo_id}`, {
+      token: ownerToken,
+    })).status,
+    404,
+  );
+}
+const diariesAfterDelete = await request(
+  "GET",
+  `/api/reservations/${reservationId}/diaries`,
+  { token: guardianToken },
+);
+expect(
+  "알림장 삭제 후 D1 행 정리",
+  diariesAfterDelete.data.some((item) => item.diary_id === diaryId),
+  false,
 );
 expect(
   "다른 사장님 알림장 조회 차단",
@@ -917,6 +1115,26 @@ expect(
   })).status,
   200,
 );
+const deletingGuardianDiary = await request(
+  "POST",
+  `/api/reservations/${pastDeletionReservation.data.reservation_id}/diaries`,
+  {
+    body: { content: "탈퇴 시 사진까지 삭제될 알림장" },
+    token: ownerToken,
+  },
+);
+expect("탈퇴 전 알림장 생성", deletingGuardianDiary.status, 200);
+const deletingGuardianPhoto = await request(
+  "POST",
+  `/api/diaries/${deletingGuardianDiary.data.diary_id}/photos`,
+  {
+    rawBody: jpeg,
+    token: ownerToken,
+    contentType: "image/jpeg",
+    idempotencyKey: crypto.randomUUID(),
+  },
+);
+expect("탈퇴 전 알림장 사진 업로드", deletingGuardianPhoto.status, 201);
 expect(
   "탈퇴 전 검증 리뷰 저장",
   (await request("POST", "/api/pet-reviews", {
@@ -960,6 +1178,13 @@ expect(
     token: deletingGuardianSecondToken,
   })).status,
   401,
+);
+expect(
+  "탈퇴 후 알림장 사진 메타데이터·객체 접근 불가",
+  (await request("GET", `/api/diary-photos/${deletingGuardianPhoto.data.photo_id}`, {
+    token: ownerToken,
+  })).status,
+  404,
 );
 const publicReviewsAfterDeletion = await request(
   "GET",

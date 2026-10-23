@@ -196,6 +196,21 @@ final class APIClient {
     }
 
     @discardableResult
+    func uploadDiaryPhoto(diaryId: Int, jpegData: Data, idempotencyKey: UUID) async throws -> DiaryPhoto {
+        var request = URLRequest(url: baseURL.appendingPathComponent("diaries/\(diaryId)/photos"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = jpegData
+        return try await perform(request)
+    }
+
+    func deleteDiaryPhoto(photoId: Int) async throws {
+        let _: ReservationCancelResponse = try await request(path: "/diary-photos/\(photoId)", method: "DELETE")
+    }
+
+    @discardableResult
     func updateUser(userId: Int, nickname: String, phone: String, address: String) async throws -> UserResponse {
         let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address)
         return try await request(path: "/users/\(userId)", method: "PUT", body: body)
@@ -474,7 +489,6 @@ struct PendingReservation: Decodable, Identifiable {
     let requestMessage: String?
 }
 
-// 알림장 엔트리 — 사진(photos)은 R2 활성화 전까지 항상 빈 배열
 struct DiaryPhoto: Decodable, Identifiable {
     var id: Int { photoId ?? 0 }
     let photoId: Int?

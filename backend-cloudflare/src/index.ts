@@ -185,6 +185,7 @@ type WorkersAiBinding = {
 
 type Bindings = {
   DB: D1Database;
+  DIARY_PHOTOS: R2Bucket;
   APP_NAME: string;
   AI: WorkersAiBinding;
   INTERNAL_API_KEY?: string;
@@ -206,27 +207,46 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const MAX_API_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_DIARY_PHOTO_BYTES = 1.5 * 1024 * 1024;
+const MAX_DIARY_PHOTOS = 3;
 app.use(
   "*",
   cors({
-    allowHeaders: ["Content-Type", "Authorization", "X-Internal-Key"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Internal-Key", "Idempotency-Key"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
-app.use(
-  "/api/*",
-  bodyLimit({
-    maxSize: MAX_API_BODY_BYTES,
-    onError: (c) => c.json(
-      {
-        message: "request body too large",
-        code: "PAYLOAD_TOO_LARGE",
-        max_bytes: MAX_API_BODY_BYTES,
-      },
-      413,
-    ),
-  }),
-);
+const apiBodyLimit = bodyLimit({
+  maxSize: MAX_API_BODY_BYTES,
+  onError: (c) => c.json(
+    {
+      message: "request body too large",
+      code: "PAYLOAD_TOO_LARGE",
+      max_bytes: MAX_API_BODY_BYTES,
+    },
+    413,
+  ),
+});
+const diaryPhotoBodyLimit = bodyLimit({
+  maxSize: MAX_DIARY_PHOTO_BYTES,
+  onError: (c) => c.json(
+    {
+      message: "photo too large",
+      code: "PAYLOAD_TOO_LARGE",
+      max_bytes: MAX_DIARY_PHOTO_BYTES,
+    },
+    413,
+  ),
+});
+app.use("/api/*", (c, next) => {
+  if (
+    c.req.method === "POST" &&
+    /^\/api\/diaries\/\d+\/photos$/.test(c.req.path)
+  ) {
+    return diaryPhotoBodyLimit(c, next);
+  }
+  return apiBodyLimit(c, next);
+});
 
 const SESSION_DAYS = 30;
 
@@ -1696,7 +1716,7 @@ app.patch("/api/reservations/:id/confirm", async (c) => {
 });
 
 // MARK: - 알림장(diary)
-// 예약 1건에 타임라인 엔트리 여러 개. 사진(diary_photos)은 R2 활성화 후 채워지며 지금은 항상 빈 배열.
+// 예약 1건에 타임라인 엔트리 여러 개. 사진 원본은 비공개 R2, 메타데이터는 D1에 저장한다.
 
 type DiaryBody = { content?: string };
 type DiaryRow = {
@@ -1707,6 +1727,38 @@ type DiaryRow = {
   created_at: string;
 };
 type DiaryPhotoOut = { photo_id: number; url: string };
+
+async function drainDiaryPhotoDeletionQueue(env: Bindings): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT r2_key FROM diary_photo_deletion_queue
+     WHERE datetime(COALESCE(available_at, queued_at)) <= datetime('now')
+     ORDER BY queued_at ASC LIMIT 1000`,
+  ).all<{ r2_key: string }>();
+  if (results.length === 0) return 0;
+
+  await env.DIARY_PHOTOS.delete(results.map((photo) => photo.r2_key));
+  for (let index = 0; index < results.length; index += 100) {
+    const keys = results.slice(index, index + 100).map((photo) => photo.r2_key);
+    await env.DB.prepare(
+      `DELETE FROM diary_photo_deletion_queue
+       WHERE r2_key IN (${keys.map(() => "?").join(", ")})`,
+    )
+      .bind(...keys)
+      .run();
+  }
+  return results.length;
+}
+
+async function drainDiaryPhotoDeletionQueueBestEffort(
+  env: Bindings,
+): Promise<number> {
+  try {
+    return await drainDiaryPhotoDeletionQueue(env);
+  } catch (error) {
+    console.error("diary photo R2 cleanup deferred", error);
+    return 0;
+  }
+}
 
 // 타임라인 조회 — 엔트리를 시간순으로, 각 엔트리에 사진 배열을 매달아 반환
 app.get("/api/reservations/:id/diaries", async (c) => {
@@ -1744,7 +1796,7 @@ app.get("/api/reservations/:id/diaries", async (c) => {
   const byDiary = new Map<number, DiaryPhotoOut[]>();
   for (const ph of photos) {
     const arr = byDiary.get(ph.diary_id) ?? [];
-    arr.push({ photo_id: ph.photo_id, url: `/api/diaries/photos/${ph.r2_key}` });
+    arr.push({ photo_id: ph.photo_id, url: `/api/diary-photos/${ph.photo_id}` });
     byDiary.set(ph.diary_id, arr);
   }
   return c.json(
@@ -1820,7 +1872,234 @@ app.post("/api/reservations/:id/diaries", async (c) => {
   return c.json({ ...created, photos: [] as DiaryPhotoOut[] });
 });
 
-// 엔트리 수정 — 글만 갱신(자동 메시지 없음). 사진 편집은 R2 도입 시 추가.
+type DiaryPhotoRow = {
+  photo_id: number;
+  r2_key: string;
+  reservation_id: number;
+};
+
+async function findDiaryPhoto(
+  db: D1Database,
+  photoId: number,
+): Promise<DiaryPhotoRow | null> {
+  if (!Number.isInteger(photoId) || photoId <= 0) return null;
+  return db.prepare(
+    `SELECT p.photo_id, p.r2_key, d.reservation_id
+     FROM diary_photos p
+     JOIN diaries d ON d.diary_id = p.diary_id
+     WHERE p.photo_id = ?`,
+  )
+    .bind(photoId)
+    .first<DiaryPhotoRow>();
+}
+
+function hasJpegStructure(bytes: Uint8Array): boolean {
+  if (
+    bytes.byteLength < 20 ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    bytes.at(-2) !== 0xff ||
+    bytes.at(-1) !== 0xd9
+  ) return false;
+
+  let offset = 2;
+  let hasStartOfFrame = false;
+  while (offset < bytes.length - 2) {
+    if (bytes[offset] !== 0xff) return false;
+    while (bytes[offset] === 0xff) offset += 1;
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0xda) return hasStartOfFrame;
+    if (marker === 0xd9) return false;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 1 >= bytes.length) return false;
+    const segmentLength = (bytes[offset] << 8) | bytes[offset + 1];
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) return false;
+    if (
+      marker >= 0xc0 && marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    ) hasStartOfFrame = true;
+    offset += segmentLength;
+  }
+  return false;
+}
+
+app.post("/api/diaries/:diaryId/photos", async (c) => {
+  const diaryId = Number(c.req.param("diaryId"));
+  const diary = await c.env.DB.prepare(
+    `SELECT reservation_id FROM diaries WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<{ reservation_id: number }>();
+  if (!diary) return c.json({ message: "diary not found" }, 404);
+
+  const access = await reservationAccess(
+    c.env.DB,
+    diary.reservation_id,
+    c.get("authUserId"),
+  );
+  if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
+  if (access.status !== "CONFIRMED")
+    return c.json({ message: "confirmed reservation required" }, 409);
+
+  const clientRequestId = (c.req.header("Idempotency-Key") ?? "").trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientRequestId))
+    return c.json({ message: "valid Idempotency-Key is required" }, 400);
+  const existingUpload = await c.env.DB.prepare(
+    `SELECT photo_id FROM diary_photos
+     WHERE diary_id = ? AND client_request_id = ?`,
+  )
+    .bind(diaryId, clientRequestId)
+    .first<{ photo_id: number }>();
+  if (existingUpload) {
+    return c.json({
+      photo_id: existingUpload.photo_id,
+      url: `/api/diary-photos/${existingUpload.photo_id}`,
+    });
+  }
+
+  const existing = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM diary_photos WHERE diary_id = ?`,
+  )
+    .bind(diaryId)
+    .first<{ count: number }>();
+  if ((existing?.count ?? 0) >= MAX_DIARY_PHOTOS)
+    return c.json({ message: "diary photo limit reached" }, 409);
+
+  const contentType = (c.req.header("Content-Type") ?? "")
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  if (contentType !== "image/jpeg")
+    return c.json({ message: "image/jpeg is required" }, 400);
+
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength > MAX_DIARY_PHOTO_BYTES)
+    return c.json({ message: "photo too large" }, 413);
+  if (!hasJpegStructure(bytes)) {
+    return c.json({ message: "invalid JPEG" }, 400);
+  }
+
+  const r2Key = `diaries/${diary.reservation_id}/${diaryId}/${crypto.randomUUID()}.jpg`;
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key, available_at)
+     VALUES (?, datetime('now', '+1 hour'))`,
+  )
+    .bind(r2Key)
+    .run();
+
+  try {
+    await c.env.DIARY_PHOTOS.put(r2Key, bytes, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    const [inserted] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO diary_photos (diary_id, r2_key, sort_order, client_request_id)
+         SELECT ?, ?, COALESCE(
+           (SELECT MAX(sort_order) + 1 FROM diary_photos WHERE diary_id = ?),
+           0
+         ), ?
+         WHERE EXISTS (SELECT 1 FROM diaries WHERE diary_id = ?)
+           AND (SELECT COUNT(*) FROM diary_photos WHERE diary_id = ?) < ?`,
+      ).bind(
+        diaryId,
+        r2Key,
+        diaryId,
+        clientRequestId,
+        diaryId,
+        diaryId,
+        MAX_DIARY_PHOTOS,
+      ),
+      c.env.DB.prepare(
+        `DELETE FROM diary_photo_deletion_queue
+         WHERE r2_key = ?
+           AND EXISTS (SELECT 1 FROM diary_photos WHERE r2_key = ?)`,
+      ).bind(r2Key, r2Key),
+    ]);
+    if ((inserted.meta.changes ?? 0) === 0) {
+      await c.env.DB.prepare(
+        `UPDATE diary_photo_deletion_queue
+         SET available_at = CURRENT_TIMESTAMP WHERE r2_key = ?`,
+      ).bind(r2Key).run();
+      await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+      return c.json({ message: "diary photo limit reached" }, 409);
+    }
+    const photoId = Number(inserted.meta.last_row_id);
+    return c.json(
+      { photo_id: photoId, url: `/api/diary-photos/${photoId}` },
+      201,
+    );
+  } catch (error) {
+    await c.env.DB.prepare(
+      `UPDATE diary_photo_deletion_queue
+       SET available_at = CURRENT_TIMESTAMP WHERE r2_key = ?`,
+    ).bind(r2Key).run();
+    await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+    const duplicate = await c.env.DB.prepare(
+      `SELECT photo_id FROM diary_photos
+       WHERE diary_id = ? AND client_request_id = ?`,
+    )
+      .bind(diaryId, clientRequestId)
+      .first<{ photo_id: number }>();
+    if (duplicate) {
+      return c.json({
+        photo_id: duplicate.photo_id,
+        url: `/api/diary-photos/${duplicate.photo_id}`,
+      });
+    }
+    throw error;
+  }
+});
+
+app.get("/api/diary-photos/:photoId", async (c) => {
+  const photo = await findDiaryPhoto(
+    c.env.DB,
+    Number(c.req.param("photoId")),
+  );
+  if (!photo) return c.json({ message: "photo not found" }, 404);
+  const access = await reservationAccess(
+    c.env.DB,
+    photo.reservation_id,
+    c.get("authUserId"),
+  );
+  if (!access || (!access.isCustomer && !access.isStoreOwner))
+    return c.json({ message: "forbidden" }, 403);
+
+  const object = await c.env.DIARY_PHOTOS.get(photo.r2_key);
+  if (!object) return c.json({ message: "photo not found" }, 404);
+  return new Response(object.body, {
+    headers: {
+      "Cache-Control": "private, no-store",
+      "Content-Type": "image/jpeg",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+});
+
+app.delete("/api/diary-photos/:photoId", async (c) => {
+  const photoId = Number(c.req.param("photoId"));
+  const photo = await findDiaryPhoto(c.env.DB, photoId);
+  if (!photo) return c.json({ ok: true, unchanged: true });
+  const access = await reservationAccess(
+    c.env.DB,
+    photo.reservation_id,
+    c.get("authUserId"),
+  );
+  if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
+    return c.json({ message: "forbidden" }, 403);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key) VALUES (?)`,
+    ).bind(photo.r2_key),
+    c.env.DB.prepare(`DELETE FROM diary_photos WHERE photo_id = ?`).bind(photoId),
+  ]);
+  await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+  return c.json({ ok: true });
+});
+
+// 엔트리 수정 — 글만 갱신(자동 메시지 없음).
 app.patch("/api/diaries/:diaryId", async (c) => {
   const diaryId = Number(c.req.param("diaryId"));
   const diary = await c.env.DB.prepare(
@@ -1851,10 +2130,22 @@ app.patch("/api/diaries/:diaryId", async (c) => {
     .bind(diaryId)
     .first<DiaryRow>();
   if (!updated) return c.json({ message: "diary not found" }, 404);
-  return c.json({ ...updated, photos: [] as DiaryPhotoOut[] });
+  const { results: photos } = await c.env.DB.prepare(
+    `SELECT photo_id FROM diary_photos
+     WHERE diary_id = ? ORDER BY sort_order ASC, photo_id ASC`,
+  )
+    .bind(diaryId)
+    .all<{ photo_id: number }>();
+  return c.json({
+    ...updated,
+    photos: photos.map((photo) => ({
+      photo_id: photo.photo_id,
+      url: `/api/diary-photos/${photo.photo_id}`,
+    })),
+  });
 });
 
-// 엔트리 삭제(자동 메시지 없음) — 사진 행도 함께 정리(R2 객체 삭제는 R2 도입 시 추가)
+// 엔트리 삭제(자동 메시지 없음) — R2 객체를 먼저 지운 뒤 사진 행과 알림장을 정리한다.
 app.delete("/api/diaries/:diaryId", async (c) => {
   const diaryId = Number(c.req.param("diaryId"));
   const diary = await c.env.DB.prepare(
@@ -1870,12 +2161,15 @@ app.delete("/api/diaries/:diaryId", async (c) => {
   );
   if (!access || !c.get("authIsOwner") || !access.isStoreOwner)
     return c.json({ message: "forbidden" }, 403);
-  await c.env.DB.prepare(`DELETE FROM diary_photos WHERE diary_id = ?`)
-    .bind(diaryId)
-    .run();
-  await c.env.DB.prepare(`DELETE FROM diaries WHERE diary_id = ?`)
-    .bind(diaryId)
-    .run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key)
+       SELECT r2_key FROM diary_photos WHERE diary_id = ?`,
+    ).bind(diaryId),
+    c.env.DB.prepare(`DELETE FROM diary_photos WHERE diary_id = ?`).bind(diaryId),
+    c.env.DB.prepare(`DELETE FROM diaries WHERE diary_id = ?`).bind(diaryId),
+  ]);
+  await drainDiaryPhotoDeletionQueueBestEffort(c.env);
   return c.json({ ok: true });
 });
 
@@ -2960,6 +3254,14 @@ app.delete("/api/users/:id/account", async (c) => {
   const results = await c.env.DB.batch([
     // 보호자 데이터: 반려견·찜·알림장·개인 채팅은 삭제한다.
     c.env.DB.prepare(
+      `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key)
+       SELECT p.r2_key
+       FROM diary_photos p
+       JOIN diaries d ON d.diary_id = p.diary_id
+       JOIN reservations r ON r.reservation_id = d.reservation_id
+       WHERE r.user_id = ?`,
+    ).bind(userId),
+    c.env.DB.prepare(
       `DELETE FROM diary_photos
        WHERE diary_id IN (
          SELECT d.diary_id FROM diaries d
@@ -3033,6 +3335,7 @@ app.delete("/api/users/:id/account", async (c) => {
   const userUpdate = results.at(-1);
   if (!userUpdate || (userUpdate.meta.changes ?? 0) !== 1)
     return c.json({ message: "user not found" }, 404);
+  await drainDiaryPhotoDeletionQueueBestEffort(c.env);
   return c.json({ ok: true, deleted_at: deletedAt });
 });
 
@@ -3220,9 +3523,11 @@ type DataRetentionResult = {
   expired_reservations: number;
   expired_support_conversations: number;
   expired_owner_applications: number;
+  deleted_r2_objects: number;
 };
 
-async function enforceDataRetention(db: D1Database): Promise<DataRetentionResult> {
+async function enforceDataRetention(env: Bindings): Promise<DataRetentionResult> {
+  const db = env.DB;
   const expiredReservationWhere = `
     (
       status = 'CANCELED'
@@ -3239,6 +3544,15 @@ async function enforceDataRetention(db: D1Database): Promise<DataRetentionResult
     db.prepare(
       `DELETE FROM auth_sessions
        WHERE unixepoch(expires_at) <= unixepoch('now', '-30 days')`,
+    ),
+    db.prepare(
+      `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key)
+       SELECT p.r2_key
+       FROM diary_photos p
+       JOIN diaries d ON d.diary_id = p.diary_id
+       WHERE d.reservation_id IN (
+         SELECT reservation_id FROM reservations WHERE ${expiredReservationWhere}
+       )`,
     ),
     db.prepare(
       `DELETE FROM diary_photos
@@ -3281,14 +3595,16 @@ async function enforceDataRetention(db: D1Database): Promise<DataRetentionResult
   ]);
 
   const changes = (index: number) => results[index]?.meta.changes ?? 0;
+  const deletedR2Objects = await drainDiaryPhotoDeletionQueueBestEffort(env);
   return {
     expired_sessions: changes(0),
-    expired_diary_photos: changes(1),
-    expired_diaries: changes(2),
-    detached_reviews: changes(3),
-    expired_reservations: changes(4),
-    expired_support_conversations: changes(5),
-    expired_owner_applications: changes(6),
+    expired_diary_photos: changes(2),
+    expired_diaries: changes(3),
+    detached_reviews: changes(4),
+    expired_reservations: changes(5),
+    expired_support_conversations: changes(6),
+    expired_owner_applications: changes(7),
+    deleted_r2_objects: deletedR2Objects,
   };
 }
 
@@ -3358,7 +3674,7 @@ app.post("/api/internal/review-requests", async (c) => {
 });
 
 app.post("/api/internal/data-retention", async (c) => {
-  return c.json(await enforceDataRetention(c.env.DB));
+  return c.json(await enforceDataRetention(c.env));
 });
 
 // 데이터 정비용 임시 엔드포인트 — 네이버 플레이스 업체사진이 가격표인지 비전 모델로 판별하고,
@@ -3403,7 +3719,7 @@ export default {
     }
 
     if (event.cron === REVIEW_REQUEST_CRON) {
-      console.log("daily data retention", await enforceDataRetention(env.DB));
+      console.log("daily data retention", await enforceDataRetention(env));
       await sendReviewRequests(env.DB);
     }
   },

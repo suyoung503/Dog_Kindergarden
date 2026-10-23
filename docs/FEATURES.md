@@ -129,7 +129,7 @@
 - **사장님(작성):** 홈 사이드바 [사장님 메뉴] '확정예약·알림장' → 맡은 아이들(확정 예약) 목록(`OwnerDiaryListView`) → 작성/수정/삭제(`DiaryComposer` 시트).
 - **보호자(열람):** 홈 사이드바 '확정예약·알림장' → 내가 확정한 예약(맡긴 아이들) 목록(`MyDiaryListView`) → 같은 화면을 읽기 전용으로 사용(`diaryContext.canWrite` 플래그로 시점 분리 — 채팅 말풍선과 같은 패턴). 예전엔 예약 내역 확정 카드의 '알림장 보기' 버튼이었으나, 사장님 전용 버튼들과 섞여 혼동을 준다는 피드백으로 사이드바로 이전.
 - 사장님이 **작성할 때만** 보호자 채팅방에 자동 메시지(sender 0) 발송 — 안 읽은 채팅 빨간 점에 자동 반영. 수정·삭제는 메시지 없음.
-- 사진 첨부는 R2(이미지 저장소) 활성화 후 추가 예정 — `diary_photos` 스키마만 준비, API는 항상 `photos:[]` 반환.
+- 사장님은 알림장당 사진을 최대 3장까지 시스템 사진 선택기에서 추가·삭제한다. 앱은 원본 5MB를 제한하고 최대 1600px·1.5MB JPEG로 정규화해 비공개 R2에 저장한다. 보호자와 해당 가게 사장님만 인증된 사진 API로 열람하며, 카드를 누르면 전체 화면에서 좌우로 넘겨볼 수 있다.
 
 ### 예약 확정/취소 (사장님, OwnerModeView)
 - '받은 예약 요청' 화면에 **내가 등록한 가게로 온 REQUEST만** 표시 — 카드에 가게명, "강아지 : 이름"과 "예약자 : 이름" 두 줄, 일정·서비스 유형.
@@ -222,7 +222,7 @@
 | 가게 | `GET /api/stores` | 저장된 가게 조회 |
 | 내 가게 | `POST /api/stores/claim`, `GET /api/owner-applications`, 승인·거절 API, `GET·DELETE /api/owners/:id/stores(/:storeId)` | 등록 신청·운영자 승인·목록·해제 |
 | 예약 | `POST /api/reservations`, `GET /api/users/:id/reservations`, `PATCH /api/reservations/:id/cancel·confirm`, `GET /api/owners/:id/reservations/pending·confirmed` | 신청(채팅방 자동 생성)·내역·취소·확정·사장님 수신함·맡은 아이들(알림장용). cancel에 `by_owner` 바디를 주면 고객 채팅방에 취소 안내 자동 메시지 발송 |
-| 알림장 | `GET·POST /api/reservations/:id/diaries`, `PATCH·DELETE /api/diaries/:id` | 예약당 타임라인 CRUD — 작성 시에만 보호자 채팅방에 자동 메시지, `photos`는 R2 활성화까지 항상 `[]` |
+| 알림장 | `GET·POST /api/reservations/:id/diaries`, `PATCH·DELETE /api/diaries/:id`, `POST /api/diaries/:id/photos`, `GET·DELETE /api/diary-photos/:id` | 예약당 타임라인 CRUD와 비공개 R2 사진 최대 3장 — 작성 시에만 보호자 채팅방에 자동 메시지 |
 | 채팅 | `GET·POST /api/chatrooms(/:id/messages)`, `GET /api/chatrooms/lookup`, `GET /api/users/:id/chatrooms`, `GET /api/owners/:id/chatrooms` | 방 생성/조회·메시지·내 방 목록·받은 문의 |
 | 안 읽은 채팅 | `POST /api/chatrooms/:id/read`, `GET /api/users/:id/unread-count` | 방 열람 읽음 처리 · 안 읽은 메시지 수(손님 시점 공통 + 사장님 계정은 내 가게 문의 합산) |
 | 알림 | `GET /api/users/:id/notifications` | 통합 알림 피드(opaque 커서 증분 조회) — 채팅·예약·고객센터·가게 등록 요청, 이벤트당 1회만 노출 |
@@ -245,7 +245,6 @@
 
 ## 13. 미완성 · 데모 범위
 
-- **알림장 사진 첨부** — R2(이미지 저장소) 미활성으로 보류. `diary_photos` 스키마와 API 계약(`photos:[]`)만 준비 — 활성화 시 업로드/서빙 엔드포인트와 `PhotosPicker`만 추가하면 된다.
 - **일부 가게 주소 마스킹 잔존** — 네이버·카카오 어디에도 등록되지 않은 4곳은 DB에 마스킹 주소 유지(추측으로 채우지 않음) — 가게 상세 화면에서는 좌표→지번 폴백으로 최소한의 주소 표시.
 - **회원 탈퇴** — 구현·운영 배포 완료. 마이페이지의 2단계 확인 후 본인 전용 API가 개인정보를 삭제·익명화하고 모든 세션을 폐기한다. 진행 중 예약이 있으면 완료·취소 전까지 차단한다.
 - **로그인은 카카오뿐** — Apple 가이드라인 4.8은 제3자 로그인을 제공하면 Sign in with Apple도 동등한 옵션으로 제공할 것을 요구 — 실제 출시 전 추가 필요.
