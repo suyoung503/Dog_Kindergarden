@@ -111,6 +111,11 @@ const guardianLogin = await request("POST", "/api/auth/dev", {
 expectOneOf("보호자 로컬 로그인", guardianLogin.status, [200, 201]);
 const guardianId = guardianLogin.data.user_id;
 const guardianToken = guardianLogin.data.session_token;
+expect(
+  "로그인 세션 응답 캐시 금지",
+  guardianLogin.headers.get("cache-control"),
+  "private, no-store",
+);
 const malformedPetRequest = await request("POST", `/api/users/${guardianId}/pets`, {
   token: guardianToken,
   rawBody: '{"name":',
@@ -120,6 +125,16 @@ expect(
   "인증 API 잘못된 JSON 오류 코드",
   malformedPetRequest.data?.code,
   "INVALID_JSON",
+);
+expect(
+  "보호 API 응답 캐시 금지",
+  malformedPetRequest.headers.get("cache-control"),
+  "private, no-store",
+);
+expect(
+  "보호 API MIME 추측 차단",
+  malformedPetRequest.headers.get("x-content-type-options"),
+  "nosniff",
 );
 
 const ownerLogin = await request("POST", "/api/auth/dev", {

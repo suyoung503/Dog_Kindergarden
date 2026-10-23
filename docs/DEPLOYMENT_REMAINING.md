@@ -1,6 +1,6 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-10-22
+**기준일:** 2026-10-23
 **기준 브랜치:** `main`
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
@@ -17,6 +17,7 @@
 - [x] main push·Pull Request마다 의존성 audit, Worker dry-run, 빈 D1 마이그레이션, 인증·권한 회귀를 실행하는 GitHub Actions 추가
 - [x] 모든 API 요청 본문을 2MiB로 제한하고 초과 요청을 D1·외부 API 처리 전에 HTTP `413`으로 차단 — 운영 응답까지 확인
 - [x] 모든 JSON 쓰기 API가 문법 오류·`null`·배열 본문을 HTTP `400 / INVALID_JSON`으로 일관되게 거부하고, 예약 취소의 정상 빈 본문만 허용 — 인증·권한 회귀 171건 통과
+- [x] 로그인·예약·채팅·알림장 등 비공개 API 응답에 `Cache-Control: private, no-store`와 `X-Content-Type-Options: nosniff`를 공통 적용하고 회귀 검사 추가
 - [x] iOS Simulator Release, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 포함한 Release audit 실행
 - [x] 실제 iPhone용 unsigned `arm64` Archive와 완성 번들의 Secret·개발 메뉴·Privacy Manifest 검사
 - [x] Xcode 27.0·iPhoneOS SDK 27.0이 현재 제출 최소 기준을 충족하는지 확인

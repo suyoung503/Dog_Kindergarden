@@ -26,9 +26,17 @@ async function check(name, path, validate) {
   }
 }
 
-function requireStatus(expected) {
+function requireProtectedStatus(expected) {
   return (response) => {
     assert(response.status === expected, `HTTP ${response.status}, 예상 ${expected}`);
+    assert(
+      response.headers.get("cache-control") === "private, no-store",
+      "보호 API에 private, no-store가 없습니다.",
+    );
+    assert(
+      response.headers.get("x-content-type-options") === "nosniff",
+      "보호 API에 nosniff가 없습니다.",
+    );
   };
 }
 
@@ -75,7 +83,7 @@ const protectedRoutes = [
 ];
 
 for (const [name, path] of protectedRoutes) {
-  await check(name, path, requireStatus(401));
+  await check(name, path, requireProtectedStatus(401));
 }
 
 console.log(`\n결과: ${failed === 0 ? "PASS" : "FAIL"} (${passed}개 통과, ${failed}개 실패)`);

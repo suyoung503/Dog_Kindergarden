@@ -216,6 +216,14 @@ app.use(
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
+app.use("/api/*", async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  const path = c.req.path;
+  const isPublicRead = method === "GET" && isPublicAPI(method, path);
+  if (!isPublicRead) c.header("Cache-Control", "private, no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  await next();
+});
 const apiBodyLimit = bodyLimit({
   maxSize: MAX_API_BODY_BYTES,
   onError: (c) => c.json(
