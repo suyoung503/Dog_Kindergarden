@@ -68,13 +68,18 @@ npx wrangler secret put KAKAO_REST_API_KEY
 
 ### 운영자 계정 지정
 
-가게 등록 요청을 승인하는 운영자 권한은 앱에서 선택할 수 없으며, 운영 D1에서 실제 개발자 계정 한 개에만 수동으로 부여합니다. 마이그레이션 적용 후 카카오 계정으로 한 번 로그인한 다음 사용자 번호를 확인해 아래처럼 설정합니다.
+가게 등록 요청을 승인하는 운영자 권한은 앱에서 선택할 수 없습니다. 유일한 운영자 카카오 서비스 사용자 ID의 SHA-256 해시를 Worker Secret `ADMIN_KAKAO_USER_ID_HASH`로 등록합니다. 원문 ID와 해시는 Git·앱 번들·문서·로그에 남기지 않습니다.
 
-```sql
-UPDATE users SET is_admin = 1 WHERE user_id = <개발자 사용자 번호>;
+```bash
+# 운영자 카카오 서비스 사용자 ID를 화면에 표시하지 않고 입력해 해시만 등록
+read -s "ADMIN_KAKAO_USER_ID?운영자 Kakao ID: "
+printf %s "$ADMIN_KAKAO_USER_ID" | shasum -a 256 | awk '{print $1}' | npx wrangler secret put ADMIN_KAKAO_USER_ID_HASH
+unset ADMIN_KAKAO_USER_ID
 ```
 
-권한을 부여한 뒤 앱에서 로그아웃하고 다시 로그인하면 마이페이지에 `가게 등록 요청` 메뉴가 나타납니다. 신청자의 이름·연락처·이메일·주소와 신청 가게를 실제 자료와 대조한 뒤 승인해야 하며, 앱이 현실의 사업자 소유 여부를 자동 판정하지는 않습니다.
+서버는 카카오가 검증한 사용자 ID를 로그인 때 해시해 Secret과 일치하는 계정만 `is_admin=1`로 동기화하고, 지정 운영자가 로그인하면 다른 운영자 권한을 해제합니다. 회원 탈퇴 시 사용자 행의 권한은 제거되지만 같은 카카오 계정으로 재가입하면 새 사용자 번호에 운영자 권한만 복구됩니다. Secret이 없거나 64자리 16진수 형식이 아니면 기존 D1 권한을 유지합니다.
+
+등록 후 앱에서 로그아웃하고 다시 로그인하면 마이페이지에 `가게 등록 요청` 메뉴가 나타납니다. 신청자의 이름·연락처·이메일·주소와 신청 가게를 실제 자료와 대조한 뒤 승인해야 하며, 앱이 현실의 사업자 소유 여부를 자동 판정하지는 않습니다.
 
 배포 URL 예시:
 - `https://matgyeomung-api.<your-subdomain>.workers.dev`

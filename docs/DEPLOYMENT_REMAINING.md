@@ -23,6 +23,7 @@
 - [x] 실제 iPhone용 unsigned `arm64` Archive와 완성 번들의 Secret·개발 메뉴·Privacy Manifest 검사
 - [x] Xcode 27.0·iPhoneOS SDK 27.0이 현재 제출 최소 기준을 충족하는지 확인
 - [x] README·FEATURES·PROGRESS·배포 준비 문서의 오래된 인증·배포 상태 정리
+- [x] 지정된 카카오 계정만 운영자가 되도록 Worker Secret 기반 권한 동기화 구현 및 탈퇴·재가입 회귀 검증
 
 ## 2. 출시 차단 항목 — 사용자 정보나 외부 계정 필요
 
@@ -72,6 +73,7 @@
 
 ### 2.5 외부 콘솔 보안 설정
 
+- [ ] 운영자 계정에서 로그아웃·재로그인한 뒤 `마이페이지 → 가게 등록 요청` 메뉴가 보이고 다른 계정에는 보이지 않는지 확인
 - [ ] Kakao Developers에서 iOS 번들 ID `net.suyoung.Dog-kindergarden` 제한 확인
 - [ ] Naver·Kakao·공공데이터 키의 서비스·도메인·사용량 제한 확인
 - [ ] 과거 앱 번들이나 Git 이력에 포함된 공급자 키가 현재 운영 키와 같지 않은지 확인하고, 같다면 새 키로 교체한 뒤 기존 키 폐기

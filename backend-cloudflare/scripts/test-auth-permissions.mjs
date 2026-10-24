@@ -1356,6 +1356,34 @@ expect(
   401,
 );
 
+expect(
+  "지정 운영자 계정 탈퇴",
+  (await request("DELETE", `/api/users/${adminLogin.data.user_id}/account`, {
+    token: adminToken,
+  })).status,
+  200,
+);
+expect(
+  "탈퇴 운영자 토큰 폐기",
+  (await request("GET", "/api/owner-applications", { token: adminToken })).status,
+  401,
+);
+const recreatedAdmin = await request("POST", "/api/auth/dev", {
+  body: {
+    identity: "auth-test-admin",
+    nickname: "재가입 운영자",
+    is_owner: false,
+    is_admin: false,
+  },
+});
+expect("지정 운영자 재가입", recreatedAdmin.status, 201);
+expect(
+  "운영자 재가입은 새 사용자 번호 발급",
+  recreatedAdmin.data.user_id !== adminLogin.data.user_id,
+  true,
+);
+expect("운영자 재가입 권한 자동 복구", recreatedAdmin.data.is_admin, 1);
+
 console.log(JSON.stringify({
   passed: results.filter((result) => result.ok).length,
   total: results.length,
