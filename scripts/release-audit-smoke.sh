@@ -50,6 +50,7 @@ SUMMARY_FILE="$RESULT_DIR/summary.tsv"
 REPORT_FILE="$RESULT_DIR/release-smoke-result.md"
 PORT="${RELEASE_SMOKE_PORT:-$((18000 + RANDOM % 1000))}"
 INTERNAL_KEY="release-smoke-local-only-key"
+ADMIN_IDENTITY_HASH="$(node -e "process.stdout.write(require('node:crypto').createHash('sha256').update('dev-local-auth-test-admin').digest('hex'))")"
 EXPECTED_MIN_IOS="17.0"
 EXPECTED_DISPLAY_NAME="맡겨멍"
 EXPECTED_APP_CATEGORY="public.app-category.lifestyle"
@@ -215,6 +216,7 @@ start_worker() {
   cat > "$env_file" <<EOF
 ALLOW_DEV_AUTH=true
 INTERNAL_API_KEY=$INTERNAL_KEY
+ADMIN_KAKAO_USER_ID_HASH=$ADMIN_IDENTITY_HASH
 EOF
   (
     cd "$BACKEND_DIR" || exit 1

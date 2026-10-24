@@ -106,9 +106,15 @@ expect(
 );
 
 const guardianLogin = await request("POST", "/api/auth/dev", {
-  body: { identity: "auth-test-guardian", nickname: "권한테스트 보호자", is_owner: false },
+  body: {
+    identity: "auth-test-guardian",
+    nickname: "권한테스트 보호자",
+    is_owner: false,
+    is_admin: true,
+  },
 });
 expectOneOf("보호자 로컬 로그인", guardianLogin.status, [200, 201]);
+expect("비지정 계정의 운영자 권한 요청 무시", guardianLogin.data.is_admin, 0);
 const guardianId = guardianLogin.data.user_id;
 const guardianToken = guardianLogin.data.session_token;
 expect(
@@ -167,10 +173,11 @@ const adminLogin = await request("POST", "/api/auth/dev", {
     identity: "auth-test-admin",
     nickname: "권한테스트 운영자",
     is_owner: false,
-    is_admin: true,
+    is_admin: false,
   },
 });
 expectOneOf("운영자 로컬 로그인", adminLogin.status, [200, 201]);
+expect("지정 계정 운영자 권한 자동 부여", adminLogin.data.is_admin, 1);
 const adminToken = adminLogin.data.session_token;
 
 const supportConversation = await request("POST", "/api/support/conversation", {

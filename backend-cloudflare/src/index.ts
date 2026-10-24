@@ -190,6 +190,7 @@ type Bindings = {
   AI: WorkersAiBinding;
   INTERNAL_API_KEY?: string;
   ALLOW_DEV_AUTH?: string;
+  ADMIN_KAKAO_USER_ID_HASH?: string;
   NAVER_PLACE_REFRESH_ENABLED?: string;
   EXPOSE_UNVERIFIED_STORE_DETAILS?: string;
   NAVER_API_HUB_CLIENT_ID?: string;
@@ -267,14 +268,18 @@ function toBase64Url(bytes: Uint8Array): string {
     .replaceAll("=", "");
 }
 
-async function hashToken(token: string): Promise<string> {
+async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(token),
+    new TextEncoder().encode(value),
   );
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+async function hashToken(token: string): Promise<string> {
+  return sha256Hex(token);
 }
 
 async function createSession(
@@ -3065,6 +3070,33 @@ type AuthUserRow = {
   is_admin: number | null;
 };
 
+async function syncConfiguredAdminRole(
+  db: D1Database,
+  user: AuthUserRow,
+  configuredHash?: string,
+): Promise<AuthUserRow> {
+  const normalizedHash = configuredHash?.trim().toLowerCase() ?? "";
+  if (!/^[0-9a-f]{64}$/.test(normalizedHash)) return user;
+
+  const isConfiguredAdmin = await sha256Hex(user.kakao_id) === normalizedHash;
+  const isAdmin = isConfiguredAdmin ? 1 : 0;
+  if (isConfiguredAdmin) {
+    await db.batch([
+      db.prepare(
+        `UPDATE users SET is_admin = 0
+         WHERE user_id <> ? AND is_admin = 1 AND deleted_at IS NULL`,
+      ).bind(user.user_id),
+      db.prepare(`UPDATE users SET is_admin = 1 WHERE user_id = ?`)
+        .bind(user.user_id),
+    ]);
+  } else if ((user.is_admin ?? 0) !== 0) {
+    await db.prepare(`UPDATE users SET is_admin = 0 WHERE user_id = ?`)
+      .bind(user.user_id)
+      .run();
+  }
+  return { ...user, is_admin: isAdmin };
+}
+
 async function findOrCreateUser(
   db: D1Database,
   kakaoId: string,
@@ -3160,8 +3192,13 @@ app.post("/api/auth/kakao", async (c) => {
       409,
     );
 
+  const authUser = await syncConfiguredAdminRole(
+    c.env.DB,
+    result.user,
+    c.env.ADMIN_KAKAO_USER_ID_HASH,
+  );
   return c.json(
-    await authResponse(c.env.DB, result.user),
+    await authResponse(c.env.DB, authUser),
     result.created ? 201 : 200,
   );
 });
@@ -3198,8 +3235,13 @@ app.post("/api/auth/dev", async (c) => {
       .run();
     result.user.is_admin = isAdmin;
   }
+  const authUser = await syncConfiguredAdminRole(
+    c.env.DB,
+    result.user,
+    c.env.ADMIN_KAKAO_USER_ID_HASH,
+  );
   return c.json(
-    await authResponse(c.env.DB, result.user),
+    await authResponse(c.env.DB, authUser),
     result.created ? 201 : 200,
   );
 });
