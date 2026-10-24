@@ -1,6 +1,6 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-10-23
+**기준일:** 2026-10-24
 **기준 브랜치:** `main`
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
@@ -10,14 +10,15 @@
 
 - [x] Hono·Wrangler와 전이 의존성을 안전 버전으로 갱신하고 깨끗한 설치에서 `npm audit` **0건** 확인
 - [x] 갱신된 Wrangler로 Worker 배포 번들 dry-run 성공
-- [x] 취약점 갱신과 API 입력 상한이 적용된 Worker 운영 배포 — 버전 `1ae53f87-4ba4-4d9d-8bbe-7d803f6a3bfc`
+- [x] R2 알림장 사진과 보호 API 캐시 방지 정책이 적용된 Worker 운영 배포 — 버전 `f37e1dec-bd25-49f8-a454-d471079d6879`
+- [x] 운영 D1 미적용 마이그레이션 **0건** 확인
 - [x] 운영 Worker 공개 상태·개인정보처리방침·고객지원·가게·공지 조회 확인
 - [x] 운영 Worker에서 예약·사장님 가게·운영자 승인함·고객센터 무인증 요청이 모두 `401`인지 확인
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
 - [x] main push·Pull Request마다 의존성 audit, Worker dry-run, 빈 D1 마이그레이션, 인증·권한 회귀를 실행하는 GitHub Actions 추가
 - [x] 모든 API 요청 본문을 2MiB로 제한하고 초과 요청을 D1·외부 API 처리 전에 HTTP `413`으로 차단 — 운영 응답까지 확인
 - [x] 모든 JSON 쓰기 API가 문법 오류·`null`·배열 본문을 HTTP `400 / INVALID_JSON`으로 일관되게 거부하고, 예약 취소의 정상 빈 본문만 허용 — 인증·권한 회귀 171건 통과
-- [x] 로그인·예약·채팅·알림장 등 비공개 API 응답에 `Cache-Control: private, no-store`와 `X-Content-Type-Options: nosniff`를 공통 적용하고 회귀 검사 추가
+- [x] 로그인·예약·채팅·알림장 등 비공개 API 응답에 `Cache-Control: private, no-store`와 `X-Content-Type-Options: nosniff`를 공통 적용하고 운영 응답 확인
 - [x] iOS Simulator Release, 빈 D1 전체 마이그레이션, API 인증·권한 회귀를 포함한 Release audit 실행
 - [x] 실제 iPhone용 unsigned `arm64` Archive와 완성 번들의 Secret·개발 메뉴·Privacy Manifest 검사
 - [x] Xcode 27.0·iPhoneOS SDK 27.0이 현재 제출 최소 기준을 충족하는지 확인
@@ -74,9 +75,6 @@
 - [ ] Kakao Developers에서 iOS 번들 ID `net.suyoung.Dog-kindergarden` 제한 확인
 - [ ] Naver·Kakao·공공데이터 키의 서비스·도메인·사용량 제한 확인
 - [ ] 과거 앱 번들이나 Git 이력에 포함된 공급자 키가 현재 운영 키와 같지 않은지 확인하고, 같다면 새 키로 교체한 뒤 기존 키 폐기
-- [ ] Cloudflare 계정 권한을 복구해 운영 D1 미적용 마이그레이션이 0건인지 다시 확인
-
-현재 CLI는 Worker 배포 이력은 읽지만 원격 D1 조회가 Cloudflare 오류 `7403`으로 거부된다. Cloudflare에서 현재 로그인 계정이 D1 데이터베이스 `dog_kindergarden_db`에 접근 가능한지 확인해야 한다.
 
 ## 3. 실제 기기와 제출 직전에 수행
 
