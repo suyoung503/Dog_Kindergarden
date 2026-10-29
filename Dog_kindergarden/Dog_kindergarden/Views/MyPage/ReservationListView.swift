@@ -3,6 +3,7 @@ import SwiftUI
 // 예약 내역 목록 — 지금까지 신청한 예약을 서버(reservations)에서 불러와 표시
 struct ReservationListView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppNotificationService.self) private var notificationService
     @Environment(AuthSession.self) private var authSession
 
     @State private var reservations: [ReservationSummary] = []
@@ -29,7 +30,14 @@ struct ReservationListView: View {
             .padding(.bottom, 24)
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await load() }
+        .task {
+            let updates = notificationService.updates()
+            await load()
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+                await load()
+            }
+        }
         .alert("예약을 취소할까요?", isPresented: Binding(get: { pendingCancel != nil }, set: { if !$0 { pendingCancel = nil } })) {
             Button("닫기", role: .cancel) {}
             Button("취소하기", role: .destructive) {

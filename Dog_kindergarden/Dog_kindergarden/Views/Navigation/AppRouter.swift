@@ -13,10 +13,12 @@ enum AppScreen {
     case booking
     case bookingDone
     case myPage
+    case myStoreApplication
     case favorites
     case reservationList
     case ownerMode
     case ownerDiaryList
+    case ownerReservationDetail
     case myDiaryList
     case diary
     case noticeList
@@ -34,6 +36,15 @@ struct DiaryContext {
     let petName: String
     let storeName: String
     let canWrite: Bool
+    let petImageUrl: String?
+
+    init(reservationId: Int, petName: String, storeName: String, canWrite: Bool, petImageUrl: String? = nil) {
+        self.reservationId = reservationId
+        self.petName = petName
+        self.storeName = storeName
+        self.canWrite = canWrite
+        self.petImageUrl = petImageUrl
+    }
 }
 
 enum UserRole {
@@ -52,10 +63,44 @@ struct BookingResult {
     let price: String
     let isAllDay: Bool
     let durationHours: Int
+    let dogImageURL: String?
+
+    init(reservationId: Int, roomId: Int, storeName: String, dogName: String, dogBreed: String,
+         schedule: String, price: String, isAllDay: Bool, durationHours: Int, dogImageURL: String? = nil) {
+        self.reservationId = reservationId
+        self.roomId = roomId
+        self.storeName = storeName
+        self.dogName = dogName
+        self.dogBreed = dogBreed
+        self.schedule = schedule
+        self.price = price
+        self.isAllDay = isAllDay
+        self.durationHours = durationHours
+        self.dogImageURL = dogImageURL
+    }
+}
+
+// 홈이 상세 화면으로 전환되어 재생성돼도 유지할 세션 단위 탐색 상태.
+struct HomeMapState {
+    var searchText = ""
+    var activeFilters: Set<ReviewTag> = []
+    var activeType: String? = nil
+    var bounds: MapBounds? = nil
+    var camera: MapCameraState? = nil
+}
+
+// 정수 줌 레벨 대신 높이를 저장해 핀치 확대의 중간 배율까지 복원한다.
+struct MapCameraState: Equatable {
+    let latitude: Double
+    let longitude: Double
+    let height: Double
+    let rotation: Double
+    let tilt: Double
 }
 
 @Observable
 final class AppRouter {
+    var homeMapState = HomeMapState()
     var stack: [AppScreen] = [.start]
     var selectedProvince: String = "서울"          // 첫 화면 서울 기준
     var selectedCity: String = "성남시"
@@ -68,6 +113,9 @@ final class AppRouter {
     var recentPins: [MapPin] = []                  // 최근 본 가게 — 계정별 UserDefaults 영속, 최대 6개
     private var activeUserId: Int? = nil           // recentPins 저장 키에 쓰는 현재 계정
     var lastBooking: BookingResult? = nil          // 방금 신청한 예약 (완료화면/채팅방 연결)
+    var ownerCalendarState = OwnerReservationCalendarState()
+    var ownerReservationTab: OwnerReservationTab = .requests
+    var ownerReservationContext: OwnerReservationContext? = nil
     var diaryContext: DiaryContext? = nil          // 알림장 화면 진입 컨텍스트 (예약·작성 권한)
     var selectedNotice: Notice? = nil      // 공지사항 목록에서 탭한 항목 — 상세 화면에 전달
     var selectedSupportConversationId: Int? = nil
@@ -79,7 +127,37 @@ final class AppRouter {
     var current: AppScreen { stack.last ?? .start }
 
     func go(_ screen: AppScreen) {
+        if screen == .ownerDiaryList {
+            openOwnerReservations(tab: .confirmed)
+            return
+        }
         stack.append(screen)
+    }
+
+    func openOwnerReservations(tab: OwnerReservationTab) {
+        ownerReservationTab = tab
+        ownerReservationContext = nil
+        if let index = stack.firstIndex(of: .ownerMode) {
+            stack = Array(stack.prefix(through: index))
+        } else {
+            stack.append(.ownerMode)
+        }
+    }
+
+    func openOwnerReservation(id: Int, tab: OwnerReservationDetailTab = .information, focusOnStartDate: Bool = false) {
+        let selectedTab: OwnerReservationTab = tab == .diary ? .confirmed : ownerReservationTab
+        openOwnerReservations(tab: selectedTab)
+        ownerReservationContext = OwnerReservationContext(reservationId: id, initialTab: tab, focusOnStartDate: focusOnStartDate)
+        stack.append(.ownerReservationDetail)
+    }
+
+    // 알림으로 직접 연 상세의 첫 성공 응답에서만 적용한다. 실시간 재조회는 선택일을 바꾸지 않는다.
+    func focusOwnerReservationStartDate(_ startDate: String?, expectedReservationId: Int) {
+        guard current == .ownerReservationDetail,
+              ownerReservationContext?.reservationId == expectedReservationId,
+              ownerReservationContext?.focusOnStartDate == true else { return }
+        ownerReservationContext?.focusOnStartDate = false
+        ownerCalendarState.focus(startDate: startDate)
     }
 
     func back() {
@@ -91,12 +169,16 @@ final class AppRouter {
     // 계정 전환 시 이전 계정의 흔적(최근 본 가게·선택 상태)이 남지 않도록 세션 데이터도 함께 비운다
     func reset(to screen: AppScreen) {
         stack = [screen]
+        homeMapState = HomeMapState()
         selectedPin = nil
         selectedRoomId = nil
         chatRoomAsOwner = false
         recentPins = []
         lastBooking = nil
         diaryContext = nil
+        ownerReservationContext = nil
+        ownerReservationTab = .requests
+        ownerCalendarState = OwnerReservationCalendarState()
         selectedSupportConversationId = nil
         selectedSupportConversationTitle = "1:1 문의"
     }

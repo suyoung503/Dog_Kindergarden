@@ -92,11 +92,15 @@ struct NotificationInboxView: View {
             Circle()
                 .fill(iconColor(for: item.type).opacity(0.14))
                 .frame(width: 44, height: 44)
-                .overlay(
-                    Image(systemName: iconName(for: item.type))
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(iconColor(for: item.type))
-                )
+                .overlay {
+                    if item.type == "diary" {
+                        EmojiIcon(emoji: "📔", size: 25)
+                    } else {
+                        Image(systemName: iconName(for: item.type))
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(iconColor(for: item.type))
+                    }
+                }
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
@@ -134,8 +138,8 @@ struct NotificationInboxView: View {
         switch type {
         case "chat": return "message.fill"
         case "support": return "bubble.left.and.bubble.right.fill"
-        case "owner_application": return "building.2.fill"
-        case "reservation_request", "reservation_confirmed", "reservation_canceled": return "calendar"
+        case "owner_application", "owner_application_rejected": return "building.2.fill"
+        case "reservation_request", "reservation_confirmed", "reservation_submitted", "reservation_canceled": return "calendar"
         default: return "bell.fill"
         }
     }
@@ -144,7 +148,7 @@ struct NotificationInboxView: View {
         switch type {
         case "chat": return Color.brandGreen
         case "support": return Color(hex: "#3C88A8")
-        case "owner_application": return Color.brandOrange
+        case "owner_application", "owner_application_rejected": return Color.brandOrange
         default: return Color.brandBrown
         }
     }

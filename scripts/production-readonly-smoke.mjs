@@ -5,6 +5,7 @@ const baseURL = (process.env.PRODUCTION_API_BASE_URL ??
 
 let passed = 0;
 let failed = 0;
+let publicStoreKey;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -68,6 +69,7 @@ await check("공개 가게 목록", "/api/stores", async (response, body) => {
   assert(Array.isArray(stores), "가게 목록이 배열이 아닙니다.");
   assert(stores.length > 0, "운영 가게 목록이 비어 있습니다.");
   assert(stores.every((store) => Number.isInteger(store.store_id) && store.name), "필수 가게 필드가 없습니다.");
+  publicStoreKey = stores.find((store) => store.store_key && ["호텔", "유치원"].includes(store.store_type))?.store_key;
 });
 
 await check("공개 공지 목록", "/api/notices", async (response, body) => {
@@ -80,11 +82,29 @@ const protectedRoutes = [
   ["사장님 가게 무인증 차단", "/api/owners/1/stores"],
   ["운영자 승인함 무인증 차단", "/api/owner-applications"],
   ["고객센터 무인증 차단", "/api/support/conversation"],
+  ["반려견 사진 무인증 차단", "/api/pets/1/photo"],
+  ["실시간 연결 무인증 차단", "/api/realtime"],
+  ["실시간 쿼리 토큰 인증 차단", "/api/realtime?token=invalid-smoke-token"],
 ];
 
 for (const [name, path] of protectedRoutes) {
   await check(name, path, requireProtectedStatus(401));
 }
+
+await check("잘못된 공유 링크 거부", "/store", async (response) => {
+  assert(response.status === 400, `HTTP ${response.status}, 예상 400`);
+  assert(response.headers.get("cache-control") === "no-store", "공유 응답 캐시 방지가 없습니다.");
+});
+
+await check("없는 가게 공유 링크", `/store?key=${encodeURIComponent("readonly-smoke-missing-" + crypto.randomUUID())}`, async (response) => {
+  assert(response.status === 404, `HTTP ${response.status}, 예상 404`);
+});
+
+await check("공개 가게 공유 랜딩", `/store?key=${encodeURIComponent(publicStoreKey ?? "")}`, async (response, body) => {
+  assert(publicStoreKey, "공유 가능한 공개 가게가 없습니다.");
+  await validatePublicPage(response, body, "matgyeomung://store?key=");
+  assert(body.includes("맡겨멍 앱에서 가게 열기"), "앱 열기 버튼이 없습니다.");
+});
 
 console.log(`\n결과: ${failed === 0 ? "PASS" : "FAIL"} (${passed}개 통과, ${failed}개 실패)`);
 if (failed > 0) process.exit(1);

@@ -163,6 +163,10 @@ final class APIClient {
         try await request(path: "/owners/\(ownerId)/reservations/pending", method: "GET")
     }
 
+    func fetchOwnerReservationDetail(reservationId: Int) async throws -> PendingReservation {
+        try await request(path: "/reservations/\(reservationId)", method: "GET")
+    }
+
     func confirmReservation(reservationId: Int) async throws {
         let _: ReservationCancelResponse = try await request(path: "/reservations/\(reservationId)/confirm", method: "PATCH")
     }
@@ -211,8 +215,8 @@ final class APIClient {
     }
 
     @discardableResult
-    func updateUser(userId: Int, nickname: String, phone: String, address: String) async throws -> UserResponse {
-        let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address)
+    func updateUser(userId: Int, nickname: String, phone: String, address: String, email: String) async throws -> UserResponse {
+        let body = UserUpdateRequest(nickname: nickname, phone: phone, address: address, email: email)
         return try await request(path: "/users/\(userId)", method: "PUT", body: body)
     }
 
@@ -455,6 +459,7 @@ struct ReservationSummary: Decodable {
     let storeName: String?
     let storeType: String?
     let petName: String?
+    let petImageUrl: String?
     let startDate: String?
     let endDate: String?
     let reservationType: String?
@@ -476,6 +481,7 @@ struct PendingReservation: Decodable, Identifiable {
     let storeName: String?
     let storeType: String?
     let petName: String?
+    let petImageUrl: String?
     let petBreed: String?
     let petAge: Int?
     let petWeight: Double?
@@ -487,6 +493,9 @@ struct PendingReservation: Decodable, Identifiable {
     let startDate: String?
     let reservationType: String?
     let requestMessage: String?
+    var endDate: String? = nil
+    var status: String? = nil
+    var informationSource: String? = nil
 }
 
 struct DiaryPhoto: Decodable, Identifiable {
@@ -563,6 +572,7 @@ struct UserUpdateRequest: Encodable {
     let nickname: String
     let phone: String
     let address: String
+    let email: String
 }
 
 struct UserResponse: Decodable {
@@ -570,6 +580,7 @@ struct UserResponse: Decodable {
     let nickname: String?
     let phone: String?
     let address: String?
+    let email: String?
 }
 
 struct FavoriteCreateRequest: Encodable {

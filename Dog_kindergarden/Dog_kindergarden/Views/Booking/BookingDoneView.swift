@@ -17,7 +17,7 @@ struct BookingDoneView: View {
         ScrollView {
             VStack(spacing: 0) {
                 successIcon
-                    .padding(.top, 60)
+                    .padding(.top, 96)
 
                 Text("예약 신청이 완료됐어요!")
                     .font(.system(size: 22, weight: .bold))
@@ -73,7 +73,13 @@ struct BookingDoneView: View {
                     .fill(Color(hex: "#FFE6CC"))
                     .frame(width: 128, height: 128)
                     .shadow(color: Color.brandOrange.opacity(0.4), radius: 20, x: 0, y: 20)
-                EmojiIcon(emoji: "🐶", size: 64)
+                if booking?.dogImageURL != nil {
+                    AuthenticatedPetImage(value: booking?.dogImageURL)
+                        .frame(width: 128, height: 128)
+                        .clipShape(Circle())
+                } else {
+                    EmojiIcon(emoji: "🐶", size: 64)
+                }
             }
             ZStack {
                 Circle()
@@ -102,8 +108,8 @@ struct BookingDoneView: View {
         }
         .padding(20)
         .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.pill))
-        .overlay(RoundedRectangle(cornerRadius: Radius.pill).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+        .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
     }
 
     private func summaryRow(_ k: String, _ v: String) -> some View {

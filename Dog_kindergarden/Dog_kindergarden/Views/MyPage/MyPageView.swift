@@ -21,6 +21,10 @@ struct MyPageView: View {
     @State private var pendingOwnerApplicationCount: Int?
     @State private var showNotificationSheet = false
 
+    init(openStoreApplicationOnAppear: Bool = false) {
+        _showMyStoreSheet = State(initialValue: openStoreApplicationOnAppear)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -70,6 +74,7 @@ struct MyPageView: View {
         .alert("로그아웃 하시겠어요?", isPresented: $showLogoutConfirm) {
             Button("취소", role: .cancel) {}
             Button("로그아웃", role: .destructive) {
+                userProfile.email = ""
                 authSession.logout()
                 router.reset(to: .start)
             }
@@ -159,7 +164,7 @@ struct MyPageView: View {
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
         )
-        .clipShape(RoundedRectangle(cornerRadius: Radius.pill))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .padding(.horizontal, 20)
         .padding(.top, 16)
     }
@@ -466,6 +471,8 @@ struct ProfileEditSheet: View {
     @State private var name = ""
     @State private var phone = ""
     @State private var address = ""
+    @State private var email = ""
+    @State private var initialDraft: [String] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -474,8 +481,12 @@ struct ProfileEditSheet: View {
             ScrollView {
                 VStack(spacing: 20) {
                     sheetField("이름",   text: $name,    placeholder: "보호자 이름")
-                    sheetField("연락처", text: $phone,   placeholder: "010-0000-0000")
+                    sheetField("연락처", text: $phone,   placeholder: "010-0000-0000", keyboard: .phonePad, contentType: .telephoneNumber, autocorrectionDisabled: true)
                     sheetField("주소",   text: $address, placeholder: "서울시 강남구 …")
+                    sheetField("이메일 (선택)", text: $email, placeholder: "name@example.com", keyboard: .emailAddress, contentType: .emailAddress, autocorrectionDisabled: true)
+                    Text("앱 프로필에만 저장돼요. 카카오 계정 이메일 변경이나 메일 소유 인증은 아니에요.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.brandBrownMid)
 
                     Button(action: save) {
                         HStack(spacing: 6) {
@@ -515,9 +526,12 @@ struct ProfileEditSheet: View {
                 }
             }
             .onAppear {
-                name    = userProfile.name
-                phone   = userProfile.phone
-                address = userProfile.address
+                loadDraft()
+            }
+            .onChange(of: userProfile.revision) { _, _ in
+                // 콜드 복원 조회가 늦어도 빈 초기값만 갱신하고 사용자가 편집한 내용은 보존한다.
+                guard !isLoading, [name, phone, address, email] == initialDraft else { return }
+                loadDraft()
             }
         }
     }
@@ -529,32 +543,68 @@ struct ProfileEditSheet: View {
             errorMessage = "이름을 입력해주세요."
             return
         }
+        let normalizedEmail: String
+        do {
+            normalizedEmail = try UserProfile.normalizedEmail(email)
+        } catch {
+            errorMessage = "이메일 형식을 확인해주세요. (예: name@example.com)"
+            return
+        }
         errorMessage = nil
+        isLoading = true
+        userProfile.invalidatePendingRefresh()
+        let submittedPhone = phone
+        let submittedAddress = address
+        let expectedUserId = authSession.userId
+        let expectedToken = AuthTokenStore.load()
+        let expectedBaseURL = APIEnvironment.apiBaseURL
         Task {
-            if let uid = authSession.userId {
-                isLoading = true
-                defer { isLoading = false }
+            defer { isLoading = false }
+            guard authSession.userId == expectedUserId, AuthTokenStore.load() == expectedToken,
+                  APIEnvironment.apiBaseURL == expectedBaseURL else { return }
+            if let uid = expectedUserId {
                 do {
-                    try await APIClient.shared.updateUser(userId: uid, nickname: trimmedName, phone: phone, address: address)
+                    let updated = try await APIClient.shared.updateUser(userId: uid, nickname: trimmedName, phone: submittedPhone, address: submittedAddress, email: normalizedEmail)
+                    guard authSession.userId == uid, AuthTokenStore.load() == expectedToken,
+                          APIEnvironment.apiBaseURL == expectedBaseURL, updated.userId == uid else { return }
+                    userProfile.applyServerProfile(updated)
+                    authSession.updateNickname(userProfile.name)
                 } catch {
                     errorMessage = "저장에 실패했어요. 다시 시도해주세요."
                     return
                 }
-                authSession.updateNickname(trimmedName)
+            } else {
+                userProfile.name = trimmedName
+                userProfile.phone = submittedPhone
+                userProfile.address = submittedAddress
+                userProfile.email = normalizedEmail
             }
-            userProfile.name    = trimmedName
-            userProfile.phone   = phone
-            userProfile.address = address
             dismiss()
         }
     }
 
-    private func sheetField(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+    private func loadDraft() {
+        name = userProfile.name
+        phone = userProfile.phone
+        address = userProfile.address
+        email = userProfile.email
+        initialDraft = [name, phone, address, email]
+    }
+
+    private func sheetField(
+        _ label: String, text: Binding<String>, placeholder: String,
+        keyboard: UIKeyboardType = .default, contentType: UITextContentType? = nil,
+        autocorrectionDisabled: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color(hex: "#7a5635"))
             TextField(placeholder, text: text)
+                .keyboardType(keyboard)
+                .textContentType(contentType)
+                .textInputAutocapitalization(autocorrectionDisabled ? .never : .sentences)
+                .autocorrectionDisabled(autocorrectionDisabled)
                 .font(.system(size: 13))
                 .foregroundStyle(Color.brandBrown)
                 .padding(.horizontal, 14).padding(.vertical, 12)

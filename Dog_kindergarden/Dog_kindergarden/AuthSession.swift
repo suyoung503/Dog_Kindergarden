@@ -14,10 +14,13 @@ final class AuthSession {
     var isLoading = false
     var errorMessage: String?
     private var sessionInvalidationTask: Task<Void, Never>?
+    private let session: URLSession
+    private var profileRefreshGeneration: UInt = 0
 
     var isLoggedIn: Bool { userId != nil && AuthTokenStore.load() != nil }
 
-    init() {
+    init(session: URLSession = .shared) {
+        self.session = session
         if AuthTokenStore.load() != nil {
             userId = UserDefaults.standard.value(forKey: "auth_user_id") as? Int
             nickname = UserDefaults.standard.string(forKey: "auth_nickname") ?? ""
@@ -137,6 +140,40 @@ final class AuthSession {
         UserDefaults.standard.set(name, forKey: "auth_nickname")
     }
 
+    func refreshProfile(profile: UserProfile) async {
+        guard let expectedUserId = userId, let expectedToken = AuthTokenStore.load() else { return }
+        let expectedBaseURL = APIEnvironment.apiBaseURL
+        let expectedRevision = profile.revision
+        profileRefreshGeneration &+= 1
+        let generation = profileRefreshGeneration
+        var request = URLRequest(url: expectedBaseURL.appendingPathComponent("auth/me"))
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(expectedToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            // 공용 transport의 401 처리 전에 응답이 여전히 현재 세션 것인지 확인한다.
+            let (data, response) = try await session.data(for: request)
+            guard !Task.isCancelled, generation == profileRefreshGeneration,
+                  userId == expectedUserId, AuthTokenStore.load() == expectedToken,
+                  APIEnvironment.apiBaseURL == expectedBaseURL,
+                  let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 401 {
+                clearLocalSession()
+                errorMessage = "로그인이 만료되었어요. 다시 로그인해주세요."
+                return
+            }
+            guard (200..<300).contains(http.statusCode), profile.revision == expectedRevision else { return }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let user = try decoder.decode(UserResponse.self, from: data)
+            guard user.userId == expectedUserId, user.nickname != nil else { return }
+            profile.applyServerProfile(user)
+            updateNickname(profile.name)
+        } catch {
+            // 오프라인·일시 장애는 저장된 프로필을 지우거나 업로드하지 않는다.
+        }
+    }
+
     private func registerWithBackend(
         kakaoAccessToken: String,
         asOwner: Bool,
@@ -193,9 +230,12 @@ final class AuthSession {
         UserDefaults.standard.set(isOwner, forKey: "auth_is_owner")
         UserDefaults.standard.set(isAdmin, forKey: "auth_is_admin")
 
+        // 서버에서 이메일이 지워졌거나 다른 계정이면 이전 캐시를 남기지 않는다.
+        UserDefaults.standard.set(json?["email"] as? String ?? "", forKey: "profile_email")
         if let profile {
             profile.name = nickname
             profile.phone = (json?["phone"] as? String) ?? ""
+            profile.applyServerEmail(json?["email"] as? String)
             profile.address = (json?["address"] as? String) ?? ""
         }
     }
@@ -207,6 +247,7 @@ final class AuthSession {
         isAdmin = false
         errorMessage = nil
         AuthTokenStore.clear()
+        UserDefaults.standard.removeObject(forKey: "profile_email")
         UserDefaults.standard.removeObject(forKey: "auth_user_id")
         UserDefaults.standard.removeObject(forKey: "auth_nickname")
         UserDefaults.standard.removeObject(forKey: "auth_is_owner")

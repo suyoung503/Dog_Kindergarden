@@ -7,12 +7,24 @@ struct HomeView: View {
     @Environment(TagStore.self) private var tagStore
     @Environment(UserProfile.self) private var userProfile
     @Environment(AppNotificationService.self) private var notificationService
-    @State private var searchText = ""
+    private var searchText: String {
+        get { router.homeMapState.searchText }
+        nonmutating set { router.homeMapState.searchText = newValue }
+    }
     @State private var showFAB = false
-    @State private var activeFilters: Set<ReviewTag> = []    // 리뷰 태그 필터 (다중 선택, AND)
-    @State private var activeType: String? = nil         // "호텔" | "유치원" 필터
+    private var activeFilters: Set<ReviewTag> {
+        get { router.homeMapState.activeFilters }
+        nonmutating set { router.homeMapState.activeFilters = newValue }
+    }
+    private var activeType: String? {
+        get { router.homeMapState.activeType }
+        nonmutating set { router.homeMapState.activeType = newValue }
+    }
     // 현재 지도에 보이는 범위 — 카메라 이동/줌이 멈출 때 갱신
-    @State private var mapBounds: MapBounds? = nil
+    private var mapBounds: MapBounds? {
+        get { router.homeMapState.bounds }
+        nonmutating set { router.homeMapState.bounds = newValue }
+    }
     @State private var storeLoadPhase: AsyncLoadPhase = .idle
 
     // 수도권 = 서울 + 경기(인천 포함). bounds 확정 전 초기 폴백에만 사용
@@ -149,7 +161,7 @@ struct HomeView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Color.brandBrownLight)
                 .font(.system(size: 14))
-            TextField("지역, 가게 이름으로 검색", text: $searchText)
+            TextField("지역, 가게 이름으로 검색", text: Binding(get: { searchText }, set: { searchText = $0 }))
                 .font(.system(size: 13))
                 .foregroundStyle(Color.brandBrown)
         }
@@ -206,13 +218,15 @@ struct HomeView: View {
                 centerLat: metroCenter.lat,
                 centerLon: metroCenter.lon,
                 zoomLevel: metroZoom,
+                restoredCamera: router.homeMapState.camera,
                 onPinTapped: { pin in
                     router.selectedStore = pin.name
                     router.selectedPin = pin
                     router.addRecentPin(pin)   // 계정별 영속, 최대 6개
                     router.go(.storeDetail)
                 },
-                onCameraStopped: { bounds in mapBounds = bounds }
+                onCameraStopped: { bounds in mapBounds = bounds },
+                onCameraStateChanged: { router.homeMapState.camera = $0 }
             )
             // 카메라 위치 유지를 위해 id 고정 — 핀 갱신은 updateUIViewController가 처리
             .id("viewportMap")
@@ -387,6 +401,12 @@ struct HomeView: View {
             .components(separatedBy: " ")
             .prefix(2)
             .joined(separator: " ")
+        let placeholder = ZStack {
+            RoundedRectangle(cornerRadius: Radius.lg).fill(bg)
+            EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 56)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 64)
 
         return VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
@@ -396,19 +416,13 @@ struct HomeView: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            ZStack {
-                                RoundedRectangle(cornerRadius: Radius.lg).fill(bg)
-                                EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 34)
-                            }
+                            placeholder
                         }
                     }
                     .frame(height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                 } else {
-                    RoundedRectangle(cornerRadius: Radius.lg)
-                        .fill(bg)
-                        .frame(height: 64)
-                    EmojiIcon(emoji: storeTypeEmoji(pin.type), size: 34)
+                    placeholder
                 }
                 Text(pin.type)
                     .font(.system(size: 9, weight: .semibold))
@@ -455,8 +469,7 @@ private let fabItems: [FABItem] = [
 
 // 보호자 겸 사장님 계정에만 노출 — 받은 예약 요청 확인/확정, 맡은 아이 알림장 작성
 private let ownerFabItems: [FABItem] = [
-    FABItem(icon: "tray.and.arrow.down", label: "받은 예약 요청",  bg: Color(hex: "#FFD9A8"), destination: .ownerMode),
-    FABItem(icon: "book",                label: "확정예약·알림장", bg: Color(hex: "#FFE0B0"), destination: .ownerDiaryList),
+    FABItem(icon: "calendar", label: "예약 관리", bg: Color(hex: "#FFD9A8"), destination: .ownerMode),
 ]
 
 struct FloatingActionButton: View {
@@ -505,7 +518,11 @@ struct FloatingActionButton: View {
     private func fabButton(_ item: FABItem) -> some View {
         Button(action: {
             isOpen = false
-            router.go(item.destination)
+            if item.destination == .ownerMode {
+                router.openOwnerReservations(tab: .requests)
+            } else {
+                router.go(item.destination)
+            }
         }) {
             HStack(spacing: 8) {
                 ZStack {

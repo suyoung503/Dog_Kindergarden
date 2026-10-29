@@ -1,174 +1,62 @@
 import SwiftUI
 
-// 사장님 홈 FAB '알림장' 진입 — 내 가게(owner_id)로 온 확정(CONFIRMED) 예약(맡은 아이들) 목록.
-// 예약을 누르면 그 예약의 알림장 타임라인으로 이동(작성 가능).
+// 이전 진입점 호환. 실제 화면과 카드는 예약 관리에서 공용으로 사용한다.
 struct OwnerDiaryListView: View {
     @Environment(AppRouter.self) private var router
-    @Environment(AuthSession.self) private var authSession
+    var body: some View {
+        OwnerModeView()
+            .onAppear { router.ownerReservationTab = .confirmed }
+    }
+}
 
-    @State private var reservations: [PendingReservation] = []
-    @State private var loadPhase: AsyncLoadPhase = .idle
+struct OwnerReservationCard: View {
+    @Environment(AppRouter.self) private var router
+    let reservation: PendingReservation
+    let isConfirmed: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                navBar
-                if reservations.isEmpty {
-                    emptyContent
-                } else {
-                    VStack(spacing: 12) {
-                        loadStatusHeader
-                        ForEach(reservations, id: \.reservationId) { reservation in
-                            reservationCard(reservation)
-                        }
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                open(.information)
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    AuthenticatedPetImage(value: reservation.petImageUrl)
+                        .frame(width: 56, height: 56)
+                        .background(Color.brandGreenLight)
+                        .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(OwnerReservationPresentation.value(reservation.petName))
+                            .font(.system(size: 16, weight: .bold))
+                        Text("보호자: \(OwnerReservationPresentation.value(reservation.userName))")
+                        Text(OwnerReservationPresentation.value(reservation.storeName))
+                        Text(OwnerReservationPresentation.schedule(reservation))
+                        Text(OwnerReservationPresentation.value(reservation.reservationType))
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    .font(.system(size: 12)).multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
-            .padding(.bottom, 24)
-        }
-        .background(Color.brandCream.ignoresSafeArea())
-        .task { await load() }
-    }
-
-    // MARK: - Nav
-
-    private var navBar: some View {
-        HStack(spacing: 12) {
-            Button(action: router.back) {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 36, height: 36)
-                    .overlay(Circle().stroke(Color.brandBeigeBorder, lineWidth: 1))
-                    .overlay(Image(systemName: "chevron.left").font(.system(size: 15)).foregroundStyle(Color.brandBrown))
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("알림장")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color.brandBrown)
-                Text("맡은 아이들의 확정 예약 기록이에요")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.brandBrownMid)
+            .buttonStyle(.plain)
+            if isConfirmed {
+                Button("알림장 작성") { open(.diary) }
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.brandOrange)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .safeAreaTopPadding()
-    }
-
-    // MARK: - Empty
-
-    @ViewBuilder
-    private var emptyContent: some View {
-        switch loadPhase {
-        case .idle, .loading:
-            AsyncLoadingStateView(message: "확정 예약을 불러오는 중이에요")
-        case .loaded:
-            emptyState
-        case .failed(let message):
-            AsyncLoadFailureView(message: message) {
-                Task { await load() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var loadStatusHeader: some View {
-        switch loadPhase {
-        case .loading:
-            AsyncRefreshIndicator()
-        case .failed(let message):
-            AsyncLoadFailureView(message: message, compact: true) {
-                Task { await load() }
-            }
-        case .idle, .loaded:
-            EmptyView()
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            EmojiIcon(emoji: "📔", size: 48)
-            Text("맡은 아이가 없어요")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color.brandBrown)
-            Text("예약을 확정하면 그 아이의 알림장을\n여기서 남길 수 있어요")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.brandBrownMid)
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-        }
-        .padding(.top, 100)
-    }
-
-    // MARK: - Card
-
-    private func reservationCard(_ reservation: PendingReservation) -> some View {
-        let isHotel = (reservation.storeType ?? "") == "호텔"
-        return HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
-                    .frame(width: 56, height: 56)
-                EmojiIcon(emoji: "img:\(dogAvatarName(reservation.reservationId ?? 0))", size: 30)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(reservation.petName ?? "미상")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.brandBrown)
-                Text("보호자 : \(reservation.userName ?? "미상")")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.brandBrownMid)
-                Text(reservation.startDate ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.brandBrownMid)
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.brandBrownLight)
-                .padding(.top, 4)
-        }
-        .padding(14)
-        .background(.white)
+        .foregroundStyle(Color.brandBrown)
+        .padding(16).background(.white)
         .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture { open(reservation) }
     }
 
-    // 예약 id 기준 고정 순환 아바타 (받은 문의와 동일 규칙)
-    private func dogAvatarName(_ id: Int) -> String {
-        id % 2 == 0 ? "dog_b" : "dog_c"
-    }
-
-    // MARK: - Actions
-
-    private func load() async {
-        guard !loadPhase.isLoading else { return }
-        guard let uid = authSession.userId else {
-            loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
-            return
-        }
-        loadPhase = .loading
-        do {
-            let loaded = try await APIClient.shared.fetchConfirmedReservations(ownerId: uid)
-            reservations = loaded
-            loadPhase = .loaded
-        } catch {
-            loadPhase = .failed("확정 예약을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
-        }
-    }
-
-    private func open(_ reservation: PendingReservation) {
+    private func open(_ tab: OwnerReservationDetailTab) {
         guard let rid = reservation.reservationId else { return }
-        router.diaryContext = DiaryContext(
-            reservationId: rid,
-            petName: reservation.petName ?? "우리 아이",
-            storeName: reservation.storeName ?? "가게",
-            canWrite: true
-        )
-        router.go(.diary)
+        router.diaryContext = DiaryContext(reservationId: rid,
+            petName: reservation.petName ?? "우리 아이", storeName: reservation.storeName ?? "가게",
+            canWrite: true, petImageUrl: reservation.petImageUrl)
+        router.openOwnerReservation(id: rid, tab: tab)
     }
 }

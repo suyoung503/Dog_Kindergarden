@@ -35,13 +35,18 @@ final class DogProfileViewModel {
     var sociability = "좋음"
     var allergy = ""
     var notes = ""
-    var selectedPhotoData: Data?
-    var isPhotoLoading = false
+    private var photoSelection = PetPhotoSelectionState()
+    var selectedPhotoData: Data? { photoSelection.selectedData }
+    var pendingPhotoCrop: PetPhotoCropSource? { photoSelection.pendingCrop }
+    var isPhotoLoading: Bool { photoSelection.isLoading }
+    var isSaving = false
+    private(set) var pendingCreatedPetId: Int?
 
     func reset() {
         dogName = ""; age = ""; weight = ""; breed = ""
         gender = "남"; sociability = "좋음"; allergy = ""; notes = ""
-        selectedPhotoData = nil
+        photoSelection.reset()
+        pendingCreatedPetId = nil
     }
 
     // 강아지 목록 조회
@@ -59,6 +64,9 @@ final class DogProfileViewModel {
 
     // 강아지 등록 — 성공 시 true. 사회성·알레르기·특이사항은 note 한 줄로 합쳐 저장
     func addPet(userId: Int) async -> Bool {
+        guard !isSaving, !isPhotoLoading, pendingPhotoCrop == nil else { return false }
+        isSaving = true
+        defer { isSaving = false }
         errorMessage = nil
         let name = dogName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { errorMessage = "이름을 입력해주세요."; return false }
@@ -74,23 +82,61 @@ final class DogProfileViewModel {
         if !breedTrim.isEmpty { body["breed"] = breedTrim }
         if let ageInt = parseInt(age) { body["age"] = ageInt }
         if let weightVal = parseDouble(weight) { body["weight"] = weightVal }
-        if let selectedPhotoData {
-            body["image_url"] = "data:image/jpeg;base64,\(selectedPhotoData.base64EncodedString())"
-        }
 
         let url = APIEnvironment.apiBaseURL.appendingPathComponent("users/\(userId)/pets")
         var req = APITransport.request(url: url, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            _ = try await APITransport.data(for: req)
+            if pendingCreatedPetId == nil {
+                req.httpBody = try JSONSerialization.data(withJSONObject: body)
+                let (data, _) = try await APITransport.data(for: req)
+                pendingCreatedPetId = try JSONDecoder().decode(Pet.self, from: data).pet_id
+            }
+            if let selectedPhotoData, let petId = pendingCreatedPetId {
+                let photoURL = APIEnvironment.apiBaseURL.appendingPathComponent("pets/\(petId)/photo")
+                var upload = APITransport.request(url: photoURL, method: "PUT")
+                upload.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+                upload.httpBody = selectedPhotoData
+                _ = try await APITransport.data(for: upload)
+            }
+            pendingCreatedPetId = nil
             await loadPets(userId: userId)
             reset()
             return true
         } catch {
-            errorMessage = "등록에 실패했어요."
+            if pendingCreatedPetId != nil {
+                let compensated = await discardPendingPet()
+                errorMessage = compensated
+                    ? "사진을 저장하지 못해 등록을 취소했어요. 사진과 입력 내용은 유지되니 다시 시도해주세요."
+                    : "사진 저장이 중단됐어요. 다시 등록을 누르면 같은 강아지에 재시도해요. 닫기로 임시 등록을 취소할 수 있어요."
+            } else {
+                errorMessage = "등록에 실패했어요. 입력 내용을 유지했으니 다시 시도해주세요."
+            }
             return false
         }
+    }
+
+    func cancelRegistration() async -> Bool {
+        guard !isSaving else { return false }
+        isSaving = true
+        defer { isSaving = false }
+        return await discardPendingPet()
+    }
+
+    // Keep the ID on cleanup failure so a retry never creates another pet.
+    func discardPendingPet() async -> Bool {
+        guard let petId = pendingCreatedPetId else { return true }
+        let url = APIEnvironment.apiBaseURL.appendingPathComponent("pets/\(petId)")
+        do {
+            _ = try await APITransport.data(for: APITransport.request(url: url, method: "DELETE"))
+        } catch APIError.httpStatus(404) {
+            // A previous compensating delete may have committed before the response was lost.
+        } catch {
+            errorMessage = "임시 등록을 취소하지 못했어요. 연결을 확인하고 다시 닫기를 눌러주세요."
+            return false
+        }
+        pendingCreatedPetId = nil
+        return true
     }
 
     // 강아지 삭제
@@ -115,48 +161,35 @@ final class DogProfileViewModel {
         Double(s.filter { $0.isNumber || $0 == "." })
     }
 
+    func cancelPhotoCrop() {
+        photoSelection.cancel()
+    }
+
+    func applyPhotoCrop(_ data: Data, selectionID: UUID) {
+        if photoSelection.apply(data, selectionID: selectionID, isSaving: isSaving) { errorMessage = nil }
+    }
+
     func loadPhoto(from item: PhotosPickerItem?) async {
-        guard let item else { return }
-        isPhotoLoading = true
-        defer { isPhotoLoading = false }
+        guard let item, let selectionID = photoSelection.begin(isSaving: isSaving) else { return }
         do {
-            guard let original = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: original),
-                  let normalized = image.normalizedPetPhoto(maxDimension: 1_024, compression: 0.72) else {
-                errorMessage = "사진을 불러오지 못했어요."
-                return
+            guard let file = try await item.loadTransferable(type: PetPhotoFile.self) else {
+                throw PetPhotoNormalizationError.invalidImage
             }
-            guard normalized.count <= 750_000 else {
-                errorMessage = "사진 용량이 너무 커요. 다른 사진을 선택해주세요."
-                return
-            }
-            selectedPhotoData = normalized
-            errorMessage = nil
+            defer { try? FileManager.default.removeItem(at: file.url) }
+            let normalized = try await Task.detached(priority: .userInitiated) {
+                try PetPhotoNormalizer.normalize(fileURL: file.url)
+            }.value
+            try Task.checkCancellation()
+            if photoSelection.finish(normalized, selectionID: selectionID, isSaving: isSaving) { errorMessage = nil }
+        } catch is CancellationError {
+            _ = photoSelection.fail(selectionID: selectionID)
+        } catch PetPhotoNormalizationError.originalTooLarge {
+            if photoSelection.fail(selectionID: selectionID) { errorMessage = "원본이 50MB를 넘어요. 다른 사진을 선택해주세요." }
         } catch {
-            errorMessage = "사진을 불러오지 못했어요."
+            if photoSelection.fail(selectionID: selectionID) { errorMessage = "사진을 불러오지 못했어요. 다른 사진을 선택해주세요." }
         }
     }
-}
 
-private extension UIImage {
-    func normalizedPetPhoto(maxDimension: CGFloat, compression: CGFloat) -> Data? {
-        let longest = max(size.width, size.height)
-        let scale = longest > maxDimension ? maxDimension / longest : 1
-        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
-        let renderer = UIGraphicsImageRenderer(size: target)
-        let resized = renderer.image { _ in
-            draw(in: CGRect(origin: .zero, size: target))
-        }
-        return resized.jpegData(compressionQuality: compression)
-    }
-}
-
-private func petImage(from value: String?) -> UIImage? {
-    guard let value,
-          let comma = value.firstIndex(of: ","),
-          value[..<comma].contains(";base64"),
-          let data = Data(base64Encoded: String(value[value.index(after: comma)...])) else { return nil }
-    return UIImage(data: data)
 }
 
 struct DogProfileView: View {
@@ -262,11 +295,11 @@ struct DogProfileView: View {
             // 본문 탭 → 상세 시트
             HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14)
+                    Circle()
                         .fill(dogCardColors[index % dogCardColors.count])
                         .frame(width: 64, height: 64)
-                    if let image = petImage(from: pet.image_url) {
-                        Image(uiImage: image).resizable().scaledToFill().frame(width: 64, height: 64).clipped()
+                    if pet.image_url != nil {
+                        AuthenticatedPetImage(value: pet.image_url).frame(width: 64, height: 64).clipShape(Circle())
                     } else {
                         Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 44, height: 44)
                     }
@@ -360,7 +393,7 @@ struct AddDogSheet: View {
                         }
                     }) {
                         HStack(spacing: 6) {
-                            if vm.isLoading {
+                            if vm.isSaving {
                                 ProgressView().tint(.white)
                             } else {
                                 EmojiIcon(emoji: "🐾", size: 16)
@@ -374,7 +407,7 @@ struct AddDogSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
                             .shadow(color: Color.brandOrange.opacity(0.7), radius: 9, x: 0, y: 8)
                     }
-                    .disabled(userId == nil || vm.isLoading)
+                    .disabled(userId == nil || vm.isSaving || vm.isPhotoLoading || vm.pendingPhotoCrop != nil)
 
                     if let error = vm.errorMessage {
                         Text(error)
@@ -389,16 +422,26 @@ struct AddDogSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { dismiss() }) {
+                    Button(action: {
+                        Task { if await vm.cancelRegistration() { vm.cancelPhotoCrop(); dismiss() } }
+                    }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 14))
                             .foregroundStyle(Color.brandBrown)
                     }
+                    .disabled(vm.isSaving)
                 }
             }
         }
-        .onChange(of: selectedPhotoItem) { _, item in
-            Task { await vm.loadPhoto(from: item) }
+        .interactiveDismissDisabled(vm.isSaving || vm.pendingCreatedPetId != nil)
+        .task(id: selectedPhotoItem) { await vm.loadPhoto(from: selectedPhotoItem) }
+        .fullScreenCover(item: Binding(
+            get: { vm.pendingPhotoCrop },
+            set: { if $0 == nil { vm.cancelPhotoCrop() } }
+        ), onDismiss: { selectedPhotoItem = nil }) { source in
+            PetPhotoCropView(source: source, onCancel: vm.cancelPhotoCrop) { data in
+                vm.applyPhotoCrop(data, selectionID: source.id)
+            }
         }
     }
 
@@ -433,6 +476,7 @@ struct AddDogSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(vm.isSaving || vm.pendingPhotoCrop != nil)
         .accessibilityLabel(selectedPhotoData == nil ? "갤러리에서 강아지 사진 선택" : "강아지 사진 변경")
     }
 
@@ -555,8 +599,8 @@ struct PetDetailSheet: View {
         return VStack(spacing: 12) {
             ZStack {
                 Circle().fill(dogCardColors[index % dogCardColors.count]).frame(width: 96, height: 96)
-                if let image = petImage(from: pet.image_url) {
-                    Image(uiImage: image).resizable().scaledToFill().frame(width: 96, height: 96).clipShape(Circle())
+                if pet.image_url != nil {
+                    AuthenticatedPetImage(value: pet.image_url).frame(width: 96, height: 96).clipShape(Circle())
                 } else {
                     Image(dogAvatarName(index)).resizable().scaledToFit().frame(width: 64, height: 64)
                 }
