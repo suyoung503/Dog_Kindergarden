@@ -8,11 +8,12 @@ struct DiaryTimelineView: View {
     var embedded = false
     var embeddedContext: DiaryContext? = nil
     @Environment(AppRouter.self) private var router
+    @Environment(AuthSession.self) private var authSession
     @Environment(AppNotificationService.self) private var notificationService
 
-    @State private var entries: [DiaryEntry] = []
-    @State private var loadPhase: AsyncLoadPhase = .idle
+    @State private var timeline = DiaryTimelineState()
     @State private var composer: DiaryComposerMode?
+    @State private var composerContext: (identity: DiaryTimelineIdentity, lease: UInt)?
     @State private var pendingDelete: DiaryEntry?
     @State private var galleryPhotos: [DiaryPhoto] = []
     @State private var galleryIndex = 0
@@ -20,6 +21,17 @@ struct DiaryTimelineView: View {
 
     private var context: DiaryContext? { embeddedContext ?? router.diaryContext }
     private var canWrite: Bool { context?.canWrite ?? false }
+    private var timelineIdentity: DiaryTimelineIdentity {
+        DiaryTimelineIdentity(
+            userId: authSession.userId,
+            token: AuthTokenStore.load(),
+            baseURL: APIEnvironment.apiBaseURL,
+            reservationId: context?.reservationId,
+            canWrite: canWrite
+        )
+    }
+    private var entries: [DiaryEntry] { timeline.identity == timelineIdentity ? timeline.entries : [] }
+    private var loadPhase: AsyncLoadPhase { timeline.identity == timelineIdentity ? timeline.loadPhase : .loading }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,20 +57,39 @@ struct DiaryTimelineView: View {
             if canWrite { writeBar }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task {
+        .task(id: timelineIdentity) {
+            guard !Task.isCancelled else { return }
+            let identity = timelineIdentity
+            let lease = timeline.activate(identity)
+            defer { timeline.invalidate(lease: lease) }
             let updates = notificationService.updates()
-            await load()
+            await load(for: identity, lease: lease)
             for await _ in updates {
                 guard !Task.isCancelled else { return }
-                await load()
+                await load(for: identity, lease: lease)
             }
         }
+        .onDisappear { timeline.invalidate() }
+        .onChange(of: timelineIdentity) { _, _ in
+            composer = nil
+            pendingDelete = nil
+            isGalleryPresented = false
+            galleryPhotos = []
+        }
+        .onChange(of: timeline.accessFailureRevision) { _, _ in
+            composer = nil
+            pendingDelete = nil
+            isGalleryPresented = false
+            galleryPhotos = []
+        }
         .sheet(item: $composer) { mode in
-            DiaryComposer(
-                reservationId: context?.reservationId ?? 0,
-                mode: mode,
-                onSaved: { Task { await load() } }
-            )
+            if let savedContext = composerContext {
+                DiaryComposer(
+                    reservationId: savedContext.identity.reservationId ?? 0,
+                    mode: mode,
+                    onSaved: { Task { await load(for: savedContext.identity, lease: savedContext.lease) } }
+                )
+            }
         }
         .fullScreenCover(isPresented: $isGalleryPresented) {
             DiaryPhotoGalleryView(photos: galleryPhotos, selectedIndex: $galleryIndex)
@@ -116,7 +147,7 @@ struct DiaryTimelineView: View {
             emptyState
         case .failed(let message):
             AsyncLoadFailureView(message: message) {
-                Task { await load() }
+                retryLoad()
             }
         }
     }
@@ -128,7 +159,7 @@ struct DiaryTimelineView: View {
             AsyncRefreshIndicator()
         case .failed(let message):
             AsyncLoadFailureView(message: message, compact: true) {
-                Task { await load() }
+                retryLoad()
             }
         case .idle, .loaded:
             EmptyView()
@@ -174,14 +205,19 @@ struct DiaryTimelineView: View {
                 Spacer()
                 if canWrite {
                     Menu {
-                        Button("수정") { composer = .edit(entry) }
+                        Button("수정") { presentComposer(.edit(entry)) }
                         Button("삭제", role: .destructive) { pendingDelete = entry }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color.brandBrownLight)
-                            .frame(width: 28, height: 20, alignment: .trailing)
+                        if timeline.deletingIDs.contains(entry.id) {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color.brandBrownLight)
+                                .frame(width: 28, height: 20, alignment: .trailing)
+                        }
                     }
+                    .disabled(timeline.deletingIDs.contains(entry.id))
                 }
             }
             Text(entry.content ?? "")
@@ -220,7 +256,7 @@ struct DiaryTimelineView: View {
     // MARK: - Write bar
 
     private var writeBar: some View {
-        Button(action: { composer = .create }) {
+        Button(action: { presentComposer(.create) }) {
             HStack(spacing: 6) {
                 Image(systemName: "square.and.pencil").font(.system(size: 14, weight: .bold))
                 Text("알림장 쓰기").font(.system(size: 14, weight: .bold))
@@ -240,34 +276,41 @@ struct DiaryTimelineView: View {
 
     // MARK: - Actions
 
-    private func load() async {
-        guard !loadPhase.isLoading else { return }
-        guard let rid = context?.reservationId else {
-            loadPhase = .failed("예약 정보를 확인하지 못했어요.")
-            return
-        }
-        loadPhase = .loading
-        do {
-            let loaded = try await APIClient.shared.fetchDiaries(reservationId: rid)
-            entries = loaded
-            loadPhase = .loaded
-        } catch {
-            loadPhase = .failed("알림장을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
-        }
+    private func load(for identity: DiaryTimelineIdentity, lease: UInt) async {
+        await timeline.load(
+            for: identity,
+            lease: lease,
+            currentIdentity: { timelineIdentity },
+            fetch: { try await APIClient.shared.fetchDiaries(reservationId: $0) }
+        )
+    }
+
+    private func presentComposer(_ mode: DiaryComposerMode) {
+        let identity = timelineIdentity
+        guard identity.canWrite, timeline.identity == identity else { return }
+        composerContext = (identity, timeline.lease)
+        composer = mode
+    }
+
+    private func retryLoad() {
+        let identity = timelineIdentity
+        let lease = timeline.lease
+        Task { await load(for: identity, lease: lease) }
     }
 
     private func delete(_ entry: DiaryEntry) {
         guard let did = entry.diaryId else { return }
-        let backup = entries
-        entries.removeAll { $0.diaryId == did }
+        let identity = timelineIdentity
+        let lease = timeline.lease
+        pendingDelete = nil
         Task {
-            do {
-                try await APIClient.shared.deleteDiary(diaryId: did)
-                loadPhase = .loaded
-            } catch {
-                entries = backup
-                loadPhase = .failed("알림장을 삭제하지 못했어요. 기존 내용을 복원했어요.")
-            }
+            await timeline.delete(
+                diaryId: did,
+                for: identity,
+                lease: lease,
+                currentIdentity: { timelineIdentity },
+                remove: { try await APIClient.shared.deleteDiary(diaryId: $0) }
+            )
         }
     }
 }

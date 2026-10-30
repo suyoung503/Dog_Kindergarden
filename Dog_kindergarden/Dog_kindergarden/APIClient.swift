@@ -89,25 +89,34 @@ enum APITransport {
         return request
     }
 
-    static func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    static func data(for request: URLRequest, session: URLSession = .shared) async throws -> (Data, HTTPURLResponse) {
         var authorized = request
         if authorized.value(forHTTPHeaderField: "Authorization") == nil,
            let token = AuthTokenStore.load(), !token.isEmpty {
             authorized.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await URLSession.shared.data(for: authorized)
+        let (data, response) = try await session.data(for: authorized)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.badStatus
         }
-        handleUnauthorized(http.statusCode)
+        handleUnauthorized(http.statusCode, request: authorized)
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.httpStatus(http.statusCode)
         }
         return (data, http)
     }
 
-    static func handleUnauthorized(_ statusCode: Int) {
-        guard statusCode == 401, AuthTokenStore.load() != nil else { return }
+    static func handleUnauthorized(_ statusCode: Int, request: URLRequest) {
+        guard statusCode == 401, let token = AuthTokenStore.load(), !token.isEmpty,
+              request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)",
+              let url = request.url,
+              var origin = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        // WebSocket 인증 실패도 같은 API origin으로 비교한다.
+        if origin.scheme == "ws" { origin.scheme = "http" }
+        if origin.scheme == "wss" { origin.scheme = "https" }
+        let base = APIEnvironment.apiBaseURL
+        guard origin.scheme == base.scheme, origin.host == base.host, origin.port == base.port,
+              url.path == base.path || url.path.hasPrefix(base.path + "/") else { return }
         AuthTokenStore.clear()
         NotificationCenter.default.post(name: .apiSessionInvalidated, object: nil)
     }
@@ -125,7 +134,7 @@ final class APIClient {
         APIEnvironment.apiBaseURL
     }
 
-    private init(session: URLSession = .shared) {
+    init(session: URLSession = .shared) {
         self.session = session
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -231,7 +240,7 @@ final class APIClient {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.badStatus }
-        APITransport.handleUnauthorized(http.statusCode)
+        APITransport.handleUnauthorized(http.statusCode, request: request)
         if http.statusCode == 409,
            let blocked = try? decoder.decode(AccountDeletionBlockedResponse.self, from: data),
            blocked.code == "ACTIVE_RESERVATIONS" {
@@ -380,7 +389,7 @@ final class APIClient {
         }
         let (data, response) = try await session.data(for: authorized)
         guard let httpResponse = response as? HTTPURLResponse else { throw APIError.badStatus }
-        APITransport.handleUnauthorized(httpResponse.statusCode)
+        APITransport.handleUnauthorized(httpResponse.statusCode, request: authorized)
         guard (200..<300).contains(httpResponse.statusCode) else {
             let payload = try? decoder.decode(APIErrorResponse.self, from: data)
             if payload?.code != nil || payload?.message != nil {

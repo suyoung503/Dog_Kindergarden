@@ -3,7 +3,7 @@ import Testing
 @testable import Dog_kindergarden
 
 // 같은 UserDefaults를 다루는 기존 이메일 테스트와 직렬로 실행한다.
-extension ProfileEmailTests {
+extension AuthStateTests.ProfileEmailTests {
     @Test("Cold session refresh restores all four server fields and persists them")
     func coldProfileRefresh() async throws {
         let fixture = ProfileSyncFixture { request, complete in

@@ -33,6 +33,8 @@ final class AuthSession {
         sessionInvalidationTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .apiSessionInvalidated) {
                 guard let self else { return }
+                // transport가 토큰을 지운 뒤 새 로그인이 완료됐다면 이전 이벤트다.
+                guard AuthTokenStore.load() == nil else { continue }
                 self.clearLocalSession()
                 self.errorMessage = "로그인이 만료되었어요. 다시 로그인해주세요."
             }

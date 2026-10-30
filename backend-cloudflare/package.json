@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node scripts/test-reservation-pet-photos.mjs && node scripts/test-reservation-details.mjs && node scripts/test-owner-application-rejections.mjs && node scripts/test-profile-sync.mjs && node scripts/test-live-notifications.mjs && node scripts/test-canceled-retention.mjs && node scripts/test-profile-email.mjs && node scripts/test-store-share.mjs && node scripts/test-notification-bootstrap.mjs && node scripts/test-notification-context.mjs && node scripts/test-reservation-submitted.mjs && node scripts/test-diary-notification.mjs && node scripts/test-realtime.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "d1:migrate": "wrangler d1 migrations apply dog_kindergarden_db",

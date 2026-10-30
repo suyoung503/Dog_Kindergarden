@@ -39,3 +39,7 @@ jobs:
 
       - name: Run backend release gates
         run: scripts/release-audit-smoke.sh --backend-only
+
+      - name: Run isolated backend regressions
+        working-directory: backend-cloudflare
+        run: npm test
