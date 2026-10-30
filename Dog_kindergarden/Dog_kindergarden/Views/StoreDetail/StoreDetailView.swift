@@ -18,6 +18,7 @@ struct StoreDetailView: View {
     @State private var isStoreDetailLoading = true
     @State private var storeDetailLoadFailed = false
     @State private var externalOpenError: String?
+    @State private var locationMap = StoreLocationMapPresentation()
 
     private var pin: MapPin? { router.selectedPin }
     private var storeName: String { pin?.name ?? router.selectedStore }
@@ -128,6 +129,11 @@ struct StoreDetailView: View {
                     draft: draft
                 )
             }
+        }
+        .sheet(item: $locationMap.context) { context in
+            StoreLocationMapView(context: context, onClose: { locationMap.dismiss() })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showImageGallery) {
             StoreImageGalleryView(
@@ -317,10 +323,12 @@ struct StoreDetailView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
-                    ShareLink(item: shareText) {
-                        heroButton(icon: "square.and.arrow.up")
+                    if let key = pin?.storeKey, let shareURL = StoreShareLink.publicURL(storeKey: key) {
+                        ShareLink(item: shareURL) {
+                            heroButton(icon: "square.and.arrow.up")
+                        }
+                        .accessibilityLabel("가게 링크 공유")
                     }
-                    .accessibilityLabel("가게 정보 공유")
                     Button(action: toggleFavorite) {
                         heroButton(
                             icon: favoriteStoreId != nil ? "heart.fill" : "heart",
@@ -364,12 +372,6 @@ struct StoreDetailView: View {
             .fill(.white.opacity(0.9))
             .frame(width: 40, height: 40)
             .overlay(Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint))
-    }
-
-    private var shareText: String {
-        [storeName, displayAddress, displayPhone]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
     }
 
     // 찜 토글 — 추가는 성공 후 채움, 해제는 낙관적으로 비우고 실패 시 되돌림
@@ -472,8 +474,8 @@ struct StoreDetailView: View {
         }
         .padding(16)
         .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.pill))
-        .overlay(RoundedRectangle(cornerRadius: Radius.pill).stroke(Color.brandBeigeBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+        .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
         .shadow(color: Color.brandBrown.opacity(0.12), radius: 12, x: 0, y: 10)
         .padding(.horizontal, 16)
         .offset(y: -28)
@@ -597,13 +599,13 @@ struct StoreDetailView: View {
                 }
 
                 Button {
-                    guard let externalMapURL else {
-                        externalOpenError = "지도에서 검색할 가게 정보가 없어요."
-                        return
+                    locationMap.present(pin: pin, detail: storeDetail, name: storeName,
+                                        storeKey: storeKey, address: displayAddress)
+                    if locationMap.context == nil {
+                        externalOpenError = "이 가게의 위치 정보가 없어 지도를 표시할 수 없어요."
                     }
-                    openExternalURL(externalMapURL, failureMessage: "지도 페이지를 열 수 없어요.")
                 } label: {
-                    contactButton("지도에서 보기", icon: "map.fill", enabled: externalMapURL != nil)
+                    contactButton("지도에서 보기", icon: "map.fill")
                 }
             }
         }
@@ -653,19 +655,6 @@ struct StoreDetailView: View {
         guard (8...15).contains(digits.count) else { return nil }
         let normalized = raw.hasPrefix("+") ? "+\(digits)" : digits
         return URL(string: "tel:\(normalized)")
-    }
-
-    private var externalMapURL: URL? {
-        if let raw = kakaoPlace?.placeURL, !raw.isEmpty, let url = URL(string: raw) { return url }
-        let query = [storeName, displayAddress]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        guard !query.isEmpty else { return nil }
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#")
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
-        return URL(string: "https://map.kakao.com/link/search/\(encoded)")
     }
 
     private func openExternalURL(_ url: URL, failureMessage: String) {

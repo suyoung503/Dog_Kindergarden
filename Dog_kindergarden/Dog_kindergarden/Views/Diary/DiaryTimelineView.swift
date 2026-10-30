@@ -5,7 +5,10 @@ import UIKit
 // 알림장 타임라인 — 보호자·사장님 공용. router.diaryContext.canWrite면 사장님 시점(작성/수정/삭제).
 // 예약 1건에 엔트리 여러 개가 시간순으로 쌓인다.
 struct DiaryTimelineView: View {
+    var embedded = false
+    var embeddedContext: DiaryContext? = nil
     @Environment(AppRouter.self) private var router
+    @Environment(AppNotificationService.self) private var notificationService
 
     @State private var entries: [DiaryEntry] = []
     @State private var loadPhase: AsyncLoadPhase = .idle
@@ -15,20 +18,23 @@ struct DiaryTimelineView: View {
     @State private var galleryIndex = 0
     @State private var isGalleryPresented = false
 
-    private var context: DiaryContext? { router.diaryContext }
+    private var context: DiaryContext? { embeddedContext ?? router.diaryContext }
     private var canWrite: Bool { context?.canWrite ?? false }
 
     var body: some View {
         VStack(spacing: 0) {
-            navBar
+            if !embedded { navBar }
             ScrollView {
                 if entries.isEmpty {
                     emptyContent
                 } else {
                     VStack(spacing: 12) {
                         loadStatusHeader
-                        ForEach(entries) { entry in
-                            entryCard(entry)
+                        ForEach(DiaryTimelineGrouping.groups(entries)) { day in
+                            daySeparator(day.title)
+                            ForEach(day.entries) { entry in
+                                entryCard(entry)
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -39,7 +45,14 @@ struct DiaryTimelineView: View {
             if canWrite { writeBar }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await load() }
+        .task {
+            let updates = notificationService.updates()
+            await load()
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+                await load()
+            }
+        }
         .sheet(item: $composer) { mode in
             DiaryComposer(
                 reservationId: context?.reservationId ?? 0,
@@ -71,6 +84,10 @@ struct DiaryTimelineView: View {
                     .overlay(Circle().stroke(Color.brandBeigeBorder, lineWidth: 1))
                     .overlay(Image(systemName: "chevron.left").font(.system(size: 15)).foregroundStyle(Color.brandBrown))
             }
+            AuthenticatedPetImage(value: context?.petImageUrl)
+                .frame(width: 40, height: 40)
+                .background(Color.brandGreenLight)
+                .clipShape(Circle())
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(context?.petName ?? "우리 아이") 알림장")
                     .font(.system(size: 17, weight: .bold))
@@ -137,10 +154,21 @@ struct DiaryTimelineView: View {
 
     // MARK: - Entry card
 
+    private func daySeparator(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(.systemGray6))
+            .clipShape(Capsule())
+            .frame(maxWidth: .infinity)
+    }
+
     private func entryCard(_ entry: DiaryEntry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
-                Text(formatted(entry.createdAt))
+                Text(DiaryTimelineGrouping.timeLabel(entry.createdAt))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.brandOrange)
                 Spacer()
@@ -208,22 +236,6 @@ struct DiaryTimelineView: View {
         .padding(.vertical, 12)
         .background(.white)
         .overlay(alignment: .top) { Divider().foregroundStyle(Color.brandBeigeBorder) }
-    }
-
-    // MARK: - Helpers
-
-    // 서버 created_at(UTC)을 KST로 변환해 표시
-    private func formatted(_ raw: String?) -> String {
-        guard let raw else { return "" }
-        let inFmt = DateFormatter()
-        inFmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        inFmt.timeZone = TimeZone(identifier: "UTC")
-        guard let date = inFmt.date(from: raw) else { return raw }
-        let outFmt = DateFormatter()
-        outFmt.locale = Locale(identifier: "ko_KR")
-        outFmt.timeZone = TimeZone(identifier: "Asia/Seoul")
-        outFmt.dateFormat = "M월 d일 (E) a h:mm"
-        return outFmt.string(from: date)
     }
 
     // MARK: - Actions

@@ -34,6 +34,7 @@ final class ChatListViewModel {
 
 struct ChatListView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppNotificationService.self) private var notificationService
     @Environment(AuthSession.self) private var authSession
     @State private var vm = ChatListViewModel()
 
@@ -66,7 +67,14 @@ struct ChatListView: View {
             }
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await load() }
+        .task {
+            let updates = notificationService.updates()
+            await load()
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+                await load()
+            }
+        }
     }
 
     // MARK: - Nav

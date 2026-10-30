@@ -315,9 +315,11 @@ struct KakaoMapContainer: UIViewControllerRepresentable {
     var centerLat: Double? = nil         // 지정 시 이 좌표로 시작 (도 중심 대신)
     var centerLon: Double? = nil
     var zoomLevel: Int? = nil            // 지정 시 이 줌으로 시작
+    var restoredCamera: MapCameraState? = nil
     var onPinTapped: (MapPin) -> Void = { _ in }
     var onProvinceTapped: (String) -> Void = { _ in }   // 전국 보기에서 도 마커 탭
     var onCameraStopped: (MapBounds) -> Void = { _ in }  // 지도 이동/줌 멈춤 → 현재 보이는 범위
+    var onCameraStateChanged: (MapCameraState) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> KakaoMapViewController {
         let vc = KakaoMapViewController()
@@ -327,9 +329,11 @@ struct KakaoMapContainer: UIViewControllerRepresentable {
         vc.centerLat = centerLat
         vc.centerLon = centerLon
         vc.zoomOverride = zoomLevel
+        vc.restoredCamera = restoredCamera
         vc.onPinTapped = onPinTapped
         vc.onProvinceTapped = onProvinceTapped
         vc.onCameraStopped = onCameraStopped
+        vc.onCameraStateChanged = onCameraStateChanged
         return vc
     }
 
@@ -337,6 +341,7 @@ struct KakaoMapContainer: UIViewControllerRepresentable {
         // 클로저는 SwiftUI 재렌더마다 새로 생성되므로 최신 값으로 교체 (stale 캡처 방지)
         uiViewController.onPinTapped = onPinTapped
         uiViewController.onCameraStopped = onCameraStopped
+        uiViewController.onCameraStateChanged = onCameraStateChanged
 
         let newIDs = Set(pins.map { $0.id })
         let oldIDs = Set(uiViewController.pins.map { $0.id })
@@ -344,9 +349,26 @@ struct KakaoMapContainer: UIViewControllerRepresentable {
         uiViewController.pins = pins
         uiViewController.refreshPins()
     }
+
+    static func dismantleUIViewController(_ uiViewController: KakaoMapViewController, coordinator: ()) {
+        uiViewController.tearDownMap()
+    }
 }
 
 // MARK: - KakaoMapViewController
+
+// 컨테이너와 엔진을 함께 주입해 수명주기 테스트에서 네이티브 렌더러를 생성하지 않는다.
+protocol KakaoMapEngine: AnyObject {
+    var delegate: MapControllerDelegate? { get set }
+    @discardableResult func prepareEngine() -> Bool
+    func activateEngine()
+    func pauseEngine()
+    func resetEngine()
+    func getView(_ viewName: String) -> ViewBase?
+    func addView(_ viewInfo: ViewInfo)
+}
+
+extension KMController: KakaoMapEngine {}
 
 final class KakaoMapViewController: UIViewController, MapControllerDelegate, KakaoMapEventDelegate, UIGestureRecognizerDelegate {
     var province: String = "경기도"
@@ -355,12 +377,23 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
     var centerLat: Double? = nil
     var centerLon: Double? = nil
     var zoomOverride: Int? = nil
+    var restoredCamera: MapCameraState? = nil
     var onPinTapped: ((MapPin) -> Void)?
     var onProvinceTapped: ((String) -> Void)?
     var onCameraStopped: ((MapBounds) -> Void)?
+    var onCameraStateChanged: ((MapCameraState) -> Void)?
+    var makeMapResources: (CGRect) -> (UIView, any KakaoMapEngine) = { frame in
+        let container = KMViewContainer(frame: frame)
+        return (container, KMController(viewContainer: container))
+    }
 
-    private var mapController: KMController?
-    private var mapContainer: KMViewContainer?
+    private var mapController: (any KakaoMapEngine)?
+    private var mapContainer: UIView?
+    private weak var readyMap: KakaoMap?
+    private var isDismantled = false
+    private var isMapVisible = false
+    private var callbackGeneration = 0
+    private var initialViewportWork: DispatchWorkItem?
     private var poiIdToPin: [String: MapPin] = [:]
     private var storeLayer: LabelLayer? = nil  // 재사용할 레이어 참조
     // 지도 영역 위 드래그를 가로채서 바깥 ScrollView가 스크롤하지 않도록 하는 보조 제스처
@@ -381,15 +414,22 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
 
     // MARK: - 엔진 생성 (카카오 공식 라이프사이클)
 
+    deinit {
+        initialViewportWork?.cancel()
+        mapController?.pauseEngine()
+        mapController?.delegate = nil
+        mapController?.resetEngine()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        guard !isDismantled else { return }
 
-        let container = KMViewContainer(frame: view.bounds)
+        let (container, controller) = makeMapResources(view.bounds)
         container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(container)
         self.mapContainer = container
 
-        let controller = KMController(viewContainer: container)
         controller.delegate = self          // delegate 먼저 연결
         self.mapController = controller
         controller.prepareEngine()          // 준비 완료 시 addViews() 콜백
@@ -398,7 +438,10 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
     // 뷰가 화면에 보인 뒤 엔진 활성화 — 이 시점엔 controller가 항상 존재
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        guard !isDismantled else { return }
+        isMapVisible = true
         mapController?.activateEngine()
+        if let readyMap, !countryView { scheduleInitialViewport(readyMap) }
 
         // 상세 지도: 카드 안에서 드래그하면 지도가 패닝되도록 바깥 스크롤을 양보시킴
         if !countryView {
@@ -421,19 +464,54 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        isMapVisible = false
+        invalidatePendingCallbacks()
         mapController?.pauseEngine()
+    }
+
+    // pause만으로는 SDK 객체가 해제되지 않는다. eventDelegate도 strong이므로
+    // SwiftUI가 VC를 제거하는 시점에 순환참조를 끊고, reset 전에 SDK 참조를 비운다.
+    func tearDownMap() {
+        guard !isDismantled else { return }
+        isDismantled = true
+        isMapVisible = false
+        invalidatePendingCallbacks()
+        onPinTapped = nil
+        onProvinceTapped = nil
+        onCameraStopped = nil
+        onCameraStateChanged = nil
+        mapController?.pauseEngine()
+        readyMap?.eventDelegate = nil
+        mapController?.delegate = nil
+        storeLayer = nil
+        poiIdToPin.removeAll()
+        readyMap = nil
+        mapController?.resetEngine()
+        mapController = nil
+        mapContainer?.removeFromSuperview()
+        mapContainer = nil
+    }
+
+    private func invalidatePendingCallbacks() {
+        callbackGeneration += 1
+        initialViewportWork?.cancel()
+        initialViewportWork = nil
     }
 
     // MARK: - MapControllerDelegate
 
     // prepareEngine() 성공 후 SDK가 호출 — 여기서 뷰를 추가해야 안정적
     func addViews() {
+        guard !isDismantled else { return }
         // 전국 보기면 우리나라 중심, 아니면 선택한 도 중심
         let pc: ProvinceCenter
         let level: Int
         if countryView {
             pc = countryCenter
             level = countryZoomLevel
+        } else if let camera = restoredCamera {
+            pc = ProvinceCenter(latitude: camera.latitude, longitude: camera.longitude)
+            level = zoomOverride ?? provinceZoomLevel
         } else if let lat = centerLat, let lon = centerLon {
             // 특정 좌표(가게 등)로 시작
             pc = ProvinceCenter(latitude: lat, longitude: lon)
@@ -454,7 +532,16 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
 
     // addView 성공 콜백 — 이 시점에 KakaoMap이 준비됨
     func addViewSucceeded(_ viewName: String, viewInfoName: String) {
-        guard let kakaoMap = mapController?.getView(viewName) as? KakaoMap else { return }
+        guard !isDismantled,
+              let kakaoMap = mapController?.getView(viewName) as? KakaoMap else { return }
+        readyMap = kakaoMap
+        if let camera = restoredCamera, !countryView {
+            let position = CameraPosition(
+                target: MapPoint(longitude: camera.longitude, latitude: camera.latitude),
+                height: camera.height, rotation: camera.rotation, tilt: camera.tilt
+            )
+            kakaoMap.moveCamera(CameraUpdate.make(cameraPosition: position))
+        }
         kakaoMap.eventDelegate = self
         if countryView {
             // 카카오 기본 지명 라벨(대한민국/지역명) 숨기기
@@ -473,13 +560,31 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
             addPOIStyle(to: kakaoMap)
             addPins(to: kakaoMap)
             // 지도 정착 후 최초 1회 현재 보이는 범위를 알려 초기 핀을 채움
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self,
-                      let km = self.mapController?.getView("mapview") as? KakaoMap,
-                      let bounds = self.computeBounds(km) else { return }
-                self.onCameraStopped?(bounds)
-            }
+            scheduleInitialViewport(kakaoMap)
         }
+    }
+
+    func viewWillDestroyed(_ view: ViewBase) {
+        guard readyMap === view else { return }
+        readyMap?.eventDelegate = nil
+        readyMap = nil
+        storeLayer = nil
+        poiIdToPin.removeAll()
+        invalidatePendingCallbacks()
+    }
+
+    private func scheduleInitialViewport(_ kakaoMap: KakaoMap) {
+        initialViewportWork?.cancel()
+        let generation = callbackGeneration
+        let work = DispatchWorkItem { [weak self, weak kakaoMap] in
+            guard let self, let kakaoMap,
+                  !self.isDismantled, self.isMapVisible,
+                  self.callbackGeneration == generation,
+                  self.readyMap === kakaoMap else { return }
+            self.reportViewport(kakaoMap)
+        }
+        initialViewportWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     func addViewFailed(_ viewName: String, viewInfoName: String) {
@@ -494,25 +599,55 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
     // MARK: - KakaoMapEventDelegate
 
     func poiDidTapped(kakaoMap: KakaoMap, layerID: String, poiID: String, position: MapPoint) {
-        if countryView {
-            // poiID == 도 이름
-            DispatchQueue.main.async { [weak self] in
-                self?.onProvinceTapped?(poiID)
+        // SDK 콜백 안에서 화면을 파괴하지 않는다. 다음 main turn에서 여전히
+        // 살아 있는 동일 지도인지 확인한 뒤에만 SDK 좌표를 읽고 화면을 전환한다.
+        DispatchQueue.main.async { [weak self, weak kakaoMap] in
+            guard let self, let kakaoMap,
+                  !self.isDismantled, self.isMapVisible,
+                  self.readyMap === kakaoMap else { return }
+            if self.countryView {
+                self.onProvinceTapped?(poiID)
+                return
             }
-            return
-        }
-        guard let pin = poiIdToPin[poiID] else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onPinTapped?(pin)
+            guard let pin = self.poiIdToPin[poiID] else { return }
+            let camera = self.cameraState(kakaoMap)
+            let bounds = self.computeBounds(kakaoMap)
+            if let camera { self.onCameraStateChanged?(camera) }
+            if let bounds { self.onCameraStopped?(bounds) }
+            self.onPinTapped?(pin)
         }
     }
 
     // 지도 이동/줌이 멈추면 현재 보이는 범위를 상위로 전달 → viewport 기준 핀 갱신
     func cameraDidStopped(kakaoMap: KakaoMap, by: MoveBy) {
-        guard let bounds = computeBounds(kakaoMap) else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onCameraStopped?(bounds)
+        DispatchQueue.main.async { [weak self, weak kakaoMap] in
+            guard let self, let kakaoMap,
+                  !self.isDismantled, self.isMapVisible,
+                  self.readyMap === kakaoMap else { return }
+            self.reportViewport(kakaoMap)
         }
+    }
+
+    private func reportViewport(_ kakaoMap: KakaoMap) {
+        let camera = cameraState(kakaoMap)
+        let bounds = computeBounds(kakaoMap)
+        let generation = callbackGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isDismantled, self.isMapVisible,
+                  self.callbackGeneration == generation else { return }
+            if let camera { self.onCameraStateChanged?(camera) }
+            if let bounds { self.onCameraStopped?(bounds) }
+        }
+    }
+
+    private func cameraState(_ kakaoMap: KakaoMap) -> MapCameraState? {
+        guard let position = CameraUpdate.make(mapView: kakaoMap).cameraPosition else { return nil }
+        let coordinate = position.targetPoint.wgsCoord
+        return MapCameraState(
+            latitude: coordinate.latitude, longitude: coordinate.longitude,
+            height: kakaoMap.cameraHeight,
+            rotation: kakaoMap.rotationAngle, tilt: kakaoMap.tiltAngle
+        )
     }
 
     // 화면 네 모서리를 위경도로 변환해 현재 보이는 범위 계산 (회전 대비 min/max)
@@ -588,7 +723,7 @@ final class KakaoMapViewController: UIViewController, MapControllerDelegate, Kak
     // MARK: - 핀 갱신 (updateUIViewController에서 호출)
 
     func refreshPins() {
-        guard let kakaoMap = mapController?.getView("mapview") as? KakaoMap else {
+        guard !isDismantled, let kakaoMap = readyMap else {
             // 지도 아직 준비 안 됨 — addViewSucceeded에서 self.pins로 그릴 것
             return
         }

@@ -38,17 +38,22 @@ final class ChatRoomViewModel {
         defer { isLoading = false }
         do {
             let dtos = try await ChatService.messages(roomId: roomId)
+            guard !Task.isCancelled else { return }
             messages = dtos.map(map)
             await ChatService.markRead(roomId: roomId, userId: myUserId)
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = "메시지를 불러오지 못했어요."
         }
     }
 
-    // 상대(사장님/손님)가 보낸 새 메시지 반영 — 방이 열려 있는 동안 주기 호출
+    // 상대가 보낸 새 메시지는 WebSocket invalidation/복귀 catchup으로 다시 읽는다.
     func refresh() async {
-        guard let roomId, !isSending else { return }
+        guard let roomId else { return }
+        guard !isSending else { needsRefreshAfterSending = true; return }
         guard let dtos = try? await ChatService.messages(roomId: roomId) else { return }
+        guard !Task.isCancelled else { return }
+        guard !isSending else { needsRefreshAfterSending = true; return }
         if dtos.count != messages.count {
             messages = dtos.map(map)
             // 방을 보고 있는 중에 도착한 메시지도 바로 읽음 처리
@@ -57,6 +62,7 @@ final class ChatRoomViewModel {
     }
 
     private var isSending = false
+    private var needsRefreshAfterSending = false
 
     func send() async {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,7 +70,13 @@ final class ChatRoomViewModel {
         inputText = ""
         errorMessage = nil
         isSending = true
-        defer { isSending = false }
+        defer {
+            isSending = false
+            if needsRefreshAfterSending {
+                needsRefreshAfterSending = false
+                Task { await refresh() }
+            }
+        }
 
         // 작성 모드 첫 전송: 방 생성 → 전송 → 전체 로드(이전/시스템 메시지 포함)
         if roomId == nil {
@@ -105,6 +117,7 @@ final class ChatRoomViewModel {
 
 struct ChatRoomView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppNotificationService.self) private var notificationService
     @Environment(AuthSession.self) private var authSession
     @State private var vm = ChatRoomViewModel()
     @State private var didInitialScroll = false
@@ -127,6 +140,7 @@ struct ChatRoomView: View {
         }
         .background(Color.brandCream.ignoresSafeArea())
         .task {
+            let updates = notificationService.updates()
             // 미로그인 폴백(?? 1)은 user 1 데이터 혼입 위험이 있어 두지 않는다 — 이 화면은 로그인 후에만 진입
             guard let uid = authSession.userId else { return }
             let pin = router.selectedPin
@@ -137,18 +151,18 @@ struct ChatRoomView: View {
                 storeName: router.selectedChat,
                 storeAddress: pin?.address ?? ""
             )
+            notificationService.activeRoomId = router.selectedRoomId
             await vm.load()
-            // 이 방을 보는 동안은 이 방의 채팅 알림 배너 생략 (3초 폴링으로 이미 화면에 보임)
-            AppNotificationService.shared.activeRoomId = router.selectedRoomId
-        }
-        .task {
-            // 3초 주기 폴링 — 상대가 보낸 메시지를 방에 머무는 동안 반영 (화면 이탈 시 자동 취소)
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
                 await vm.refresh()
             }
         }
-        .onDisappear { AppNotificationService.shared.activeRoomId = nil }
+        .onChange(of: vm.roomId) { _, roomId in notificationService.activeRoomId = roomId }
+        .onDisappear {
+            // 다른 방 알림 탭으로 새 화면이 먼저 열린 경우 이전 방이 새 열람 상태를 지우지 않는다.
+            if notificationService.activeRoomId == vm.roomId { notificationService.activeRoomId = nil }
+        }
     }
 
     // MARK: - Nav

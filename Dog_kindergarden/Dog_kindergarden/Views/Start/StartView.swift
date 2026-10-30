@@ -102,7 +102,7 @@ struct StartView: View {
             RoleCardView(
                 title: "보호자 · 사장님",
                 subtitle: "받은 예약 요청도 확인하고 관리해요",
-                emoji: "🐾",
+                emoji: "🏠",
                 tint: Color.brandGreenLight,
                 ring: Color.brandGreen,
                 isSelected: selectedRole == .owner,

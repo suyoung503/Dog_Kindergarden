@@ -7,10 +7,10 @@ APP_NAME = "맡겨멍 API"
 NAVER_PLACE_REFRESH_ENABLED = "false"
 EXPOSE_UNVERIFIED_STORE_DETAILS = "false"
 
-# 보유기간 정리와 이용일 다음날 리뷰 요청을 매일 09:00 UTC에 실행한다.
+# 보유기간 정리는 15분마다, 이용일 다음날 리뷰 요청은 매일 09:00 UTC에 실행한다.
 # 네이버 상세정보 자동 수집은 출처·권리 검토가 끝날 때까지 트리거에서 제거하고 서버에서도 비활성화한다.
 [triggers]
-crons = ["0 9 * * *"]
+crons = ["*/15 * * * *", "0 9 * * *"]
 
 [[d1_databases]]
 binding = "DB"
@@ -24,3 +24,11 @@ preview_bucket_name = "matgyeomung-diary-photos-preview"
 
 [ai]
 binding = "AI"
+
+[[durable_objects.bindings]]
+name = "USER_REALTIME"
+class_name = "UserRealtime"
+
+[[migrations]]
+tag = "v1-user-realtime"
+new_sqlite_classes = ["UserRealtime"]

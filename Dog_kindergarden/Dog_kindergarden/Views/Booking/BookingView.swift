@@ -2,7 +2,6 @@ import SwiftUI
 import Observation
 
 // 강아지 카드 배경색 — 순서대로 순환
-private let dogBgColors: [Color] = [Color(hex: "#FFE6CC"), Color.brandGreenLight, Color.brandBlueLight]
 
 @Observable
 @MainActor
@@ -11,7 +10,7 @@ final class BookingViewModel {
     var selectedService = "시간권"
     var selectedDate = Date()
     // 시간권 시작 시간 — 자유 선택 (기본 14:00)
-    var startTime = Calendar.current.date(bySettingHour: 14, minute: 0, second: 0, of: Date()) ?? Date()
+    var startTime = ReservationSchedule.calendar.date(bySettingHour: 14, minute: 0, second: 0, of: Date()) ?? Date()
     var hours = 1               // 시간권 이용 시간
     var request = ""
 
@@ -40,6 +39,8 @@ final class BookingViewModel {
     var dateLabel: String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
+        formatter.calendar = ReservationSchedule.calendar
+        formatter.timeZone = ReservationSchedule.calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd (E)"
         return formatter.string(from: selectedDate)
     }
@@ -47,6 +48,8 @@ final class BookingViewModel {
     // "14:00" — 시간권 예약 문자열용 시작 시간
     var timeLabel: String {
         let formatter = DateFormatter()
+        formatter.calendar = ReservationSchedule.calendar
+        formatter.timeZone = ReservationSchedule.calendar.timeZone
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: startTime)
     }
@@ -103,26 +106,40 @@ final class BookingViewModel {
     }
 
     // 예약 신청 — 성공 시 BookingResult 반환
-    func submit(userId: Int, storeName: String, storeKey: String, storeAddress: String, storeType: String) async -> BookingResult? {
+    func submit(userId: Int, storeName: String, storeKey: String, storeAddress: String, storeType: String,
+                guardianPhone: String? = nil, guardianAddress: String? = nil) async -> BookingResult? {
         errorMessage = nil
-        guard let petId = selectedPetId else { errorMessage = "강아지를 선택해주세요."; return nil }
+        guard let pet = selectedPet else { errorMessage = "강아지를 선택해주세요."; return nil }
         isLoading = true
         defer { isLoading = false }
 
         // 시간권만 시간 포함, 종일권·숙박권은 날짜만 ("2026-07-12 (일)")
-        let schedule = isHourly ? "\(dateLabel) \(timeLabel)" : dateLabel
-        let body: [String: Any] = [
+        let submittedService = selectedService
+        let submittedHours = hours
+        let submittedDate = selectedDate
+        let submittedTime = startTime
+        let submittedRequest = request
+        let submittedType = serviceLabel
+        let schedule = ReservationSchedule.booking(date: submittedDate, time: submittedTime,
+                                                   service: submittedService, hours: submittedHours)
+        // 응답 대기 중 선택이 바뀌어도 완료화면은 실제 제출한 예약을 표시한다.
+        let price = selectedPriceText
+        let isAllDay = submittedService != "시간권"
+        let durationHours = isAllDay ? 1 : submittedHours
+        var body: [String: Any] = [
             "user_id": userId,
-            "pet_id": petId,
+            "pet_id": pet.pet_id,
             "store_key": storeKey,
             "store_name": storeName,
             "store_address": storeAddress,
             "store_type": storeType,
-            "start_date": schedule,
-            "end_date": schedule,
-            "reservation_type": serviceLabel,
-            "request_message": request,
+            "start_date": schedule.start,
+            "end_date": schedule.end,
+            "reservation_type": submittedType,
+            "request_message": submittedRequest,
         ]
+        if let guardianPhone { body["guardian_phone"] = guardianPhone }
+        if let guardianAddress { body["guardian_address"] = guardianAddress }
 
         let url = APIEnvironment.apiBaseURL.appendingPathComponent("reservations")
         var req = APITransport.request(url: url, method: "POST")
@@ -136,17 +153,17 @@ final class BookingViewModel {
                 errorMessage = "예약에 실패했어요."
                 return nil
             }
-            let pet = selectedPet
             return BookingResult(
                 reservationId: rid,
                 roomId: roomId,
                 storeName: storeName,
-                dogName: pet?.name ?? "",
-                dogBreed: pet?.breed ?? "",
-                schedule: schedule,
-                price: selectedPriceText,
-                isAllDay: !isHourly,
-                durationHours: isHourly ? hours : 1
+                dogName: pet.name,
+                dogBreed: pet.breed ?? "",
+                schedule: schedule.start,
+                price: price,
+                isAllDay: isAllDay,
+                durationHours: durationHours,
+                dogImageURL: pet.image_url
             )
         } catch {
             errorMessage = "예약에 실패했어요."
@@ -162,26 +179,48 @@ struct BookingView: View {
     @State private var vm = BookingViewModel()
     @State private var guardianPhone = ""
     @State private var guardianAddress = ""
+    @State private var bottomPanelInset: CGFloat = 34
+    @FocusState private var focusedField: InputField?
+
+    private enum InputField: Hashable {
+        case phone, address, request
+    }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    navBar
-                    summaryCard
-                    dogSection
-                    guardianSection
-                    serviceSection
-                    dateTimeSection
-                    requestSection
-                    totalSection
-                }
-                .padding(.bottom, 80)
+        ScrollView {
+            VStack(spacing: 0) {
+                navBar
+                    .simultaneousGesture(dismissKeyboardTap)
+                summaryCard
+                    .simultaneousGesture(dismissKeyboardTap)
+                dogSection
+                    .simultaneousGesture(dismissKeyboardTap)
+                guardianSection
+                serviceSection
+                    .simultaneousGesture(dismissKeyboardTap)
+                dateTimeSection
+                requestSection
+                totalSection
+                    .simultaneousGesture(dismissKeyboardTap)
             }
-            .background(Color.brandCream.ignoresSafeArea())
-
-            confirmButton
+            .padding(.bottom, 16)
+            // 배경만 탭을 받아 입력란 사이의 포커스 이동을 방해하지 않는다.
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { focusedField = nil }
+            }
         }
+        .background {
+            Color.brandCream.ignoresSafeArea()
+                .onTapGesture { focusedField = nil }
+        }
+
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            confirmButton
+                .simultaneousGesture(dismissKeyboardTap)
+        }
+        .onAppear { bottomPanelInset = UIApplication.safeAreaBottom }
         .task {
             guardianPhone = userProfile.phone
             guardianAddress = userProfile.address
@@ -248,13 +287,21 @@ struct BookingView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(vm.pets.enumerated()), id: \.element.id) { idx, pet in
-                            Button(action: { vm.selectedPetId = pet.pet_id }) {
+                            Button(action: {
+                                focusedField = nil
+                                vm.selectedPetId = pet.pet_id
+                            }) {
                                 VStack(spacing: 0) {
                                     ZStack {
-                                        RoundedRectangle(cornerRadius: Radius.lg)
-                                            .fill(dogBgColors[idx % dogBgColors.count])
-                                            .frame(width: 48, height: 48)
-                                        Image(dogAvatarName(idx)).resizable().scaledToFit().frame(width: 30, height: 30)
+                                        if pet.image_url != nil {
+                                            AuthenticatedPetImage(value: pet.image_url)
+                                                .frame(width: 48, height: 48)
+                                                .clipShape(Circle())
+                                        } else {
+                                            Image(dogAvatarName(idx)).resizable().scaledToFit()
+                                                .frame(width: 48, height: 48)
+                                                .clipShape(Circle())
+                                        }
                                     }
                                     .padding(.bottom, 6)
                                     Text(pet.name).font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
@@ -266,9 +313,8 @@ struct BookingView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: Radius.xl)
-                                        .stroke(vm.selectedPetId == pet.pet_id ? Color.brandOrange : Color.brandBeigeBorder, lineWidth: 2)
+                                        .strokeBorder(vm.selectedPetId == pet.pet_id ? Color.brandOrange : Color.brandBeigeBorder, lineWidth: 2)
                                 )
-                                .background(vm.selectedPetId == pet.pet_id ? Color(hex: "#FFF1DC") : .clear, in: RoundedRectangle(cornerRadius: Radius.xl))
                             }
                         }
                     }
@@ -296,6 +342,7 @@ struct BookingView: View {
                 HStack {
                     Spacer()
                     Button(action: {
+                        focusedField = nil
                         guardianPhone = userProfile.phone
                         guardianAddress = userProfile.address
                     }) {
@@ -309,8 +356,8 @@ struct BookingView: View {
                     .disabled(userProfile.phone.isEmpty && userProfile.address.isEmpty)
                 }
                 formField(label: "이름", value: userProfile.name.isEmpty ? "이름 미설정" : userProfile.name)
-                editField(label: "연락처", text: $guardianPhone, placeholder: "연락처를 입력하세요")
-                editField(label: "주소",  text: $guardianAddress, placeholder: "주소를 입력하세요")
+                editField(label: "연락처", text: $guardianPhone, placeholder: "연락처를 입력하세요", field: .phone)
+                editField(label: "주소",  text: $guardianAddress, placeholder: "주소를 입력하세요", field: .address)
             }
         }
     }
@@ -326,11 +373,10 @@ struct BookingView: View {
                     Text("날짜 선택")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
                 }
-                DatePicker("예약 날짜", selection: $vm.selectedDate, in: Date()..., displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .environment(\.locale, Locale(identifier: "ko_KR"))
-                    .tint(Color.brandOrange)
+                .onTapGesture { focusedField = nil }
+                BookingCalendar(selection: $vm.selectedDate) {
+                    focusedField = nil
+                }
                 // 시간권만 시작 시간·이용 시간 선택 (종일권·숙박권은 날짜만)
                 if vm.isHourly {
                     Divider().foregroundStyle(Color.brandBeigeBorder)
@@ -341,13 +387,17 @@ struct BookingView: View {
                         DatePicker("시작 시간", selection: $vm.startTime, displayedComponents: .hourAndMinute)
                             .labelsHidden()
                             .environment(\.locale, Locale(identifier: "ko_KR"))
+                            .environment(\.timeZone, BookingCalendarState.calendar.timeZone)
                             .tint(Color.brandOrange)
                     }
                     Text("이용 시간")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                         ForEach(vm.hourOptions, id: \.self) { h in
-                            Button(action: { vm.hours = h }) {
+                            Button(action: {
+                                focusedField = nil
+                                vm.hours = h
+                            }) {
                                 Text("\(h)시간")
                                     .font(.system(size: 11, weight: .bold))
                                     .frame(maxWidth: .infinity)
@@ -373,7 +423,10 @@ struct BookingView: View {
         BookingSection(title: "🦴 서비스 선택") {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(vm.services, id: \.name) { s in
-                    Button(action: { vm.selectedService = s.name }) {
+                    Button(action: {
+                        focusedField = nil
+                        vm.selectedService = s.name
+                    }) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(s.name)
                                 .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.brandBrown)
@@ -399,6 +452,7 @@ struct BookingView: View {
     private var requestSection: some View {
         BookingSection(title: "요청사항") {
             TextEditor(text: $vm.request)
+                .focused($focusedField, equals: .request)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.brandBrown)
                 .frame(height: 72)
@@ -476,25 +530,33 @@ struct BookingView: View {
             .disabled(vm.isLoading || vm.selectedPetId == nil)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        .padding(.bottom, max(20, bottomPanelInset / 2 + 12))
         .background(.white)
         .overlay(alignment: .top) { Divider().foregroundStyle(Color.brandBeigeBorder) }
     }
 
     private func submitBooking() {
+        focusedField = nil
         guard let uid = authSession.userId else { return }
+        // 자정 직후에는 달력의 지연 바인딩 보정보다 제출이 먼저 실행될 수 있다.
+        vm.selectedDate = BookingCalendarState(selection: vm.selectedDate).selectedDate
         // 입력한 보호자 정보 영구 저장 (다음 예약 때 자동 불러오기)
         if !guardianPhone.isEmpty { userProfile.phone = guardianPhone }
         if !guardianAddress.isEmpty { userProfile.address = guardianAddress }
         let pin = router.selectedPin
         let storeName = pin?.name ?? router.selectedStore
+        let submittedPhone = guardianPhone
+        let submittedAddress = guardianAddress
         Task {
             if let result = await vm.submit(
                 userId: uid,
                 storeName: storeName,
                 storeKey: pin?.storeKey ?? "",
                 storeAddress: pin?.address ?? "",
-                storeType: pin?.type ?? ""
+                storeType: pin?.type ?? "",
+                guardianPhone: submittedPhone,
+                guardianAddress: submittedAddress
             ) {
                 router.lastBooking = result
                 router.go(.bookingDone)
@@ -503,6 +565,10 @@ struct BookingView: View {
     }
 
     // MARK: - Helpers
+
+    private var dismissKeyboardTap: some Gesture {
+        TapGesture().onEnded { focusedField = nil }
+    }
 
     private func infoRow(_ k: String, _ v: String) -> some View {
         HStack {
@@ -525,10 +591,11 @@ struct BookingView: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
     }
 
-    private func editField(label: String, text: Binding<String>, placeholder: String) -> some View {
+    private func editField(label: String, text: Binding<String>, placeholder: String, field: InputField) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 10)).foregroundStyle(Color.brandBrownMid)
             TextField(placeholder, text: text)
+                .focused($focusedField, equals: field)
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(Color.brandBrown)
         }
         .padding(.horizontal, 14)

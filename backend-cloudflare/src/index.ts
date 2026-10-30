@@ -3,9 +3,13 @@ import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { privacyPolicyHTML } from "./privacyPolicy";
 import { supportPageHTML } from "./supportPage";
+import { storeShareResponse } from "./storeSharePage";
 import { refreshStaleStoreDetails } from "./storeDetailRefresh";
+import { connectRealtime, realtimeChanges } from "./realtime";
+export { UserRealtime } from "./realtime";
 
 const REVIEW_REQUEST_CRON = "0 9 * * *";
+const DATA_RETENTION_CRON = "*/15 * * * *";
 const STORE_DETAIL_REFRESH_CRON = "17 */4 * * *";
 
 type ReservationBody = {
@@ -29,6 +33,8 @@ type ReservationBody = {
   reservationType?: string;
   request_message?: string;
   requestMessage?: string;
+  guardian_phone?: string | null;
+  guardian_address?: string | null;
   store_type?: string;
   storeType?: string;
 };
@@ -121,6 +127,7 @@ type FavoriteBody = {
 };
 
 type UpdateUserBody = {
+  email?: string | null;
   nickname?: string;
   phone?: string;
   address?: string;
@@ -185,6 +192,7 @@ type WorkersAiBinding = {
 
 type Bindings = {
   DB: D1Database;
+  USER_REALTIME: DurableObjectNamespace;
   DIARY_PHOTOS: R2Bucket;
   APP_NAME: string;
   AI: WorkersAiBinding;
@@ -207,8 +215,10 @@ type Variables = {
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+app.get("/store", (c) => storeShareResponse(c.req.raw, c.env.DB));
 const MAX_API_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_DIARY_PHOTO_BYTES = 1.5 * 1024 * 1024;
+const MAX_PET_PHOTO_BYTES = 1_500_000;
 const MAX_DIARY_PHOTOS = 3;
 app.use(
   "*",
@@ -247,7 +257,14 @@ const diaryPhotoBodyLimit = bodyLimit({
     413,
   ),
 });
+const petPhotoBodyLimit = bodyLimit({
+  maxSize: MAX_PET_PHOTO_BYTES,
+  onError: (c) => c.json({ message: "photo too large", code: "PAYLOAD_TOO_LARGE", max_bytes: MAX_PET_PHOTO_BYTES }, 413),
+});
 app.use("/api/*", (c, next) => {
+  if (c.req.method === "PUT" && /^\/api\/pets\/\d+\/photo$/.test(c.req.path)) {
+    return petPhotoBodyLimit(c, next);
+  }
   if (
     c.req.method === "POST" &&
     /^\/api\/diaries\/\d+\/photos$/.test(c.req.path)
@@ -364,6 +381,9 @@ app.use("/api/*", async (c, next) => {
   c.set("authTokenHash", tokenHash);
   await next();
 });
+
+app.use("/api/*", realtimeChanges);
+app.get("/api/realtime", (c) => connectRealtime(c.env, c.get("authUserId"), c.get("authTokenHash"), c.req.raw));
 
 function sameUser(authUserId: number, requestedUserId: number): boolean {
   return Number.isInteger(requestedUserId) && requestedUserId === authUserId;
@@ -1349,13 +1369,29 @@ app.patch("/api/owner-applications/:id/approve", async (c) => {
 app.patch("/api/owner-applications/:id/reject", async (c) => {
   if (!c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
   const applicationId = Number(c.req.param("id"));
-  const rejected = await c.env.DB.prepare(
-    `UPDATE store_owner_applications
-     SET status = 'REJECTED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
-     WHERE application_id = ? AND status = 'PENDING'`,
-  )
-    .bind(c.get("authUserId"), applicationId)
-    .run();
+  // 상태 전이와 durable 이벤트를 같은 D1 트랜잭션에 넣는다. 실패 시 전부 rollback된다.
+  const [rejected, rejectionEvent] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE store_owner_applications
+       SET status = 'REJECTED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+       WHERE application_id = ? AND status = 'PENDING'`,
+    ).bind(c.get("authUserId"), applicationId),
+    c.env.DB.prepare(
+      `INSERT INTO owner_application_rejections (application_id, user_id, store_name)
+       SELECT a.application_id, a.user_id, s.name
+       FROM store_owner_applications a
+       JOIN stores s ON s.store_id = a.store_id
+       JOIN users u ON u.user_id = a.user_id AND u.deleted_at IS NULL
+       WHERE a.application_id = ? AND changes() = 1`,
+    ).bind(applicationId),
+    c.env.DB.prepare(
+      `UPDATE stores
+       SET partner_status = 'NONE', partner_approved_at = NULL, partner_approved_by = NULL
+       WHERE store_id = (
+         SELECT store_id FROM store_owner_applications WHERE application_id = ?
+       ) AND owner_id IS NULL AND partner_status = 'PENDING' AND changes() = 1`,
+    ).bind(applicationId),
+  ]);
   if ((rejected.meta.changes ?? 0) === 0) {
     const existing = await c.env.DB.prepare(
       `SELECT status FROM store_owner_applications WHERE application_id = ?`,
@@ -1367,16 +1403,10 @@ app.patch("/api/owner-applications/:id/reject", async (c) => {
       return c.json({ ok: true, unchanged: true });
     return c.json({ message: "application is not pending" }, 409);
   }
-  await c.env.DB.prepare(
-    `UPDATE stores
-     SET partner_status = 'NONE', partner_approved_at = NULL, partner_approved_by = NULL
-     WHERE store_id = (
-       SELECT store_id FROM store_owner_applications WHERE application_id = ?
-     ) AND owner_id IS NULL AND partner_status = 'PENDING'`,
-  )
-    .bind(applicationId)
-    .run();
-  return c.json({ ok: true, status: "REJECTED" });
+  return c.json({
+    ok: true, status: "REJECTED", application_id: applicationId,
+    rejection_id: (rejectionEvent.meta.changes ?? 0) === 1 ? rejectionEvent.meta.last_row_id : undefined,
+  });
 });
 
 // 사장님이 등록한 내 가게 목록
@@ -1460,6 +1490,10 @@ app.post("/api/reservations", async (c) => {
 
   if (!startDate || !endDate)
     return c.json({ message: "start_date/end_date is required" }, 400);
+  for (const value of [body.guardian_phone, body.guardian_address]) {
+    if (value !== undefined && value !== null && typeof value !== "string")
+      return c.json({ message: "guardian_phone/guardian_address must be strings or null" }, 400);
+  }
 
   const ownedPet = await c.env.DB.prepare(
     `SELECT 1 AS found FROM pets WHERE pet_id = ? AND user_id = ?`,
@@ -1494,32 +1528,47 @@ app.post("/api/reservations", async (c) => {
   // 3) 예약 INSERT
   const result = await c.env.DB.prepare(
     `
-    INSERT INTO reservations (user_id, pet_id, store_id, store_name, start_date, end_date, reservation_type, status, request_message)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'REQUEST', ?)
+    INSERT INTO reservations (user_id, pet_id, store_id, store_name, start_date, end_date, reservation_type, status, request_message, booking_snapshot)
+    SELECT u.user_id, p.pet_id, ?, ?, ?, ?, ?, 'REQUEST', ?,
+           json_object(
+             'user_name', u.nickname,
+             'user_phone', CASE WHEN ? THEN u.phone ELSE ? END,
+             'user_address', CASE WHEN ? THEN u.address ELSE ? END,
+             'pet_name', p.name, 'pet_breed', p.breed, 'pet_age', p.age,
+             'pet_weight', p.weight, 'pet_gender', p.gender, 'pet_note', p.note
+           )
+    FROM users u JOIN pets p ON p.user_id = u.user_id
+    WHERE u.user_id = ? AND p.pet_id = ? AND u.deleted_at IS NULL
   `,
   )
     .bind(
-      userId,
-      petId,
       storeId,
       storeName,
       startDate,
       endDate,
       reservationType,
       requestMessage,
+      body.guardian_phone === undefined ? 1 : 0,
+      body.guardian_phone ?? null,
+      body.guardian_address === undefined ? 1 : 0,
+      body.guardian_address ?? null,
+      userId,
+      petId,
     )
     .run();
+  if ((result.meta.changes ?? 0) === 0)
+    return c.json({ message: "pet does not belong to user" }, 403);
 
   const reservationId = Number(result.meta.last_row_id ?? 1);
 
   // 4) 확정된 방에 예약 완료 자동 메시지
   await c.env.DB.prepare(
     `
-    INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
-    VALUES (?, 0, '맡겨멍', 'AUTO', '예약 요청이 완료되었습니다.')
+    INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
+    VALUES (?, 0, '맡겨멍', 'AUTO', '예약 요청이 완료되었습니다.', 'reservation_submitted', ?)
   `,
   )
-    .bind(roomId)
+    .bind(roomId, reservationId)
     .run();
 
   return c.json(
@@ -1527,6 +1576,70 @@ app.post("/api/reservations", async (c) => {
     201,
   );
 });
+
+// Requested and confirmed reservations share a pet image only within their approved recipient scope.
+function reservationPetImageURL(row: { reservation_id: unknown; pet_id: unknown; status: unknown; pet_image_url: unknown }): string | null {
+  if (!["REQUEST", "CONFIRMED"].includes(String(row.status)) || typeof row.pet_image_url !== "string") return null;
+  if (row.pet_image_url === `/api/pets/${row.pet_id}/photo`) return `/api/reservations/${row.reservation_id}/pet-photo`;
+  return validLegacyPetPhoto(row.pet_image_url) ? row.pet_image_url : null;
+}
+
+// One flat owner DTO for both lists and the detail page. NULL historical snapshots are never backfilled.
+const ownerReservationSelect = `
+    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
+           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
+           p.name AS pet_name, p.image_url AS pet_image_url, p.breed AS pet_breed, p.age AS pet_age,
+           p.weight AS pet_weight, p.gender AS pet_gender, p.note AS pet_note,
+           u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
+           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at,
+           r.booking_snapshot
+    FROM reservations r
+    JOIN stores s ON s.store_id = r.store_id
+      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
+    LEFT JOIN pets p ON p.pet_id = r.pet_id AND p.user_id = r.user_id
+    LEFT JOIN users u ON u.user_id = r.user_id
+`;
+
+type OwnerReservationRow = Record<string, unknown> & {
+  reservation_id: number;
+  pet_id: number;
+  status: string;
+  pet_image_url: string | null;
+  booking_snapshot: string | null;
+};
+
+function ownerReservationDetails(row: OwnerReservationRow) {
+  const { booking_snapshot, ...details } = row;
+  return {
+    ...details,
+    ...(booking_snapshot === null ? {} : JSON.parse(booking_snapshot)),
+    information_source: booking_snapshot === null ? "CURRENT_PROFILE" : "BOOKING_SNAPSHOT",
+    pet_image_url: reservationPetImageURL(row),
+  };
+}
+
+app.get("/api/reservations/:id", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  const access = await reservationAccess(c.env.DB, reservationId, c.get("authUserId"));
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!c.get("authIsOwner") || !access.isStoreOwner || !["REQUEST", "CONFIRMED"].includes(access.status))
+    return c.json({ message: "forbidden" }, 403);
+  const row = await c.env.DB.prepare(`${ownerReservationSelect}
+    WHERE r.reservation_id = ? AND r.status IN ('REQUEST', 'CONFIRMED')`)
+    .bind(c.get("authUserId"), reservationId).first<OwnerReservationRow>();
+  if (!row) return c.json({ message: "forbidden" }, 403);
+  return c.json(ownerReservationDetails(row));
+});
+
+function validLegacyPetPhoto(value: string): boolean {
+  if (value.length > 1_050_000 || !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+  try {
+    const bytes = Uint8Array.from(atob(value.slice(value.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+    return value.startsWith("data:image/png;")
+      ? [137,80,78,71,13,10,26,10].every((byte, index) => bytes[index] === byte)
+      : hasJpegStructure(bytes);
+  } catch { return false; }
+}
 
 // 내 예약 목록 (최신순, 가게 이름 포함)
 app.get("/api/users/:id/reservations", async (c) => {
@@ -1538,17 +1651,22 @@ app.get("/api/users/:id/reservations", async (c) => {
     SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
            COALESCE(r.store_name, s.name) AS store_name, s.store_type,
            p.name AS pet_name,
+           CASE WHEN s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL THEN p.image_url ELSE NULL END AS pet_image_url,
            r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
     FROM reservations r
     LEFT JOIN stores s ON s.store_id = r.store_id
-    LEFT JOIN pets p ON p.pet_id = r.pet_id
+    LEFT JOIN pets p ON p.pet_id = r.pet_id AND p.user_id = r.user_id
     WHERE r.user_id = ?
+      AND NOT (
+        r.status = 'CANCELED' AND r.canceled_at IS NOT NULL
+        AND unixepoch(r.canceled_at) <= unixepoch('now', '-7 days')
+      )
     ORDER BY r.reservation_id DESC
   `,
   )
     .bind(userId)
-    .all();
-  return c.json(results);
+    .all<{ reservation_id: number; pet_id: number; status: string; pet_image_url: string | null }>();
+  return c.json(results.map((row) => ({ ...row, pet_image_url: reservationPetImageURL(row) })));
 });
 
 // 예약 취소 — 상태를 CANCELED로 변경.
@@ -1606,13 +1724,14 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
     if (target) {
       await c.env.DB.prepare(
         `
-        INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
-        VALUES (?, 0, '맡겨멍', 'AUTO', ?)
+        INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
+        VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'reservation_canceled', ?)
       `,
       )
         .bind(
           target.room_id,
           `가게 사정으로 ${target.store_name} 예약(${target.start_date})이 취소되었어요. 예약 내역에서 확인해주세요`,
+          reservationId,
         )
         .run();
     }
@@ -1627,25 +1746,14 @@ app.get("/api/owners/:id/reservations/pending", async (c) => {
   if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
     return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
-    `
-    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
-           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
-           p.name AS pet_name, p.breed AS pet_breed, p.age AS pet_age,
-           p.weight AS pet_weight, p.gender AS pet_gender, p.note AS pet_note,
-           u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
-           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
-    FROM reservations r
-    JOIN stores s ON s.store_id = r.store_id
-      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
-    LEFT JOIN pets p ON p.pet_id = r.pet_id
-    LEFT JOIN users u ON u.user_id = r.user_id
+    `${ownerReservationSelect}
     WHERE r.status = 'REQUEST'
     ORDER BY r.reservation_id DESC
   `,
   )
     .bind(ownerId)
-    .all();
-  return c.json(results);
+    .all<OwnerReservationRow>();
+  return c.json(results.map(ownerReservationDetails));
 });
 
 // 사장님 알림장 — 내 가게(owner_id)로 온 확정(CONFIRMED) 예약(맡은 아이들)
@@ -1654,25 +1762,14 @@ app.get("/api/owners/:id/reservations/confirmed", async (c) => {
   if (!sameUser(c.get("authUserId"), ownerId) || !c.get("authIsOwner"))
     return c.json({ message: "forbidden" }, 403);
   const { results } = await c.env.DB.prepare(
-    `
-    SELECT r.reservation_id, r.user_id, r.pet_id, r.store_id,
-           COALESCE(r.store_name, s.name) AS store_name, s.store_type,
-           p.name AS pet_name, p.breed AS pet_breed, p.age AS pet_age,
-           p.weight AS pet_weight, p.gender AS pet_gender, p.note AS pet_note,
-           u.nickname AS user_name, u.phone AS user_phone, u.address AS user_address,
-           r.start_date, r.end_date, r.reservation_type, r.status, r.request_message, r.created_at
-    FROM reservations r
-    JOIN stores s ON s.store_id = r.store_id
-      AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
-    LEFT JOIN pets p ON p.pet_id = r.pet_id
-    LEFT JOIN users u ON u.user_id = r.user_id
+    `${ownerReservationSelect}
     WHERE r.status = 'CONFIRMED'
     ORDER BY r.reservation_id DESC
   `,
   )
     .bind(ownerId)
-    .all();
-  return c.json(results);
+    .all<OwnerReservationRow>();
+  return c.json(results.map(ownerReservationDetails));
 });
 
 // 예약 확정 — 상태 변경 + 고객 채팅방에 확정 안내 자동 메시지
@@ -1715,13 +1812,14 @@ app.patch("/api/reservations/:id/confirm", async (c) => {
   if (target) {
     await c.env.DB.prepare(
       `
-      INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
-      VALUES (?, 0, '맡겨멍', 'AUTO', ?)
+      INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
+      VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'reservation_confirmed', ?)
     `,
     )
       .bind(
         target.room_id,
         `${target.store_name} 예약(${target.start_date})이 확정되었어요. 예약 내역에서 확인해주세요`,
+        reservationId,
       )
       .run();
   }
@@ -1866,12 +1964,14 @@ app.post("/api/reservations/:id/diaries", async (c) => {
   if (room) {
     const petName = r.pet_name ?? "우리 아이";
     await c.env.DB.prepare(
-      `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
-       VALUES (?, 0, '맡겨멍', 'AUTO', ?)`,
+      `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id, diary_id)
+       VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'diary', ?, ?)`,
     )
       .bind(
         room.room_id,
-        `${petName}의 새 알림장이 도착했어요\n예약 내역에서 확인해주세요`,
+        `${petName}의 새 알림장이 도착했어요.\n확정예약. 알림장에서 확인해주세요.`,
+        reservationId,
+        diaryId,
       )
       .run();
   }
@@ -2558,7 +2658,9 @@ type NotificationCursor = {
   request_id?: number;
   support_message_id?: number;
   owner_application_id?: number;
+  owner_application_rejection_id?: number;
   canceled_at?: string;
+  canceled_ids?: number[];
 };
 
 type NotificationItem = {
@@ -2567,8 +2669,12 @@ type NotificationItem = {
     | "chat"
     | "reservation_request"
     | "reservation_canceled"
+    | "reservation_confirmed"
+    | "reservation_submitted"
+    | "diary"
     | "support"
-    | "owner_application";
+    | "owner_application"
+    | "owner_application_rejected";
   title: string;
   body: string;
   room_id?: number;
@@ -2577,6 +2683,10 @@ type NotificationItem = {
   application_id?: number;
   as_owner?: boolean;
   store_type?: string;
+  diary_id?: number;
+  pet_name?: string;
+  store_name?: string;
+  can_write?: boolean;
 };
 
 app.get("/api/users/:id/notifications", async (c) => {
@@ -2585,6 +2695,23 @@ app.get("/api/users/:id/notifications", async (c) => {
   if (!sameUser(c.get("authUserId"), userId))
     return c.json({ message: "forbidden" }, 403);
   const rawCursor = c.req.query("cursor");
+  const isBootstrap = !rawCursor && c.req.query("bootstrap") === "1";
+
+  let cursor: NotificationCursor;
+  try {
+    const parsed: unknown = rawCursor ? JSON.parse(rawCursor) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid cursor");
+    cursor = parsed as NotificationCursor;
+    for (const key of ["message_id", "request_id", "support_message_id", "owner_application_id", "owner_application_rejection_id"] as const) {
+      if (cursor[key] !== undefined && (!Number.isSafeInteger(cursor[key]) || cursor[key]! < 0)) throw new Error("invalid cursor");
+    }
+    if (cursor.canceled_at !== undefined && (typeof cursor.canceled_at !== "string"
+      || (cursor.canceled_at !== "" && !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(cursor.canceled_at)))) throw new Error("invalid cursor");
+    if (cursor.canceled_ids !== undefined && (!Array.isArray(cursor.canceled_ids)
+      || cursor.canceled_ids.some(id => !Number.isSafeInteger(id) || id <= 0))) throw new Error("invalid cursor");
+  } catch {
+    return c.json({ message: "invalid cursor" }, 400);
+  }
 
   const user = await c.env.DB.prepare(`SELECT is_owner FROM users WHERE user_id = ?`)
     .bind(userId)
@@ -2604,49 +2731,56 @@ app.get("/api/users/:id/notifications", async (c) => {
   const maxOwnerApplication = await c.env.DB.prepare(
     `SELECT COALESCE(MAX(application_id), 0) AS v FROM store_owner_applications`,
   ).first<{ v: number }>();
+  const maxOwnerApplicationRejection = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(rejection_id), 0) AS v FROM owner_application_rejections`,
+  ).first<{ v: number }>();
   const now = await c.env.DB.prepare(`SELECT CURRENT_TIMESTAMP AS v`).first<{ v: string }>();
   const nextCursor: NotificationCursor = {
     message_id: maxMsg?.v ?? 0,
     request_id: maxRes?.v ?? 0,
     support_message_id: maxSupport?.v ?? 0,
     owner_application_id: maxOwnerApplication?.v ?? 0,
+    owner_application_rejection_id: maxOwnerApplicationRejection?.v ?? 0,
     canceled_at: now?.v ?? "",
   };
 
-  // 첫 호출(커서 없음): 과거 이벤트를 알림으로 쏟지 않도록 커서만 내려준다
-  if (!rawCursor) return c.json({ notifications: [], cursor: nextCursor });
+  // 구버전 앱은 초기 배너 억제를 모르므로 명시적으로 요청한 앱만 backfill한다.
+  if (!rawCursor && !isBootstrap) return c.json({ notifications: [], cursor: nextCursor });
 
-  let cursor: NotificationCursor;
-  try {
-    cursor = JSON.parse(rawCursor) as NotificationCursor;
-  } catch {
-    return c.json({ message: "invalid cursor" }, 400);
-  }
   const afterMessage = cursor.message_id ?? 0;
   const afterRequest = cursor.request_id ?? 0;
   // 기존 앱이 저장한 커서에는 신규 축 필드가 없다. 이때 0부터 읽으면 배포 직후
   // 과거 문의·신청이 한꺼번에 알림으로 쏟아지므로 현재 최댓값에서 시작한다.
-  const afterSupportMessage = cursor.support_message_id ?? (maxSupport?.v ?? 0);
-  const afterOwnerApplication = cursor.owner_application_id ?? (maxOwnerApplication?.v ?? 0);
+  const afterSupportMessage = cursor.support_message_id ?? (isBootstrap ? 0 : maxSupport?.v ?? 0);
+  const afterOwnerApplication = cursor.owner_application_id ?? (isBootstrap ? 0 : maxOwnerApplication?.v ?? 0);
+  // 이 축은 신규 테이블과 함께 도입되고 과거 거절 backfill이 없다. 구 cursor도 0부터
+  // 읽어야 배포 이후 첫 feed 전에 발생한 신규 거절을 영구 누락시키지 않는다.
+  const afterOwnerApplicationRejection = cursor.owner_application_rejection_id ?? 0;
   const afterCanceled = cursor.canceled_at ?? "";
 
-  const items: NotificationItem[] = [];
+  const afterCanceledIds = new Set(cursor.canceled_ids ?? []);
+  const bootstrapLimit = isBootstrap ? 100 : -1;
+  // 첫 조회도 실제 이벤트를 복원한다. 과거 배너는 is_bootstrap으로 억제하고,
+  // 축별 후보와 최종 결과를 제한해 오래된 계정의 전체 이력을 쏟지 않는다.
+  const items: (NotificationItem & { occurred_at: string })[] = [];
 
-  // ── 채팅 축 ① 내가 손님인 방의 상대·시스템 메시지 — 방별 최신 1건 + 건수
+  // ── 채팅 축 ① 일반 채팅·미분류 AUTO만 방별 최신 1건 + 건수
   //    (SQLite: MAX() 집계 시 bare 컬럼은 최댓값 행의 값을 취한다)
   const asCustomer = await c.env.DB.prepare(
     `
     SELECT m.room_id, m.content, m.sender_id, s.name AS store_name, s.store_type,
-           COUNT(*) AS cnt, MAX(m.message_id) AS last_id
+           COUNT(*) AS cnt, MAX(m.message_id) AS last_id, m.created_at AS occurred_at
     FROM chat_messages m
     JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
     JOIN stores s ON s.store_id = r.store_id
       AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
-    WHERE m.sender_id != ? AND m.message_id > ?
+    WHERE m.sender_id != ? AND m.message_id > ? AND m.message_id <= ?
+      AND NOT (m.sender_id = 0 AND COALESCE(m.event_type, '') IN ('reservation_canceled', 'reservation_confirmed', 'reservation_submitted', 'diary'))
     GROUP BY m.room_id
+    ORDER BY last_id DESC LIMIT ${bootstrapLimit}
   `,
   )
-    .bind(userId, userId, afterMessage)
+    .bind(userId, userId, afterMessage, nextCursor.message_id)
     .all<{
       room_id: number;
       content: string;
@@ -2655,16 +2789,61 @@ app.get("/api/users/:id/notifications", async (c) => {
       store_type: string | null;
       cnt: number;
       last_id: number;
+      occurred_at: string;
     }>();
   for (const row of asCustomer.results) {
     items.push({
       event_id: `chat:${row.last_id}`,
+      occurred_at: row.occurred_at,
       type: "chat",
       title: row.sender_id === 0 ? "맡겨멍" : (row.store_name ?? "채팅"),
-      body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+      body: `새 채팅이 도착했어요. ${row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content}`,
       room_id: row.room_id,
       as_owner: false,
       store_type: row.store_type ?? undefined,
+    });
+  }
+
+  // 문맥이 있는 시스템 메시지는 개별 이벤트다. 같은 방의 예약·알림장·일반 대화를 합치지 않는다.
+  const systemEvents = await c.env.DB.prepare(
+    `SELECT m.message_id, m.room_id, m.content, m.event_type, m.reservation_id, s.store_type, m.created_at AS occurred_at,
+            d.diary_id, p.name AS pet_name, COALESCE(booking.store_name, s.name) AS diary_store_name
+     FROM chat_messages m
+     JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id = ?
+     JOIN stores s ON s.store_id = r.store_id
+       AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
+     LEFT JOIN reservations booking ON booking.reservation_id = m.reservation_id
+       AND booking.user_id = r.user_id AND booking.store_id = r.store_id
+     LEFT JOIN diaries d ON d.diary_id = m.diary_id AND d.reservation_id = booking.reservation_id
+       AND d.store_id = r.store_id
+     LEFT JOIN pets p ON p.pet_id = booking.pet_id AND p.user_id = r.user_id
+     WHERE m.sender_id = 0 AND m.message_id > ? AND m.message_id <= ?
+       AND m.event_type IN ('reservation_canceled', 'reservation_confirmed', 'reservation_submitted', 'diary')
+       AND (m.event_type != 'diary' OR d.diary_id IS NOT NULL)
+     ORDER BY m.message_id ${isBootstrap ? "DESC" : "ASC"} LIMIT ${bootstrapLimit}`,
+  ).bind(userId, afterMessage, nextCursor.message_id).all<{
+    message_id: number; room_id: number; content: string; occurred_at: string;
+    event_type: "reservation_canceled" | "reservation_confirmed" | "reservation_submitted" | "diary";
+    reservation_id: number | null; store_type: string | null;
+    diary_id: number | null; pet_name: string | null; diary_store_name: string | null;
+  }>();
+  for (const row of systemEvents.results) {
+    items.push({
+      event_id: `chat:${row.message_id}`,
+      occurred_at: row.occurred_at,
+      type: row.event_type,
+      title: "맡겨멍",
+      body: row.content,
+      room_id: row.room_id,
+      reservation_id: row.reservation_id ?? undefined,
+      as_owner: false,
+      store_type: row.store_type ?? undefined,
+      ...(row.event_type === "diary" ? {
+        diary_id: row.diary_id ?? undefined,
+        pet_name: row.pet_name ?? "우리 아이",
+        store_name: row.diary_store_name ?? "알림장",
+        can_write: false,
+      } : {}),
     });
   }
 
@@ -2673,30 +2852,33 @@ app.get("/api/users/:id/notifications", async (c) => {
     const asOwnerRows = await c.env.DB.prepare(
       `
       SELECT m.room_id, m.content, u.nickname AS customer_name,
-             COUNT(*) AS cnt, MAX(m.message_id) AS last_id
+             COUNT(*) AS cnt, MAX(m.message_id) AS last_id, m.created_at AS occurred_at
       FROM chat_messages m
       JOIN chat_rooms r ON r.room_id = m.room_id AND r.user_id != ?
       JOIN stores s ON s.store_id = r.store_id
         AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN users u ON u.user_id = r.user_id
-      WHERE m.sender_id != ? AND m.sender_id != 0 AND m.message_id > ?
+      WHERE m.sender_id != ? AND m.sender_id != 0 AND m.message_id > ? AND m.message_id <= ?
       GROUP BY m.room_id
+      ORDER BY last_id DESC LIMIT ${bootstrapLimit}
     `,
     )
-      .bind(userId, userId, userId, afterMessage)
+      .bind(userId, userId, userId, afterMessage, nextCursor.message_id)
       .all<{
         room_id: number;
         content: string;
         customer_name: string | null;
         cnt: number;
         last_id: number;
+        occurred_at: string;
       }>();
     for (const row of asOwnerRows.results) {
       items.push({
         event_id: `chat:${row.last_id}`,
+        occurred_at: row.occurred_at,
         type: "chat",
         title: row.customer_name ?? "보호자",
-        body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
+        body: `새 채팅이 도착했어요. ${row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content}`,
         room_id: row.room_id,
         as_owner: true,
       });
@@ -2708,51 +2890,70 @@ app.get("/api/users/:id/notifications", async (c) => {
     const requests = await c.env.DB.prepare(
       `
       SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
-             p.name AS pet_name, r.reservation_type
+             p.name AS pet_name, r.reservation_type, r.created_at AS occurred_at
       FROM reservations r
       JOIN stores s ON s.store_id = r.store_id
         AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN pets p ON p.pet_id = r.pet_id
-      WHERE r.status = 'REQUEST' AND r.reservation_id > ?
-      ORDER BY r.reservation_id
+      WHERE r.status = 'REQUEST' AND r.reservation_id > ? AND r.reservation_id <= ?
+      ORDER BY r.reservation_id ${isBootstrap ? "DESC" : "ASC"} LIMIT ${bootstrapLimit}
     `,
     )
-      .bind(userId, afterRequest)
-      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; reservation_type: string | null }>();
+      .bind(userId, afterRequest, nextCursor.request_id)
+      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; reservation_type: string | null; occurred_at: string }>();
     for (const row of requests.results) {
       items.push({
         event_id: `reservation_request:${row.reservation_id}`,
+        occurred_at: row.occurred_at,
         type: "reservation_request",
         title: "새 예약 요청",
         body: `${row.pet_name ?? "강아지"} 보호자의 ${row.reservation_type ?? "예약"} 요청 — ${row.store_name ?? ""}`,
         reservation_id: row.reservation_id,
+        as_owner: true,
       });
     }
   }
 
   // ── 예약 축 (사장님) 고객 취소 — canceled_by='USER'만 (사장님 본인 취소 제외)
-  if (isOwner && afterCanceled) {
+  if (isOwner) {
     const canceled = await c.env.DB.prepare(
       `
       SELECT r.reservation_id, COALESCE(r.store_name, s.name) AS store_name,
-             p.name AS pet_name, r.start_date
+             p.name AS pet_name, r.start_date, r.canceled_at AS occurred_at
+             ${isBootstrap ? ", json_group_array(r.reservation_id) OVER (PARTITION BY r.canceled_at) AS boundary_ids" : ""}
       FROM reservations r
       JOIN stores s ON s.store_id = r.store_id
         AND s.owner_id = ? AND s.partner_status = 'ACTIVE'
       LEFT JOIN pets p ON p.pet_id = r.pet_id
-      WHERE r.canceled_by = 'USER' AND r.canceled_at IS NOT NULL AND r.canceled_at > ?
-      ORDER BY r.canceled_at
+      WHERE r.canceled_by = 'USER' AND r.canceled_at IS NOT NULL AND r.canceled_at >= ?
+      ORDER BY r.canceled_at ${isBootstrap ? "DESC" : "ASC"}, r.reservation_id DESC LIMIT ${bootstrapLimit}
     `,
     )
       .bind(userId, afterCanceled)
-      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; start_date: string }>();
+      .all<{ reservation_id: number; store_name: string | null; pet_name: string | null; start_date: string; occurred_at: string; boundary_ids?: string }>();
+    // CURRENT_TIMESTAMP는 피드 직후 취소와 같은 초일 수 있다. 동률 중 이미
+    // 읽은 ID만 제외하고, 시계 대신 실제 읽은 행으로 다음 커서를 만든다.
+    nextCursor.canceled_at = isBootstrap ? nextCursor.canceled_at : afterCanceled;
+    nextCursor.canceled_ids = [...afterCanceledIds];
     for (const row of canceled.results) {
+      if (row.occurred_at === afterCanceled && afterCanceledIds.has(row.reservation_id)) continue;
+      if (row.occurred_at > (nextCursor.canceled_at ?? "")) {
+        nextCursor.canceled_at = row.occurred_at;
+        nextCursor.canceled_ids = [];
+      }
+      if (row.occurred_at === nextCursor.canceled_at) {
+        // LIMIT 밖의 동초 과거 취소도 소비한다. 이후 같은 초에 생긴 새 ID는 증분으로 복구한다.
+        if (isBootstrap) nextCursor.canceled_ids = JSON.parse(row.boundary_ids ?? "[]") as number[];
+        else nextCursor.canceled_ids!.push(row.reservation_id);
+      }
       items.push({
         event_id: `reservation_canceled:${row.reservation_id}`,
+        occurred_at: row.occurred_at,
         type: "reservation_canceled",
         title: "예약 취소",
         body: `${row.pet_name ?? "강아지"} 보호자가 ${row.start_date} 예약을 취소했어요 — ${row.store_name ?? ""}`,
         reservation_id: row.reservation_id,
+        as_owner: true,
       });
     }
   }
@@ -2762,25 +2963,28 @@ app.get("/api/users/:id/notifications", async (c) => {
     const supportMessages = await c.env.DB.prepare(
       `
       SELECT sm.conversation_id, sm.content, u.nickname AS user_name,
-             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id
+             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id, sm.created_at AS occurred_at
       FROM support_messages sm
       JOIN support_conversations sc ON sc.conversation_id = sm.conversation_id
       JOIN users u ON u.user_id = sc.user_id AND u.deleted_at IS NULL
-      WHERE sm.sender_role = 'USER' AND sm.message_id > ?
+      WHERE sm.sender_role = 'USER' AND sm.message_id > ? AND sm.message_id <= ?
       GROUP BY sm.conversation_id
+      ORDER BY last_id DESC LIMIT ${bootstrapLimit}
     `,
     )
-      .bind(afterSupportMessage)
+      .bind(afterSupportMessage, nextCursor.support_message_id)
       .all<{
         conversation_id: number;
         content: string;
         user_name: string | null;
         cnt: number;
         last_id: number;
+        occurred_at: string;
       }>();
     for (const row of supportMessages.results) {
       items.push({
         event_id: `support:${row.last_id}`,
+        occurred_at: row.occurred_at,
         type: "support",
         title: row.user_name ?? "고객 문의",
         body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
@@ -2790,19 +2994,20 @@ app.get("/api/users/:id/notifications", async (c) => {
 
     const ownerApplications = await c.env.DB.prepare(
       `
-      SELECT a.application_id, u.nickname, s.name AS store_name
+      SELECT a.application_id, u.nickname, s.name AS store_name, a.applied_at AS occurred_at
       FROM store_owner_applications a
       JOIN users u ON u.user_id = a.user_id AND u.deleted_at IS NULL
       JOIN stores s ON s.store_id = a.store_id
-      WHERE a.status = 'PENDING' AND a.application_id > ?
-      ORDER BY a.application_id
+      WHERE a.status = 'PENDING' AND a.application_id > ? AND a.application_id <= ?
+      ORDER BY a.application_id ${isBootstrap ? "DESC" : "ASC"} LIMIT ${bootstrapLimit}
     `,
     )
-      .bind(afterOwnerApplication)
-      .all<{ application_id: number; nickname: string | null; store_name: string | null }>();
+      .bind(afterOwnerApplication, nextCursor.owner_application_id)
+      .all<{ application_id: number; nickname: string | null; store_name: string | null; occurred_at: string }>();
     for (const row of ownerApplications.results) {
       items.push({
         event_id: `owner_application:${row.application_id}`,
+        occurred_at: row.occurred_at,
         type: "owner_application",
         title: "새 가게 등록 요청",
         body: `${row.nickname ?? "사장님"} · ${row.store_name ?? "가게"}`,
@@ -2813,19 +3018,21 @@ app.get("/api/users/:id/notifications", async (c) => {
     const supportReplies = await c.env.DB.prepare(
       `
       SELECT sm.conversation_id, sm.content,
-             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id
+             COUNT(*) AS cnt, MAX(sm.message_id) AS last_id, sm.created_at AS occurred_at
       FROM support_messages sm
       JOIN support_conversations sc ON sc.conversation_id = sm.conversation_id
         AND sc.user_id = ?
-      WHERE sm.sender_role = 'ADMIN' AND sm.message_id > ?
+      WHERE sm.sender_role = 'ADMIN' AND sm.message_id > ? AND sm.message_id <= ?
       GROUP BY sm.conversation_id
+      ORDER BY last_id DESC LIMIT ${bootstrapLimit}
     `,
     )
-      .bind(userId, afterSupportMessage)
-      .all<{ conversation_id: number; content: string; cnt: number; last_id: number }>();
+      .bind(userId, afterSupportMessage, nextCursor.support_message_id)
+      .all<{ conversation_id: number; content: string; cnt: number; last_id: number; occurred_at: string }>();
     for (const row of supportReplies.results) {
       items.push({
         event_id: `support:${row.last_id}`,
+        occurred_at: row.occurred_at,
         type: "support",
         title: "맡겨멍 고객센터",
         body: row.cnt > 1 ? `${row.content} 외 ${row.cnt - 1}건` : row.content,
@@ -2834,7 +3041,30 @@ app.get("/api/users/:id/notifications", async (c) => {
     }
   }
 
-  return c.json({ notifications: items, cursor: nextCursor });
+  // 운영자 PENDING 조회 분기와 독립: 관리자 겸직 신청자도 자기 거절을 받는다.
+  const rejectionEvents = await c.env.DB.prepare(
+    `SELECT rejection_id, application_id, store_name, created_at AS occurred_at
+     FROM owner_application_rejections
+     WHERE user_id = ? AND rejection_id > ? AND rejection_id <= ?
+     ORDER BY rejection_id ${isBootstrap ? "DESC" : "ASC"} LIMIT ${bootstrapLimit}`,
+  ).bind(userId, afterOwnerApplicationRejection, nextCursor.owner_application_rejection_id)
+    .all<{ rejection_id: number; application_id: number; store_name: string; occurred_at: string }>();
+  for (const row of rejectionEvents.results) {
+    items.push({
+      event_id: `owner_application_rejected:${row.rejection_id}`,
+      occurred_at: row.occurred_at,
+      type: "owner_application_rejected",
+      title: "가게 등록 요청이 거절되었어요",
+      body: `${row.store_name} · 내 가게에서 신청 내역을 확인해 주세요.`,
+      application_id: row.application_id,
+      store_name: row.store_name,
+    });
+  }
+
+  if (isBootstrap) items.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)
+    || Number(b.event_id.split(":")[1]) - Number(a.event_id.split(":")[1]));
+  const notifications = (isBootstrap ? items.slice(0, 100).reverse() : items).map(({ occurred_at, ...item }) => item);
+  return c.json({ notifications, cursor: nextCursor, is_bootstrap: isBootstrap });
 });
 
 // MARK: - 펫 특화 리뷰 (공공데이터 가게용, store_key = "이름|주소")
@@ -3246,6 +3476,16 @@ app.post("/api/auth/dev", async (c) => {
   );
 });
 
+// 기존 세션 복원 시에도 로컬 캐시 대신 현재 계정의 서버 프로필을 읽는다.
+app.get("/api/auth/me", async (c) => {
+  const user = await c.env.DB.prepare(
+    `SELECT user_id, nickname, email, phone, address
+     FROM users WHERE user_id = ? AND deleted_at IS NULL`,
+  ).bind(c.get("authUserId")).first();
+  if (!user) return c.json({ message: "user not found" }, 404);
+  return c.json(user);
+});
+
 app.post("/api/auth/logout", async (c) => {
   await c.env.DB.prepare(`DELETE FROM auth_sessions WHERE token_hash = ?`)
     .bind(c.get("authTokenHash"))
@@ -3340,12 +3580,14 @@ app.delete("/api/users/:id/account", async (c) => {
        )`,
     ).bind(userId),
     c.env.DB.prepare(`DELETE FROM support_conversations WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(`DELETE FROM owner_application_rejections WHERE user_id = ?`).bind(userId),
     c.env.DB.prepare(`DELETE FROM favorites WHERE user_id = ?`).bind(userId),
+    // The pet deletion trigger queues private R2 photos in this same transaction.
     c.env.DB.prepare(`DELETE FROM pets WHERE user_id = ?`).bind(userId),
 
     // 거래·후기 이력은 개인정보와 연결되지 않도록 익명화해 최소 정보만 보존한다.
     c.env.DB.prepare(
-      `UPDATE reservations SET request_message = NULL WHERE user_id = ?`,
+      `UPDATE reservations SET request_message = NULL, booking_snapshot = NULL WHERE user_id = ?`,
     ).bind(userId),
     c.env.DB.prepare(
       `UPDATE pet_reviews
@@ -3389,7 +3631,7 @@ app.delete("/api/users/:id/account", async (c) => {
   return c.json({ ok: true, deleted_at: deletedAt });
 });
 
-// 유저 프로필 수정 (닉네임, 전화번호, 주소)
+// 유저 프로필 수정 (닉네임, 이메일, 전화번호, 주소)
 app.put("/api/users/:id", async (c) => {
   const userId = Number(c.req.param("id"));
   if (!sameUser(c.get("authUserId"), userId))
@@ -3399,6 +3641,17 @@ app.put("/api/users/:id", async (c) => {
 
   const fields: string[] = [];
   const values: unknown[] = [];
+
+  // 선택 입력: 생략은 유지, null/빈 값은 삭제. 형식 검사이며 메일 소유 인증은 아니다.
+  if (body.email !== undefined) {
+    if (body.email !== null && typeof body.email !== "string")
+      return c.json({ code: "INVALID_EMAIL", message: "invalid email" }, 400);
+    const email = body.email?.trim() ?? "";
+    if (email.length > 254 || (email !== "" && !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)))
+      return c.json({ code: "INVALID_EMAIL", message: "invalid email" }, 400);
+    fields.push("email = ?");
+    values.push(email || null);
+  }
 
   if (body.nickname !== undefined) { fields.push("nickname = ?"); values.push(body.nickname); }
   if (body.phone !== undefined)    { fields.push("phone = ?");    values.push(body.phone); }
@@ -3434,7 +3687,9 @@ app.post("/api/users/:id/pets", async (c) => {
 
   if (!body.name) return c.json({ message: "name is required" }, 400);
 
-  const imageUrl = (body.image_url ?? body.imageUrl ?? "").trim() || null;
+  const rawImageUrl = body.image_url ?? body.imageUrl ?? "";
+  if (typeof rawImageUrl !== "string") return c.json({ message: "invalid pet image" }, 400);
+  const imageUrl = rawImageUrl.trim() || null;
   if (
     imageUrl &&
     (!/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageUrl) ||
@@ -3468,7 +3723,127 @@ app.post("/api/users/:id/pets", async (c) => {
   return c.json(created, 201);
 });
 
-// 강아지 삭제
+// The pet-account endpoint remains owner-only; stores use the scoped confirmed-reservation GET below.
+// Keep the bucket private: the DB contains a relative authenticated path, never an R2 URL.
+app.put("/api/pets/:petId/photo", async (c) => {
+  const petId = Number(c.req.param("petId"));
+  const pet = await c.env.DB.prepare(`SELECT user_id FROM pets WHERE pet_id = ?`)
+    .bind(petId).first<{ user_id: number }>();
+  if (!pet) return c.json({ message: "pet not found" }, 404);
+  if (!sameUser(c.get("authUserId"), pet.user_id)) return c.json({ message: "forbidden" }, 403);
+  if ((c.req.header("Content-Type") ?? "").split(";", 1)[0].trim().toLowerCase() !== "image/jpeg")
+    return c.json({ message: "image/jpeg is required" }, 400);
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength > MAX_PET_PHOTO_BYTES) return c.json({ message: "photo too large" }, 413);
+  if (!hasJpegStructure(bytes)) return c.json({ message: "invalid JPEG" }, 400);
+
+  const r2Key = `pet-photos/${pet.user_id}/${petId}/${crypto.randomUUID()}.jpg`;
+  const imagePath = `/api/pets/${petId}/photo`;
+  // A crash after R2 put is recoverable by the scheduled cleanup, even before DB commit.
+  await c.env.DB.prepare(
+    `INSERT INTO diary_photo_deletion_queue (r2_key, available_at) VALUES (?, datetime('now', '+1 hour'))`,
+  ).bind(r2Key).run();
+  try {
+    await c.env.DIARY_PHOTOS.put(r2Key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+    const [, saved] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key)
+         SELECT r2_key FROM pet_photos WHERE pet_id = ?`,
+      ).bind(petId),
+      c.env.DB.prepare(
+        `INSERT INTO pet_photos (pet_id, r2_key)
+         SELECT pet_id, ? FROM pets WHERE pet_id = ? AND user_id = ?
+         ON CONFLICT(pet_id) DO UPDATE SET r2_key = excluded.r2_key, updated_at = CURRENT_TIMESTAMP`,
+      ).bind(r2Key, petId, pet.user_id),
+      c.env.DB.prepare(
+        `UPDATE pets SET image_url = ? WHERE pet_id = ? AND user_id = ?
+         AND EXISTS (SELECT 1 FROM pet_photos WHERE pet_id = ? AND r2_key = ?)`,
+      ).bind(imagePath, petId, pet.user_id, petId, r2Key),
+      c.env.DB.prepare(
+        `DELETE FROM diary_photo_deletion_queue WHERE r2_key = ?
+         AND EXISTS (SELECT 1 FROM pet_photos WHERE r2_key = ?)`,
+      ).bind(r2Key, r2Key),
+    ]);
+    if ((saved.meta.changes ?? 0) === 0) {
+      await c.env.DB.prepare(`UPDATE diary_photo_deletion_queue SET available_at = CURRENT_TIMESTAMP WHERE r2_key = ?`)
+        .bind(r2Key).run();
+      await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+      return c.json({ message: "pet not found" }, 404);
+    }
+    await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+    return c.json({ image_url: imagePath }, 201);
+  } catch (error) {
+    // Never remove a successfully committed object if the response/connection failed later.
+    await c.env.DB.prepare(
+      `UPDATE diary_photo_deletion_queue SET available_at = CURRENT_TIMESTAMP WHERE r2_key = ?
+       AND NOT EXISTS (SELECT 1 FROM pet_photos WHERE r2_key = ?)`,
+    ).bind(r2Key, r2Key).run();
+    await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+    throw error;
+  }
+});
+
+// Read-only sharing for the REQUEST/CONFIRMED reservation's customer and ACTIVE recipient store owner.
+app.get("/api/reservations/:id/pet-photo", async (c) => {
+  const reservationId = Number(c.req.param("id"));
+  const access = await reservationAccess(c.env.DB, reservationId, c.get("authUserId"));
+  if (!access) return c.json({ message: "reservation not found" }, 404);
+  if (!["REQUEST", "CONFIRMED"].includes(access.status) || !access.isActivePartner || (!access.isCustomer && !(access.isStoreOwner && c.get("authIsOwner"))))
+    return c.json({ message: "forbidden" }, 403);
+  const pet = await c.env.DB.prepare(
+    `SELECT pp.r2_key, p.image_url FROM reservations r
+     JOIN pets p ON p.pet_id = r.pet_id AND p.user_id = r.user_id
+     LEFT JOIN pet_photos pp ON pp.pet_id = p.pet_id WHERE r.reservation_id = ?`,
+  ).bind(reservationId).first<{ r2_key: string | null; image_url: string | null }>();
+  if (!pet) return c.json({ message: "photo not found" }, 404);
+  const headers = { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+  if (pet.r2_key) {
+    const photo = await c.env.DIARY_PHOTOS.get(pet.r2_key);
+    if (!photo) return c.json({ message: "photo not found" }, 404);
+    return new Response(photo.body, { headers });
+  }
+  if (pet.image_url && validLegacyPetPhoto(pet.image_url)) {
+    try {
+      const [metadata, encoded] = pet.image_url.split(",", 2);
+      const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+      const isPNG = metadata === "data:image/png;base64";
+      return new Response(bytes, { headers: { ...headers, "Content-Type": isPNG ? "image/png" : "image/jpeg" } });
+    } catch { /* Invalid legacy data is treated as a missing image. */ }
+  }
+  return c.json({ message: "photo not found" }, 404);
+});
+
+app.get("/api/pets/:petId/photo", async (c) => {
+  const petId = Number(c.req.param("petId"));
+  const pet = await c.env.DB.prepare(
+    `SELECT p.user_id, pp.r2_key FROM pets p LEFT JOIN pet_photos pp ON pp.pet_id = p.pet_id WHERE p.pet_id = ?`,
+  ).bind(petId).first<{ user_id: number; r2_key: string | null }>();
+  if (!pet) return c.json({ message: "pet not found" }, 404);
+  if (!sameUser(c.get("authUserId"), pet.user_id)) return c.json({ message: "forbidden" }, 403);
+  if (!pet.r2_key) return c.json({ message: "photo not found" }, 404);
+  const photo = await c.env.DIARY_PHOTOS.get(pet.r2_key);
+  if (!photo) return c.json({ message: "photo not found" }, 404);
+  return new Response(photo.body, { headers: {
+    "Content-Type": "image/jpeg", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+  } });
+});
+
+app.delete("/api/pets/:petId/photo", async (c) => {
+  const petId = Number(c.req.param("petId"));
+  const pet = await c.env.DB.prepare(`SELECT user_id FROM pets WHERE pet_id = ?`)
+    .bind(petId).first<{ user_id: number }>();
+  if (!pet) return c.json({ message: "pet not found" }, 404);
+  if (!sameUser(c.get("authUserId"), pet.user_id)) return c.json({ message: "forbidden" }, 403);
+  await c.env.DB.batch([
+    c.env.DB.prepare(`INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key) SELECT r2_key FROM pet_photos WHERE pet_id = ?`).bind(petId),
+    c.env.DB.prepare(`DELETE FROM pet_photos WHERE pet_id = ?`).bind(petId),
+    c.env.DB.prepare(`UPDATE pets SET image_url = NULL WHERE pet_id = ? AND user_id = ?`).bind(petId, pet.user_id),
+  ]);
+  await drainDiaryPhotoDeletionQueueBestEffort(c.env);
+  return c.json({ ok: true });
+});
+
+// 강아지 삭제 — the DB trigger queues R2 deletion atomically with the pet deletion.
 app.delete("/api/pets/:petId", async (c) => {
   const petId = Number(c.req.param("petId"));
   const deleted = await c.env.DB.prepare(
@@ -3478,6 +3853,7 @@ app.delete("/api/pets/:petId", async (c) => {
     .run();
   if ((deleted.meta.changes ?? 0) === 0)
     return c.json({ message: "pet not found" }, 404);
+  await drainDiaryPhotoDeletionQueueBestEffort(c.env);
   return c.json({ ok: true });
 });
 
@@ -3563,7 +3939,7 @@ app.get("/api/users/:id/favorites", async (c) => {
   return c.json(results);
 });
 
-// MARK: - 보유기간 정리 + 리뷰 요청 자동 메시지 (매일 Cron Trigger)
+// MARK: - 보유기간 정리 (15분마다) + 리뷰 요청 자동 메시지 (매일 Cron Trigger)
 
 type DataRetentionResult = {
   expired_sessions: number;
@@ -3581,7 +3957,8 @@ async function enforceDataRetention(env: Bindings): Promise<DataRetentionResult>
   const expiredReservationWhere = `
     (
       status = 'CANCELED'
-      AND unixepoch(COALESCE(canceled_at, created_at)) <= unixepoch('now', '-5 years')
+      AND canceled_at IS NOT NULL
+      AND unixepoch(canceled_at) <= unixepoch('now', '-7 days')
     )
     OR
     (
@@ -3768,8 +4145,11 @@ export default {
       return;
     }
 
+    if (event.cron === DATA_RETENTION_CRON) {
+      console.log("data retention", await enforceDataRetention(env));
+    }
+
     if (event.cron === REVIEW_REQUEST_CRON) {
-      console.log("daily data retention", await enforceDataRetention(env));
       await sendReviewRequests(env.DB);
     }
   },

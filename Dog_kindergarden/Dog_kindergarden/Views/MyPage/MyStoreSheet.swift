@@ -41,6 +41,7 @@ struct MyStoreSheet: View {
                         }
                         registeredSection
                         pendingSection
+                        rejectedSection
                         searchSection
                     }
                     if let error = errorMessage {
@@ -158,6 +159,46 @@ struct MyStoreSheet: View {
                         Text("대기 중")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Color.brandOrange)
+                    }
+                    .padding(12)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(Color.brandBeigeBorder, lineWidth: 1))
+                }
+            }
+        }
+    }
+
+    // MARK: - 거절된 신청 내역
+
+    private var rejectedApplications: [StoreOwnerApplication] {
+        applications.filter { $0.status == "REJECTED" }
+    }
+
+    @ViewBuilder
+    private var rejectedSection: some View {
+        if !rejectedApplications.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("거절된 신청 내역")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.brandBrownMid)
+                ForEach(rejectedApplications) { application in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "building.2.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Color.brandOrange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(application.storeName ?? "가게")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.brandBrown)
+                            Text("가게 등록 신청이 거절되었어요.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color.brandOrange)
+                            Text("가게 정보를 확인한 뒤 아래에서 다시 신청할 수 있어요.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.brandBrownMid)
+                        }
+                        Spacer()
                     }
                     .padding(12)
                     .background(.white)

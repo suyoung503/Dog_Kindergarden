@@ -5,6 +5,7 @@ import SwiftUI
 struct MyDiaryListView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
+    @Environment(AppNotificationService.self) private var notificationService
 
     @State private var reservations: [ReservationSummary] = []
     @State private var loadPhase: AsyncLoadPhase = .idle
@@ -29,7 +30,14 @@ struct MyDiaryListView: View {
             .padding(.bottom, 24)
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task { await load() }
+        .task {
+            let updates = notificationService.updates()
+            await load()
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+                await load()
+            }
+        }
     }
 
     // MARK: - Nav
@@ -105,14 +113,11 @@ struct MyDiaryListView: View {
     // MARK: - Card
 
     private func reservationCard(_ reservation: ReservationSummary) -> some View {
-        let isHotel = (reservation.storeType ?? "") == "호텔"
         return HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(isHotel ? Color(hex: "#FFE6CC") : Color.brandGreenLight)
-                    .frame(width: 56, height: 56)
-                EmojiIcon(emoji: storeTypeEmoji(reservation.storeType), size: 28)
-            }
+            AuthenticatedPetImage(value: reservation.petImageUrl)
+                .frame(width: 56, height: 56)
+                .background(Color.brandGreenLight)
+                .clipShape(Circle())
             VStack(alignment: .leading, spacing: 4) {
                 Text(reservation.petName ?? "우리 아이")
                     .font(.system(size: 15, weight: .bold))
@@ -163,7 +168,8 @@ struct MyDiaryListView: View {
             reservationId: rid,
             petName: reservation.petName ?? "우리 아이",
             storeName: reservation.storeName ?? "가게",
-            canWrite: false
+            canWrite: false,
+            petImageUrl: reservation.petImageUrl
         )
         router.go(.diary)
     }
