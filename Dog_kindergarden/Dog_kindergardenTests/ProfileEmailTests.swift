@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import Dog_kindergarden
 
+// 같은 Keychain과 standard defaults를 쓰는 모든 인증 fixture를 함께 직렬화한다.
+@Suite("Shared authentication state", .serialized)
+struct AuthStateTests {}
+
+extension AuthStateTests {
 @Suite("Optional profile email", .serialized)
 @MainActor
 struct ProfileEmailTests {
@@ -62,4 +67,5 @@ struct ProfileEmailTests {
         UserProfile().clearAfterAccountDeletion()
         #expect(defaults.object(forKey: "profile_email") == nil)
     }
+}
 }

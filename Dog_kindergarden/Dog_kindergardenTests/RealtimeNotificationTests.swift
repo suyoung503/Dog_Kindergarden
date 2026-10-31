@@ -3,6 +3,7 @@ import UIKit
 import Testing
 @testable import Dog_kindergarden
 
+extension AuthStateTests {
 @Suite("Foreground notification catchup", .serialized)
 @MainActor
 struct RealtimeNotificationTests {
@@ -177,6 +178,8 @@ struct RealtimeNotificationTests {
         let notifications = item ? #"[{"event_id":"chat:test-event","type":"chat","title":"채팅","body":"내용","room_id":7}]"# : "[]"
         return Data("{\"notifications\":\(notifications),\"cursor\":{\"message_id\":\(cursor)}}".utf8)
     }
+}
+
 }
 
 @MainActor

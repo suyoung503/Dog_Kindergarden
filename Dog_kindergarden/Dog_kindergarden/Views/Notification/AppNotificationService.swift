@@ -271,7 +271,7 @@ final class AppNotificationService: NSObject {
                 }
             } catch {
                 if isCurrent(userId: userId, token: token, generation: generation), connection.closeCode.rawValue == 4401 {
-                    APITransport.handleUnauthorized(401)
+                    APITransport.handleUnauthorized(401, request: request)
                 }
             }
             heartbeat.cancel()
@@ -357,7 +357,7 @@ final class AppNotificationService: NSObject {
               isCurrent(userId: userId, token: token, generation: generation),
               let http = response as? HTTPURLResponse else { return }
         // 이전 계정의 지연된 401이 새 계정의 토큰을 삭제하지 않게 위 검사 이후 처리한다.
-        if http.statusCode == 401 { APITransport.handleUnauthorized(401); stopConnection(); return }
+        if http.statusCode == 401 { APITransport.handleUnauthorized(401, request: request); stopConnection(); return }
         guard (200..<300).contains(http.statusCode),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rawItems = json["notifications"],
