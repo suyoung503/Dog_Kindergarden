@@ -71,7 +71,7 @@
 - [ ] App Icon 원본 제작 또는 상업적 이용 권한 증빙을 비공개로 보관
 - [ ] 네이버 플레이스에서 수집한 가격·영업시간·사진·편의정보의 운영 노출 가능 범위 확인
 - [ ] 공공데이터 원본 데이터셋명, 이용허락, 재배포·가공·출처 표시 조건 확인
-- [ ] `emoji_bone`과 `emoji_hotel`의 정확한 Flaticon 제작자·개별 출처 확인
+- [x] `emoji_bone`·`emoji_hotel`의 Google Noto Emoji 공식 원본 확인 — SHA-256 완전 일치, Flaticon 추정 정정. 앱 출처·버전별 라이선스 고지 구현(3.18절); 업스트림 README/루트 라이선스 차이는 아래 기록 유지
 - [ ] 권리가 확인되지 않은 업체 사진은 계속 숨김 처리하고 삭제하지 않음
 
 필요한 정보: 원본 에셋 출처 링크·라이선스 증빙, 사용한 공공데이터 데이터셋 링크, 필요 시 업체 또는 권리자 확인 결과.
@@ -442,6 +442,30 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 ### 3.17 2026-10-30 추가 안정화 GitHub push 요청
 
 사용자가 이번 추가 안정화 변경의 push를 명시 요청했다. `codex/release-hardening` 브랜치의16개 변경/신규 파일을 커밋하여 origin의 같은 브랜치에 올리는 범위이며 main 병합·force push·운영 배포는 포함하지 않는다. push 전 signed Simulator **141개·21suite**를 다시 실행해 통과했다(`/tmp/matgyeomung-hardening-all-tests.log`, xcresult `Test-Dog_kindergarden-2026.10.30_18-20-08-+0900.xcresult`). 변경 파일의 민감 확장자/인증정보 패턴과 diff 공백 검사도 통과했다. 실제 커밋 ID와 원격 반영은 Git 기록으로 확인한다. 아이콘 개별 출처 미확인 항목은2.4절의 `emoji_bone`·`emoji_hotel` 두 개이며, 근거 없는 제작자/URL을 추정하여 채우지 않았다.
+
+### 3.18 2026-10-31 호텔·뼈다귀 출처와 오프라인 라이선스 고지
+
+사용자가 앱 내부 출처 표기·라이선스 고지 반영을 요청했다. 기존 `오픈소스·아이콘 출처` 화면의 Flaticon7개는 유지하고 Google LLC / Noto Emoji2개를 추가한다. 전체 이미지를 Flaticon으로 표시하던 문구를 정정하고 사용한 정확한 커밋의 원본 링크를 연결한다. PNG 원본 파일은 변경하지 않는다.
+
+| 에셋 | 공식 원본 | SHA-256 |
+|---|---|---|
+| `emoji_hotel`512px | [2021 호텔 원본](https://github.com/googlefonts/noto-emoji/blob/9481ce20ef21f0c658344417901228e73aaf3480/png/512/emoji_u1f3e8.png) | `fc5bdefc90b3314c31eb43e098ed65fbda41526ae667278fda967359f98c4e16` |
+| `emoji_bone`32px | [2025 뼈다귀 원본](https://github.com/googlefonts/noto-emoji/blob/f3ae03f5e9b3b8516fa151f7168159ca1a3e7515/png/32/emoji_u1f9b4.png) | `9b6d10d14e7043e11b787a66e3f4f8463f3e60392a72863fbe36bb0ade842281` |
+
+- 두 파일 모두 공식 PNG와 바이트 단위로 완전히 일치한다. 실제 다운로드 경로를 추정한 것이 아니라 확인한 원본 리소스를 기록한다.
+- 2021 호텔 버전 루트 LICENSE는 Apache2.0이다. 2025 뼈다귀 버전은 README에 이미지 Apache2.0 안내가 남아 있지만 루트 LICENSE는 SIL OFL1.1로 바뀌어 있다. 단일 라이선스 또는 이중 라이선스 선택권으로 임의 단정하지 않고, 각 버전 링크·저작권·차이 설명과 두 LICENSE 전문을 `NotoEmojiNotices.txt`에 변경 없이 동봉한다. Noto 폰트 바이너리는 추가하지 않는다. 이 표기는 상충하는 업스트림 안내를 법률적으로 해소했다는 뜻이 아니며, 제출 전 적용 범위 확인 기록으로 유지한다.
+- 앱의 펼침 영역에서 인터넷 없이 전문을 읽고 선택/복사할 수 있다. 기존 Flaticon 라이선스 링크와 제작자7개는 유지한다.
+- 검증: 기존 출처 데이터 및 동봉 파일 누락3개를 RED로 확인했다. 앞선 signed Simulator RED 시도는 테스트 실행 준비 시간 초과로 무효이며 버그 재현 통과로 간주하지 않는다. 전용 출처/번들 테스트와 Release 재검증 결과를 아래에 추가한다. 새 MD·서버/DB·운영 배포·커밋/push는 이번 요청 범위에 포함하지 않는다.
+
+#### 3.18 검증 결과
+
+- signed 전용 iPhone17/iOS27 Simulator 전체 **144개·22suite 통과**. 추가3개는 Noto2개 정확한 원본/제작자·에셋 존재, 기존 Flaticon7개 보존, 실제 앱 번들의 오프라인 고지 내용·SHA-256을 검사했다. 로그 `/tmp/matgyeomung-attribution-all-tests.log`, xcresult `Test-Dog_kindergarden-2026.10.31_19-19-40-+0900.xcresult`.
+- 실제 Swift 출처 데이터2개 회귀도 HEAD 기준 RED3issues→현재 GREEN을 확인했다(`/tmp/matgyeomung-attribution-model-final-red.log`, `...-green.log`). macOS 임시 패키지는 UIKit 이미지·앱 번들 검사를 대체하지 않으며 해당 부분은 위 실제 앱3개 테스트로 검증했다.
+- source/파일 사전검사에서 누락3개 RED 확인 후 현재 버전 GREEN. 두 공식 LICENSE 전문이 동봉 파일에 원문 그대로 포함되고, PNG 해시는 기존과 동일하다. UI 펼침/외부 원본 링크의 실기기 직접 터치는 별도 확인 대상이다.
+- Simulator Release 빌드·앱 소스 경고/Secret/개발 메뉴·Privacy Manifest·권한 게이트 PASS(`/tmp/matgyeomung-attribution-release.log`). Release 앱에 포함된 고지 파일도 아래 SHA-256과 완전히 일치함을 확인했다. 생성한 전용 테스트 시뮬레이터는 검증 후 정리했고 기존 사용자 기기는 변경하지 않았다.
+- 앱 동봉 고지 전체 SHA-256: `b3d9d2ec566cda28de3aed4bd54bda6bea1d0dff49281c1a85df35fb35dbb7f8`. 원문 고지 `.txt` 리소스1개와 Swift 회귀 테스트를 추가했으며 신규 MD는0개다.
+
+사용자의 후속 push 승인에 따라 위3.18 변경4개 파일을 `codex/release-hardening`에 커밋·push한다. 직전 signed 전체144개/Release 통과 이후 앱 변경이 없음을 고지 파일 해시·실제 Debug/Release 번들 대조로 재확인하고, 출처 데이터 Swift RED→GREEN 및 구문·diff·인증정보 패턴 검사를 재실행했다. main 병합·운영 배포는 이번 승인 범위에 포함하지 않는다. 공식 OFL 원문에 포함된 줄 끝 공백1줄은 원문·검증 해시 보존을 위해 유지하고, 해당 고지 리소스만 줄 끝 공백 검사의 예외로 확인했다. 나머지 파일은 기본 diff 공백 검사를 통과했다. 실제 커밋 ID와 원격 반영은 Git 기록으로 확인한다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
