@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-10-30
-**기준 브랜치:** `main` (실기기 수정 병합 완료, 추가 안정화: `codex/release-hardening`)
+**기준일:** 2026-11-01
+**기준 브랜치:** `main` (안정화·출처 고지 병합 완료, 추가 채팅 안정화: `codex/chat-state-hardening`)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -466,6 +466,39 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 - 앱 동봉 고지 전체 SHA-256: `b3d9d2ec566cda28de3aed4bd54bda6bea1d0dff49281c1a85df35fb35dbb7f8`. 원문 고지 `.txt` 리소스1개와 Swift 회귀 테스트를 추가했으며 신규 MD는0개다.
 
 사용자의 후속 push 승인에 따라 위3.18 변경4개 파일을 `codex/release-hardening`에 커밋·push한다. 직전 signed 전체144개/Release 통과 이후 앱 변경이 없음을 고지 파일 해시·실제 Debug/Release 번들 대조로 재확인하고, 출처 데이터 Swift RED→GREEN 및 구문·diff·인증정보 패턴 검사를 재실행했다. main 병합·운영 배포는 이번 승인 범위에 포함하지 않는다. 공식 OFL 원문에 포함된 줄 끝 공백1줄은 원문·검증 해시 보존을 위해 유지하고, 해당 고지 리소스만 줄 끝 공백 검사의 예외로 확인했다. 나머지 파일은 기본 diff 공백 검사를 통과했다. 실제 커밋 ID와 원격 반영은 Git 기록으로 확인한다.
+
+### 3.19 2026-11-01 추가 점검 및 채팅 상태 안정화 — 코드·로컬 검증 완료
+
+사용자가 추가 앱 보완을 요청했다. report 방식의 읽기 전용 점검을 먼저 수행했으며, 이후 아래 별도 구현 계획으로 전환한다. Apple/심사/권리 증빙은 준비됐다고 추정하지 않는다. 새 제품 기능·새 MD·worktree·운영 DB/배포·커밋/push/main 병합은 이번 범위에 포함하지 않는다.
+
+- 점검 명령: `git status --short --branch`, `git log -4 --oneline`, `find . -name AGENTS.md`(의존성 제외), 기존 배포 문서·ChatRoomView/ChatService/RootView/UserProfile/프로필 저장 코드·package.json·CI 읽기, 앱/Worker/scripts의 TODO/FIXME/HACK/XXX 검색, `.gitignore` 확인. 새로운 미해결 TODO 표시는 없었다. 이것이 전체 버그·비밀정보 부재를 증명하는 것은 아니다.
+- GitHub API로 main `a1406a3`의 [Release gates #9](https://github.com/suyoung503/Dog_Kindergarden/actions/runs/41193392681) completed/success를 확인했다. 기존 추가13suite 단계도 원격 실행 통과했다.
+- 코드상 원인: ChatRoomViewModel의 조회/전송 응답에 세대·현재 세션 검사가 없고, refresh는 메시지 수만 비교한다. `send`는 `isSending`을 설정하지만 진입 가드가 없으며 실패 응답이 현재 입력을 무조건 덮는다. 읽음 처리는 await 이후 가변 user/room 문맥을 참조한다. 실제 UI에서는 방 ID 재생성이 일부 경우를 막지만 순서 역전·재설정·동일 계정 재로그인/서버 전환까지 보장하지 않는다.
+
+구현 계획(직접 순차 실행):
+1. 기존 모델에 네트워크4개와 현재 token/base 문맥을 주입할 최소 테스트 경계만 추가한다. 실서비스 기본 호출은 유지한다. 실제 Swift async gate 테스트로 오래된 조회·전송 및 중복 전송 실패를 RED 재현한다.
+2. 채팅방/사용자/가게/세션 identity와 조회 세대를 캡처하여 현재 작업만 화면/읽음 상태에 반영한다. 취소·이탈 뒤 쓰기를 중단하고, 현재401/403/404에서 기존 비공개 메시지를 지운다. 전송 중 재진입을 막고, 실패가 새 초안을 덮지 않게 한다. 전송 시작 전 조회가 늦게 와서 낙관적 전송 결과를 지우지 않게 한다.
+3. 서버 message_id 기반 안정적인 행 ID와 실제 내용 비교를 사용해 같은 개수 변경도 반영하고 불필요한 전체 재생성을 줄인다. 기존 시스템 안내·말풍선·읽음·실시간 갱신 및 첫 문의 방 생성은 유지한다. 화면 task identity/이탈 무효화와 전송 버튼 상태를 연결한다.
+4. 전용 async 테스트 → signed Simulator 전체 → Release·오프라인 출처 파일 보존·서버 회귀/취약점·운영 읽기만 검증한다. 실패를 통과로 포장하지 않고 결과/한계를 기존 문서에 통합한다. 실제 두 기기 테스트와 외부 계정 준비는 별도 수동 항목이다.
+
+#### 3.19 중간 증거
+
+- 서비스 기본 동작은 그대로 둔 최소 테스트 주입 경계로 실제 모델12개 회귀를 작성했다. 기존 구현에서 **25issues RED**(`/tmp/matgyeomung-chat-red.log`)를 확인했고, 토큰 없이 요청하는 추가 경계도 **4issues RED**(`/tmp/matgyeomung-chat-edge-red.log`)로 확인했다.
+- 현재 실제 모델 **19개 회귀 GREEN**(`/tmp/matgyeomung-chat-final-green.log`). 취소/이탈/재로그인·API 전환·순서 역전·중복 전송·첫 문의·읽음 사용자·새 초안 보존·같은 개수 변경·서버 ID 안정성·재시도/실시간 갱신 병합을 검사한다. SwiftUI task/입력/버튼 연결의 source-contract는 구조적 보조이며 실제 화면 터치 검사를 대신하지 않는다.
+- `send`가 실행 중인 동안 사용자는 다음 초안을 쓸 수 있지만 재전송 버튼/키보드 전송은 모델 가드로 차단한다. 실패 시 새 초안이 없으면 실패한 글을 복원하고 새 초안이 있으면 덮지 않는다. 실패 글의 별도 보관함/자동 재전송/서버 idempotency 키는 이번에 새로 만들지 않으며, 네트워크 단절 시 서버 접수 여부가 불명확할 수 있다는 일반 한계는 유지한다.
+
+#### 3.19 독립 리뷰와 최종 검증
+
+- 독립 리뷰에서 초기 조회 도중 전송하면 기존 조회만 폐기하고 전체 기록 복구를 누락하는 P2를 발견했다. 추가2개 실제 모델 회귀에서 **4issues RED**(`/tmp/matgyeomung-chat-review-red.log`) 후 진행 중 조회 세대를 추적하여 완료 뒤 한 번 재조회하도록 보완했다. 자동 조회 성공이 전송 실패 안내를 지우지 않게 구분했다.
+- 최종 모델 **21개 GREEN**(`/tmp/matgyeomung-chat-reviewed-green.log`). 독립 재현을 포함한 리뷰 하네스22개도 통과했고 미해결 신규 P0–P2 finding은 없다(`/tmp/matgyeomung-chat-review.txt`, `...-review-final.log`). 빈 입력에 실패 원문을 복원하는 정책은 유지한다. 사용자가 새 초안을 썼다가 지워 현재 비어 있으면 원문이 복원되는 것까지 다른 UX로 변경하지 않는다.
+- signed iPhone17/iOS27 전체 **165개·23suite 통과**(`/tmp/matgyeomung-chat-all-tests.log`, xcresult `Test-Dog_kindergarden-2026.11.01_03-57-32-+0900.xcresult`). 첫163개 검증 이후 리뷰 추가2개와 구현을 반영하여 전체를 재실행했다. XCTest·외부 도구의 기존 경고와 Release 앱 소스 경고는 구분한다.
+- 최초 Release I03이 동기 credentials 기본 콜백의 MainActor 격리 경고로 실패했다(`/tmp/matgyeomung-chat-release-actor-red.log`). 저장 프로퍼티/매개변수에 `@MainActor` 함수 타입을 명시하여 해결했고, 최종 Simulator Release/Secret·개발 메뉴·앱 소스 경고·Privacy Manifest·권한 게이트 모두 PASS(`/tmp/matgyeomung-chat-release.log`). 경고 필터를 완화하지 않았다.
+- 위 격리 타입 수정 후에도 signed 전체 **165개·23suite를 다시 통과**했다. 최종 xcresult는 `Test-Dog_kindergarden-2026.11.01_04-01-18-+0900.xcresult`이며 앞선03:57 검증과 구분한다. 실제 Release 번들의 오프라인 고지 해시도 기존 값과 일치한다.
+- 기존 서버 독립13suite 통과(`/tmp/matgyeomung-chat-server-tests.log`), 현재 의존성 audit **0건**(`/tmp/matgyeomung-chat-audit.log`), 운영 읽기 전용 **15/15** 통과(`/tmp/matgyeomung-chat-production.log`). 운영 계정/예약/사진/DB는 변경하지 않았다.
+- 사용자 Xcode/Info.plist·기존 이미지·Noto 오프라인 고지 해시·Worker 소스/마이그레이션은 보존했고 신규 MD는0개다. 실제 두 기기에서 느린 네트워크/첫 문의/전송 중 초안/방 왕복·알림 탭을 확인하는 작업은 자동 테스트와 별개로 남는다. Apple 로그인/APNs 인증·심사 계정·배포 서명·법적 권리 자료는2~3절의 미완료 상태를 유지한다.
+- 변경은 `codex/chat-state-hardening` 로컬 브랜치이며 commit/push/main 병합은 하지 않았다. 앱 수정만 있으므로 운영 서버 재배포는 불필요하며 확인에는 Xcode 최신 Run이 필요하다.
+
+사용자가 후속 push를 명시 승인했다. 위3.19 변경/신규4개 파일을 `codex/chat-state-hardening`에 커밋·push하는 범위다. push 전 실제 채팅 모델21개·UI wiring 회귀를 재실행하고(`/tmp/matgyeomung-chat-pre-push.log`), Swift 구문·diff 공백·인증정보 패턴 및 대상4개 파일 검사를 통과했다. main 병합·운영 배포는 포함하지 않는다. 실제 커밋 ID와 원격 반영은 Git 기록으로 확인한다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
