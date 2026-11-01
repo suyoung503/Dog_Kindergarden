@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
 **기준일:** 2026-11-01
-**기준 브랜치:** `main` (안정화·출처 고지 병합 완료, 추가 채팅 안정화: `codex/chat-state-hardening`)
+**기준 브랜치:** `main` (채팅 안정화 병합·포트폴리오 기록 정리)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -499,6 +499,19 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 - 변경은 `codex/chat-state-hardening` 로컬 브랜치이며 commit/push/main 병합은 하지 않았다. 앱 수정만 있으므로 운영 서버 재배포는 불필요하며 확인에는 Xcode 최신 Run이 필요하다.
 
 사용자가 후속 push를 명시 승인했다. 위3.19 변경/신규4개 파일을 `codex/chat-state-hardening`에 커밋·push하는 범위다. push 전 실제 채팅 모델21개·UI wiring 회귀를 재실행하고(`/tmp/matgyeomung-chat-pre-push.log`), Swift 구문·diff 공백·인증정보 패턴 및 대상4개 파일 검사를 통과했다. main 병합·운영 배포는 포함하지 않는다. 실제 커밋 ID와 원격 반영은 Git 기록으로 확인한다.
+
+### 3.20 2026-11-01 main 병합과 포트폴리오 회고 정리
+
+사용자는 `codex/chat-state-hardening`의 main 병합과 추가 작업의 commit/push를 요청한 뒤, 실제 개발 중 어려움·검토·해결 과정을 기존 `PORTFOLIO.md`에 정리해 달라고 추가 요청했다. 추가 작업은 이 문서 정리를 우선하며, 재현/구현하지 않은 채팅 목록 등의 보완을 해결 사례로 쓰지 않는다. 서버 배포는 포함하지 않는다.
+
+- 원격 main 확인 후 채팅 안정화 `d56c456`을 main에 병합했다(병합 커밋 `2f41c05`). 병합 직후 tree가 작업 브랜치와 완전히 일치함을 확인했다. 기존 브랜치와 다른 사용자의 worktree는 삭제하지 않았다.
+- 기존 포트폴리오1~16절의 기록은 유지하면서 오래된 설명을 현재와 구분했다. 새17~23절에 프로필 동기화, R2/크롭/사진 인가, 예약 스냅샷과 날짜, 지연401/알림장, 채팅 경합과 리뷰, 테스트/Release 한계, 원본 해시·라이선스 확인 경험을 문제→고민→해결→검증/배운 점으로 추가했다.
+- 13절을 초기 폴링에서 앱 활성 WebSocket+영속 피드로 바뀐 과정으로 갱신했다. APNs 미구현을 유지하고 BGAppRefreshTask가 원격 푸시를 대체한다고 설명하지 않았다. 이미 구현한 R2/달력을 미래 계획으로 적은 항목도 정정했다.
+- iOS 환경변수 접근의 과도한 단정, 좌표 변환 정확도 보장, 측정하지 않은 Observation 성능 우위·무료 운영 비용 표현을 정정했다. 실기기 전체 검증·운영 성과·App Store 심사 통과를 만들어 쓰지 않았다.
+- 문서23개 번호의 연속/중복, 코드 블록 짝, 저장소 내 Markdown 링크, 구현/미구현 상태를 검사했다. 앱/서버/scripts/.github tree는 `d56c456`과 동일하고 신규 MD는0개다.
+- 서버13suite는 병합 전 재검증을 통과했다(`/tmp/matgyeomung-portfolio-merge-server.log`). 병합된 main의 전체 signed Simulator와 최종 원격 반영 결과는 아래에 기록한다. 포트폴리오 변경은 별도 문서 커밋으로 저장하고 main을 push한다.
+
+최종 병합 main에서 signed Simulator **165개·23suite 재검증 통과**(`/tmp/matgyeomung-portfolio-main-tests.log`, xcresult `Test-Dog_kindergarden-2026.11.01_19-57-10-+0900.xcresult`). 추가 변경은 기존 문서2개뿐이며 앱/서버 동작은 바꾸지 않았다. 문서/공백/민감정보 검사를 거쳐 문서 커밋과 병합 커밋을 함께 origin/main에 push하며, 최종 해시는 Git 기록으로 확인한다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
