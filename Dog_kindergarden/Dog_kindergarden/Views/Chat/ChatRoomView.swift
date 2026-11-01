@@ -1,13 +1,22 @@
 import SwiftUI
 import Observation
 
-struct ChatMessage: Identifiable {
-    let id = UUID()
+struct ChatMessage: Identifiable, Equatable {
+    var id = UUID().uuidString
     let from: MessageSender
     let text: String
 }
 
-enum MessageSender { case store, me, system }
+enum MessageSender: Equatable { case store, me, system }
+
+// 최초 방 ID는 작성 모드에서 방을 생성해도 바꾸지 않는다.
+struct ChatRoomIdentity: Hashable {
+    let roomId: Int?
+    let userId: Int
+    let storeKey: String
+    let token: String?
+    let baseURL: URL
+}
 
 @Observable
 @MainActor
@@ -18,101 +27,179 @@ final class ChatRoomViewModel {
     var errorMessage: String?
 
     private(set) var roomId: Int?
-    private var myUserId = 1
+    private(set) var identity: ChatRoomIdentity?
+    private(set) var generation: UInt = 0
+    private(set) var isSending = false
+    private var loadGeneration: UInt = 0
+    private var pendingFetchGeneration: UInt?
+    private var lastFailureWasSend = false
+    private var needsRefreshAfterSending = false
     // 작성 모드용 store 컨텍스트 (roomId 없을 때 첫 전송에서 방 생성)
     private var storeKey = ""
     private var storeName = ""
     private var storeAddress = ""
 
-    func configure(roomId: Int?, userId: Int, storeKey: String, storeName: String, storeAddress: String) {
+    private let fetchMessages: (Int) async throws -> [ChatMessageDTO]
+    private let createRoom: (Int, String, String, String) async throws -> Int
+    private let postMessage: (Int, Int, String) async throws -> Void
+    private let readRoom: (Int, Int) async -> Void
+    private let credentials: @MainActor () -> (token: String?, baseURL: URL)
+
+    init(
+        fetchMessages: @escaping (Int) async throws -> [ChatMessageDTO] = { try await ChatService.messages(roomId: $0) },
+        createRoom: @escaping (Int, String, String, String) async throws -> Int = { try await ChatService.openRoom(userId: $0, storeKey: $1, storeName: $2, storeAddress: $3) },
+        postMessage: @escaping (Int, Int, String) async throws -> Void = { try await ChatService.send(roomId: $0, senderId: $1, content: $2) },
+        readRoom: @escaping (Int, Int) async -> Void = { await ChatService.markRead(roomId: $0, userId: $1) },
+        credentials: @escaping @MainActor () -> (token: String?, baseURL: URL) = { (AuthTokenStore.load(), APIEnvironment.apiBaseURL) }
+    ) {
+        self.fetchMessages = fetchMessages
+        self.createRoom = createRoom
+        self.postMessage = postMessage
+        self.readRoom = readRoom
+        self.credentials = credentials
+    }
+
+    @discardableResult
+    func configure(roomId: Int?, userId: Int, storeKey: String, storeName: String, storeAddress: String) -> UInt {
+        invalidate()
+        let current = credentials()
+        identity = ChatRoomIdentity(roomId: roomId, userId: userId, storeKey: storeKey,
+                                    token: current.token, baseURL: current.baseURL)
         self.roomId = roomId
-        self.myUserId = userId
         self.storeKey = storeKey
         self.storeName = storeName
         self.storeAddress = storeAddress
+        return generation
     }
 
-    func load() async {
-        guard let roomId else { return }   // 작성 모드는 빈 화면
-        isLoading = true
-        defer { isLoading = false }
+    func invalidate(generation expected: UInt? = nil) {
+        if let expected, expected != generation { return }
+        generation &+= 1
+        loadGeneration &+= 1
+        pendingFetchGeneration = nil
+        lastFailureWasSend = false
+        identity = nil
+        roomId = nil
+        messages = []
+        inputText = ""
+        errorMessage = nil
+        isLoading = false
+        isSending = false
+        needsRefreshAfterSending = false
+    }
+
+    func load() async { await fetch(showLoading: true) }
+
+    // WebSocket invalidation/복귀 시에도 최초 조회와 같은 요청 경계를 사용한다.
+    func refresh() async { await fetch(showLoading: false) }
+
+    private func fetch(showLoading: Bool) async {
+        let contextGeneration = generation
+        guard let identity, isCurrent(identity, generation: contextGeneration), let roomId else { return }
+        guard !isSending else { needsRefreshAfterSending = true; return }
+        loadGeneration &+= 1
+        let requestGeneration = loadGeneration
+        pendingFetchGeneration = requestGeneration
+        isLoading = showLoading
+        defer {
+            if pendingFetchGeneration == requestGeneration { pendingFetchGeneration = nil }
+            if generation == contextGeneration, loadGeneration == requestGeneration { isLoading = false }
+        }
         do {
-            let dtos = try await ChatService.messages(roomId: roomId)
-            guard !Task.isCancelled else { return }
-            messages = dtos.map(map)
-            await ChatService.markRead(roomId: roomId, userId: myUserId)
+            let dtos = try await fetchMessages(roomId)
+            guard isCurrent(identity, generation: contextGeneration), loadGeneration == requestGeneration else { return }
+            guard !isSending else { needsRefreshAfterSending = true; return }
+            let loaded = dtos.map { dto in
+                ChatMessage(id: "message:\(dto.message_id)",
+                            from: dto.sender_id == 0 ? .system : (dto.sender_id == identity.userId ? .me : .store),
+                            text: dto.content)
+            }
+            let changed = loaded != messages
+            if changed { messages = loaded }
+            if !lastFailureWasSend { errorMessage = nil }
+            if showLoading || changed { await readRoom(roomId, identity.userId) }
         } catch {
-            guard !Task.isCancelled else { return }
-            errorMessage = "메시지를 불러오지 못했어요."
+            guard isCurrent(identity, generation: contextGeneration), loadGeneration == requestGeneration,
+                  !Self.isCancellation(error) else { return }
+            if Self.isAccessFailure(error) { messages = [] }
+            lastFailureWasSend = false
+            errorMessage = "메시지를 불러오지 못했어요. 연결 또는 채팅방 접근 권한을 확인해 주세요."
         }
     }
-
-    // 상대가 보낸 새 메시지는 WebSocket invalidation/복귀 catchup으로 다시 읽는다.
-    func refresh() async {
-        guard let roomId else { return }
-        guard !isSending else { needsRefreshAfterSending = true; return }
-        guard let dtos = try? await ChatService.messages(roomId: roomId) else { return }
-        guard !Task.isCancelled else { return }
-        guard !isSending else { needsRefreshAfterSending = true; return }
-        if dtos.count != messages.count {
-            messages = dtos.map(map)
-            // 방을 보고 있는 중에 도착한 메시지도 바로 읽음 처리
-            await ChatService.markRead(roomId: roomId, userId: myUserId)
-        }
-    }
-
-    private var isSending = false
-    private var needsRefreshAfterSending = false
 
     func send() async {
+        let contextGeneration = generation
+        guard let identity, isCurrent(identity, generation: contextGeneration), !isSending else { return }
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         inputText = ""
         errorMessage = nil
+        lastFailureWasSend = false
         isSending = true
+        if pendingFetchGeneration != nil { needsRefreshAfterSending = true }
+        // 전송 전에 시작된 조회는 새 말풍선을 모르는 스냅샷일 수 있다.
+        loadGeneration &+= 1
+        isLoading = false
         defer {
-            isSending = false
-            if needsRefreshAfterSending {
-                needsRefreshAfterSending = false
-                Task { await refresh() }
+            if generation == contextGeneration, self.identity == identity {
+                isSending = false
+                if needsRefreshAfterSending, !Task.isCancelled {
+                    needsRefreshAfterSending = false
+                    Task {
+                        guard self.isCurrent(identity, generation: contextGeneration) else { return }
+                        await self.refresh()
+                    }
+                }
             }
         }
 
-        // 작성 모드 첫 전송: 방 생성 → 전송 → 전체 로드(이전/시스템 메시지 포함)
-        if roomId == nil {
-            do {
-                let rid = try await ChatService.openRoom(
-                    userId: myUserId, storeKey: storeKey,
-                    storeName: storeName, storeAddress: storeAddress
-                )
-                roomId = rid
-                try await ChatService.send(roomId: rid, senderId: myUserId, content: trimmed)
-                await load()
-            } catch {
-                errorMessage = "전송에 실패했어요."
-                inputText = trimmed
-            }
-            return
-        }
-
-        guard let roomId else { return }
-        // 낙관적 추가 후 전송, 실패 시 롤백
-        let optimistic = ChatMessage(from: .me, text: trimmed)
-        messages.append(optimistic)
+        var optimisticID: String?
         do {
-            try await ChatService.send(roomId: roomId, senderId: myUserId, content: trimmed)
+            if roomId == nil {
+                let rid = try await createRoom(identity.userId, storeKey, storeName, storeAddress)
+                guard isCurrent(identity, generation: contextGeneration) else { return }
+                roomId = rid
+            }
+            guard let roomId, isCurrent(identity, generation: contextGeneration) else { return }
+            let optimistic = ChatMessage(from: .me, text: trimmed)
+            optimisticID = optimistic.id
+            messages.append(optimistic)
+            try await postMessage(roomId, identity.userId, trimmed)
+            guard isCurrent(identity, generation: contextGeneration) else { return }
+            if identity.roomId == nil { needsRefreshAfterSending = true }
         } catch {
-            messages.removeAll { $0.id == optimistic.id }
-            errorMessage = "전송에 실패했어요."
-            inputText = trimmed
+            guard isCurrent(identity, generation: contextGeneration), !Self.isCancellation(error) else { return }
+            if Self.isAccessFailure(error) { messages = [] }
+            else if let optimisticID { messages.removeAll { $0.id == optimisticID } }
+            lastFailureWasSend = true
+            errorMessage = "전송에 실패했어요. 다시 시도해주세요."
+            // 기다리는 동안 작성한 다음 초안을 실패한 이전 글로 덮지 않는다.
+            if inputText.isEmpty { inputText = trimmed }
         }
     }
 
-    private func map(_ dto: ChatMessageDTO) -> ChatMessage {
-        // 자동메시지(sender 0)는 화자 없는 시스템 안내 — 양쪽 시점 모두 중앙 안내문
-        if dto.sender_id == 0 { return ChatMessage(from: .system, text: dto.content) }
-        return ChatMessage(from: dto.sender_id == myUserId ? .me : .store, text: dto.content)
+    private func isCurrent(_ expected: ChatRoomIdentity, generation expectedGeneration: UInt) -> Bool {
+        guard !Task.isCancelled, generation == expectedGeneration, identity == expected else { return false }
+        let current = credentials()
+        guard expected.userId > 0, let token = expected.token, !token.isEmpty,
+              current.token == token, current.baseURL == expected.baseURL else {
+            invalidate(generation: expectedGeneration)
+            return false
+        }
+        return true
     }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    private static func isAccessFailure(_ error: Error) -> Bool {
+        switch error as? APIError {
+        case .httpStatus(let status), .server(let status, _, _): return [401, 403, 404].contains(status)
+        default: return false
+        }
+    }
+
 }
 
 struct ChatRoomView: View {
@@ -122,6 +209,20 @@ struct ChatRoomView: View {
     @State private var vm = ChatRoomViewModel()
     @State private var didInitialScroll = false
     @State private var messageListWidth: CGFloat = 0
+
+    private var chatIdentity: ChatRoomIdentity? {
+        guard let uid = authSession.userId else { return nil }
+        return ChatRoomIdentity(roomId: router.selectedRoomId, userId: uid,
+                                storeKey: router.selectedPin?.storeKey ?? "",
+                                token: AuthTokenStore.load(), baseURL: APIEnvironment.apiBaseURL)
+    }
+
+    private var displayedMessages: [ChatMessage] { vm.identity == chatIdentity ? vm.messages : [] }
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { vm.identity == chatIdentity ? vm.inputText : "" },
+                set: { if vm.identity == chatIdentity { vm.inputText = $0 } })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -139,29 +240,42 @@ struct ChatRoomView: View {
             inputBar
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task {
+        .task(id: chatIdentity) {
+            guard !Task.isCancelled, let identity = chatIdentity else { return }
             let updates = notificationService.updates()
-            // 미로그인 폴백(?? 1)은 user 1 데이터 혼입 위험이 있어 두지 않는다 — 이 화면은 로그인 후에만 진입
-            guard let uid = authSession.userId else { return }
             let pin = router.selectedPin
-            vm.configure(
-                roomId: router.selectedRoomId,
-                userId: uid,
-                storeKey: pin?.storeKey ?? "",
-                storeName: router.selectedChat,
+            let generation = vm.configure(
+                roomId: identity.roomId, userId: identity.userId,
+                storeKey: identity.storeKey, storeName: router.selectedChat,
                 storeAddress: pin?.address ?? ""
             )
-            notificationService.activeRoomId = router.selectedRoomId
+            didInitialScroll = false
+            defer {
+                let ownsContext = vm.generation == generation
+                let closingRoom = vm.roomId
+                vm.invalidate(generation: generation)
+                if ownsContext, let closingRoom, notificationService.activeRoomId == closingRoom {
+                    notificationService.activeRoomId = nil
+                }
+            }
+            notificationService.activeRoomId = identity.roomId
             await vm.load()
             for await _ in updates {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, chatIdentity == identity else { return }
                 await vm.refresh()
             }
         }
-        .onChange(of: vm.roomId) { _, roomId in notificationService.activeRoomId = roomId }
+        .onChange(of: vm.roomId) { _, roomId in
+            guard vm.identity != nil, vm.identity == chatIdentity else { return }
+            notificationService.activeRoomId = roomId
+        }
         .onDisappear {
-            // 다른 방 알림 탭으로 새 화면이 먼저 열린 경우 이전 방이 새 열람 상태를 지우지 않는다.
-            if notificationService.activeRoomId == vm.roomId { notificationService.activeRoomId = nil }
+            let closingRoom = vm.roomId
+            vm.invalidate()
+            // 먼저 열린 다른 방의 열람 상태는 이전 화면이 지우지 않는다.
+            if let closingRoom, notificationService.activeRoomId == closingRoom {
+                notificationService.activeRoomId = nil
+            }
         }
     }
 
@@ -207,10 +321,10 @@ struct ChatRoomView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 8) {
-                    if vm.isLoading && vm.messages.isEmpty {
+                    if vm.isLoading && displayedMessages.isEmpty {
                         ProgressView().padding(.top, 40)
                     }
-                    ForEach(vm.messages) { msg in
+                    ForEach(displayedMessages) { msg in
                         messageBubble(msg)
                             .id(msg.id)
                     }
@@ -220,7 +334,7 @@ struct ChatRoomView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
             }
-            .onChange(of: vm.messages.count) { _, _ in
+            .onChange(of: displayedMessages.last?.id) { _, _ in
                 // 방 진입 시 첫 로드는 즉시 이동, 이후 새 메시지 도착 시에만 애니메이션
                 if didInitialScroll {
                     withAnimation { proxy.scrollTo(bottomAnchorId, anchor: .bottom) }
@@ -305,29 +419,44 @@ struct ChatRoomView: View {
 
     // MARK: - Input
 
+    private func sendMessage() {
+        guard let expected = chatIdentity, vm.identity == expected else { return }
+        let generation = vm.generation
+        Task {
+            guard vm.generation == generation, vm.identity == expected, chatIdentity == expected else { return }
+            await vm.send()
+        }
+    }
+
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("메시지를 입력해주세요", text: $vm.inputText)
+            TextField("메시지를 입력해주세요", text: draftBinding)
                 .font(.system(size: 13))
                 .submitLabel(.send)
-                .onSubmit { Task { await vm.send() } }
+                .onSubmit(sendMessage)
             .padding(.horizontal, 16)
             .frame(height: 40)
             .background(Color.brandCream.ignoresSafeArea())
             .clipShape(Capsule())
             .overlay(Capsule().stroke(Color.brandBeigeBorder, lineWidth: 1))
 
-            Button(action: { Task { await vm.send() } }) {
+            Button(action: sendMessage) {
                 ZStack {
                     Circle()
                         .fill(Color.brandOrange)
                         .frame(width: 40, height: 40)
                         .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white)
+                    if vm.isSending {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                    }
                 }
             }
+            .disabled(vm.isSending || vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.identity != chatIdentity)
+            .accessibilityLabel(vm.isSending ? "메시지 전송 중" : "메시지 보내기")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
