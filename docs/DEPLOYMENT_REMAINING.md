@@ -513,6 +513,15 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 
 최종 병합 main에서 signed Simulator **165개·23suite 재검증 통과**(`/tmp/matgyeomung-portfolio-main-tests.log`, xcresult `Test-Dog_kindergarden-2026.11.01_19-57-10-+0900.xcresult`). 추가 변경은 기존 문서2개뿐이며 앱/서버 동작은 바꾸지 않았다. 문서/공백/민감정보 검사를 거쳐 문서 커밋과 병합 커밋을 함께 origin/main에 push하며, 최종 해시는 Git 기록으로 확인한다.
 
+### 3.21 2026-11-01 중복 문서 대조·정리
+
+- 문서 기준 경로는 `/Users/suyoung/Documents/Dog_Kindergarden`이다. 이전 `ci-audit-fix` worktree와 프로젝트 문서 전체를 대조했다. 별도 `Dog_Kindergarden_archive`에는 과거 크롤링 결과 압축파일만 있어 그대로 보존했다.
+- 앞서 통합한 `docs/PORTFOLIO.md`는 과거본의 유효한 회고를 최신본에 추가한 상태를 유지했다. 나머지 이전 문서16개는10개가 바이트 단위로 같고6개는 내용이 달랐다. `ARCHITECTURE.md`, `FEATURES.md`를 포함한6개를 검토한 결과, 유효한 기존 내용은 최신 설명에 이미 반영되어 추가 복사는 필요하지 않았다. 과거 폴링 방식·사진 제한·취소 예약 보관 정책·해결된 아이콘 출처 경고를 최신 내용에 덮어쓰지 않았다.
+- 이전 문서16개를 압축 백업하고 파일별 SHA-256과 백업 원문을 대조한 뒤 해당 사본만 삭제했다. 앞서 정리한 포트폴리오를 합치면 이전 문서17개 사본을 정리한 것이다. 이전 worktree 자체와 소스·설정·에셋·의존성은 삭제하지 않았다.
+- 최신 프로젝트 문서17개와 용도가 다른5개 `README.md`는 모두 유지했다. 고유한 내부 작업 기록3개와 앱의 `NotoEmojiNotices.txt` 라이선스 고지도 보존했다. 새 프로젝트 MD 파일은 만들지 않았다.
+- 복구 자료와 파일별 판단·해시는 `/private/tmp/matgyeomung-docs-unify-20261101/`의 압축파일2개와 `consolidation-manifest.json`에 저장했다. 이전 포트폴리오 원문은 `/private/tmp/matgyeomung-portfolio-unify-20261101/`에 별도 보존되어 있다. 임시 경로 백업은 OS 정리 대상일 수 있으며 Git 이력도 유지한다.
+- 문서 정리 단계에는 앱·서버·DB 동작 변경, 운영 배포, commit/push를 포함하지 않았다. 2026-11-02 후속 요청으로 통합 포트폴리오와 이 정리 기록만 commit·push한다. 이전 worktree 자체 제거는 포함하지 않는다.
+
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
 - [x] Cloudflare R2 기반 알림장 다중 사진 업로드·삭제·보유기간 관리 — 비공개 버킷·최대 3장·권한 검사·탈퇴/보유기간 정리 구현
