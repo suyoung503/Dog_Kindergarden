@@ -852,17 +852,18 @@ async function resolveStoreId(
   const storeKey = (opts.storeKey ?? "").trim();
   if (!storeKey) return 1;
 
-  const existing = await db
-    .prepare(`SELECT store_id FROM stores WHERE store_key = ?`)
-    .bind(storeKey)
-    .first<{ store_id: number }>();
+  const lookup = db.prepare(`SELECT store_id FROM stores WHERE store_key = ? ORDER BY store_id LIMIT 1`).bind(storeKey);
+  const existing = await lookup.first<{ store_id: number }>();
   if (existing) return existing.store_id;
 
-  const ins = await db
-    .prepare(`INSERT INTO stores (name, address, store_key) VALUES (?, ?, ?)`)
-    .bind(opts.storeName ?? "", opts.storeAddress ?? "", storeKey)
-    .run();
-  return Number(ins.meta.last_row_id);
+  // 조회 사이에 다른 요청이 같은 가게를 만들더라도 INSERT 한 문장에서 재검사한다.
+  const [, canonical] = await db.batch([
+    db.prepare(`INSERT INTO stores (name, address, store_key)
+      SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM stores WHERE store_key = ?)`)
+      .bind(opts.storeName ?? "", opts.storeAddress ?? "", storeKey, storeKey),
+    lookup,
+  ]);
+  return Number(canonical.results[0].store_id);
 }
 
 // (user_id, store_id) 방 조회 → 없으면 생성(자동 번호)
@@ -871,17 +872,16 @@ async function getOrCreateRoom(
   userId: number,
   storeId: number,
 ): Promise<number> {
-  const room = await db
-    .prepare(`SELECT room_id FROM chat_rooms WHERE user_id = ? AND store_id = ?`)
-    .bind(userId, storeId)
-    .first<{ room_id: number }>();
+  const lookup = db.prepare(`SELECT room_id FROM chat_rooms WHERE user_id = ? AND store_id = ?`).bind(userId, storeId);
+  const room = await lookup.first<{ room_id: number }>();
   if (room) return room.room_id;
 
-  const insRoom = await db
-    .prepare(`INSERT INTO chat_rooms (user_id, store_id) VALUES (?, ?)`)
-    .bind(userId, storeId)
-    .run();
-  return Number(insRoom.meta.last_row_id);
+  const [, canonical] = await db.batch([
+    db.prepare(`INSERT INTO chat_rooms (user_id, store_id) VALUES (?, ?)
+      ON CONFLICT(user_id, store_id) DO NOTHING`).bind(userId, storeId),
+    lookup,
+  ]);
+  return Number(canonical.results[0].room_id);
 }
 
 // 조회 전용: store가 있어야 방을 찾고, 없으면 null. 쓰기 없음.
@@ -1212,18 +1212,10 @@ app.post("/api/stores/claim", async (c) => {
     });
   }
 
-  const otherPending = await c.env.DB.prepare(
-    `SELECT application_id FROM store_owner_applications
-     WHERE store_id = ? AND status = 'PENDING' LIMIT 1`,
-  )
-    .bind(storeId)
-    .first<{ application_id: number }>();
-  if (otherPending)
-    return c.json({ message: "store approval is already pending" }, 409);
-
-  const [inserted] = await c.env.DB.batch([
+  const [inserted, , pending] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO store_owner_applications (user_id, store_id) VALUES (?, ?)`,
+      `INSERT OR IGNORE INTO store_owner_applications (user_id, store_id)
+       SELECT ?, store_id FROM stores WHERE store_id = ? AND owner_id IS NULL`,
     ).bind(userId, storeId),
     c.env.DB.prepare(
       `UPDATE stores SET partner_status = 'PENDING',
@@ -1231,15 +1223,22 @@ app.post("/api/stores/claim", async (c) => {
                          partner_approved_by = NULL
        WHERE store_id = ? AND owner_id IS NULL`,
     ).bind(storeId),
+    c.env.DB.prepare(
+      `SELECT application_id, status FROM store_owner_applications
+       WHERE user_id = ? AND store_id = ? AND status = 'PENDING' LIMIT 1`,
+    ).bind(userId, storeId),
   ]);
+  const application = pending.results[0];
+  if (!application)
+    return c.json({ message: "store approval state changed" }, 409);
   return c.json(
     {
-      application_id: inserted.meta.last_row_id,
+      application_id: application.application_id,
       store_id: storeId,
       owner_id: null,
       status: "PENDING",
     },
-    201,
+    inserted.meta.changes ? 201 : 200,
   );
 });
 
@@ -1525,23 +1524,21 @@ app.post("/api/reservations", async (c) => {
       .run();
   }
 
-  // 3) 예약 INSERT
-  const result = await c.env.DB.prepare(
-    `
-    INSERT INTO reservations (user_id, pet_id, store_id, store_name, start_date, end_date, reservation_type, status, request_message, booking_snapshot)
-    SELECT u.user_id, p.pet_id, ?, ?, ?, ?, ?, 'REQUEST', ?,
-           json_object(
-             'user_name', u.nickname,
-             'user_phone', CASE WHEN ? THEN u.phone ELSE ? END,
-             'user_address', CASE WHEN ? THEN u.address ELSE ? END,
-             'pet_name', p.name, 'pet_breed', p.breed, 'pet_age', p.age,
-             'pet_weight', p.weight, 'pet_gender', p.gender, 'pet_note', p.note
-           )
-    FROM users u JOIN pets p ON p.user_id = u.user_id
-    WHERE u.user_id = ? AND p.pet_id = ? AND u.deleted_at IS NULL
-  `,
-  )
-    .bind(
+  // 3) 예약과 접수 안내는 한 트랜잭션으로 저장한다.
+  const [result] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO reservations (user_id, pet_id, store_id, store_name, start_date, end_date, reservation_type, status, request_message, booking_snapshot)
+       SELECT u.user_id, p.pet_id, ?, ?, ?, ?, ?, 'REQUEST', ?,
+              json_object(
+                'user_name', u.nickname,
+                'user_phone', CASE WHEN ? THEN u.phone ELSE ? END,
+                'user_address', CASE WHEN ? THEN u.address ELSE ? END,
+                'pet_name', p.name, 'pet_breed', p.breed, 'pet_age', p.age,
+                'pet_weight', p.weight, 'pet_gender', p.gender, 'pet_note', p.note
+              )
+       FROM users u JOIN pets p ON p.user_id = u.user_id
+       WHERE u.user_id = ? AND p.pet_id = ? AND u.deleted_at IS NULL`,
+    ).bind(
       storeId,
       storeName,
       startDate,
@@ -1554,22 +1551,17 @@ app.post("/api/reservations", async (c) => {
       body.guardian_address ?? null,
       userId,
       petId,
-    )
-    .run();
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
+       SELECT ?, 0, '맡겨멍', 'AUTO', '예약 요청이 완료되었습니다.', 'reservation_submitted', last_insert_rowid()
+       WHERE changes() = 1`,
+    ).bind(roomId),
+  ]);
   if ((result.meta.changes ?? 0) === 0)
     return c.json({ message: "pet does not belong to user" }, 403);
 
   const reservationId = Number(result.meta.last_row_id ?? 1);
-
-  // 4) 확정된 방에 예약 완료 자동 메시지
-  await c.env.DB.prepare(
-    `
-    INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
-    VALUES (?, 0, '맡겨멍', 'AUTO', '예약 요청이 완료되었습니다.', 'reservation_submitted', ?)
-  `,
-  )
-    .bind(roomId, reservationId)
-    .run();
 
   return c.json(
     { reservation_id: reservationId, room_id: roomId, status: "REQUEST" },
@@ -1677,6 +1669,19 @@ type ReservationCancelBody = {
   byOwner?: boolean;
 };
 
+// batch의 바로 앞 상태 UPDATE가 성공한 경우에만 안내를 생성한다.
+// 확정/점주 취소의 같은 대상 조회를 공유하되 새 실행 계층은 만들지 않는다.
+const reservationStatusMessageInsert = `
+  INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
+  SELECT cr.room_id, 0, '맡겨멍', 'AUTO',
+         ? || COALESCE(r.store_name, s.name) || ' 예약(' || r.start_date || ')' || ?,
+         ?, r.reservation_id
+  FROM reservations r
+  LEFT JOIN stores s ON s.store_id = r.store_id
+  JOIN chat_rooms cr ON cr.user_id = r.user_id AND cr.store_id = r.store_id
+  WHERE r.reservation_id = ? AND changes() = 1
+`;
+
 app.patch("/api/reservations/:id/cancel", async (c) => {
   const reservationId = Number(c.req.param("id"));
   const body = await readJsonObject<ReservationCancelBody>(c.req, true);
@@ -1699,43 +1704,21 @@ app.patch("/api/reservations/:id/cancel", async (c) => {
   if (access.status !== "REQUEST" && access.status !== "CONFIRMED")
     return c.json({ message: "invalid reservation status" }, 409);
 
-  const canceled = await c.env.DB.prepare(
+  const cancel = c.env.DB.prepare(
     `UPDATE reservations
      SET status = 'CANCELED', canceled_at = CURRENT_TIMESTAMP, canceled_by = ?
      WHERE reservation_id = ? AND status IN ('REQUEST', 'CONFIRMED')`,
   )
-    .bind(byOwner ? "OWNER" : "USER", reservationId)
-    .run();
+    .bind(byOwner ? "OWNER" : "USER", reservationId);
+  const statements = [cancel];
+  if (byOwner) {
+    statements.push(c.env.DB.prepare(reservationStatusMessageInsert).bind(
+      "가게 사정으로 ", "이 취소되었어요. 예약 내역에서 확인해주세요", "reservation_canceled", reservationId,
+    ));
+  }
+  const [canceled] = await c.env.DB.batch(statements);
   if ((canceled.meta.changes ?? 0) === 0)
     return c.json({ message: "reservation state changed" }, 409);
-
-  if (byOwner) {
-    const target = await c.env.DB.prepare(
-      `
-      SELECT cr.room_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
-      FROM reservations r
-      LEFT JOIN stores s ON s.store_id = r.store_id
-      JOIN chat_rooms cr ON cr.user_id = r.user_id AND cr.store_id = r.store_id
-      WHERE r.reservation_id = ?
-    `,
-    )
-      .bind(reservationId)
-      .first<{ room_id: number; store_name: string; start_date: string }>();
-    if (target) {
-      await c.env.DB.prepare(
-        `
-        INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
-        VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'reservation_canceled', ?)
-      `,
-      )
-        .bind(
-          target.room_id,
-          `가게 사정으로 ${target.store_name} 예약(${target.start_date})이 취소되었어요. 예약 내역에서 확인해주세요`,
-          reservationId,
-        )
-        .run();
-    }
-  }
   return c.json({ ok: true });
 });
 
@@ -1788,41 +1771,18 @@ app.patch("/api/reservations/:id/confirm", async (c) => {
   if (access.status !== "REQUEST")
     return c.json({ message: "only requested reservations can be confirmed" }, 409);
 
-  const confirmed = await c.env.DB.prepare(
-    `UPDATE reservations
-     SET status = 'CONFIRMED', confirmed_at = CURRENT_TIMESTAMP
-     WHERE reservation_id = ? AND status = 'REQUEST'`,
-  )
-    .bind(reservationId)
-    .run();
+  const [confirmed] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE reservations
+       SET status = 'CONFIRMED', confirmed_at = CURRENT_TIMESTAMP
+       WHERE reservation_id = ? AND status = 'REQUEST'`,
+    ).bind(reservationId),
+    c.env.DB.prepare(reservationStatusMessageInsert).bind(
+      "", "이 확정되었어요. 예약 내역에서 확인해주세요", "reservation_confirmed", reservationId,
+    ),
+  ]);
   if ((confirmed.meta.changes ?? 0) === 0)
     return c.json({ message: "reservation state changed" }, 409);
-
-  const target = await c.env.DB.prepare(
-    `
-    SELECT cr.room_id, COALESCE(r.store_name, s.name) AS store_name, r.start_date
-    FROM reservations r
-    LEFT JOIN stores s ON s.store_id = r.store_id
-    JOIN chat_rooms cr ON cr.user_id = r.user_id AND cr.store_id = r.store_id
-    WHERE r.reservation_id = ?
-  `,
-  )
-    .bind(reservationId)
-    .first<{ room_id: number; store_name: string; start_date: string }>();
-  if (target) {
-    await c.env.DB.prepare(
-      `
-      INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
-      VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'reservation_confirmed', ?)
-    `,
-    )
-      .bind(
-        target.room_id,
-        `${target.store_name} 예약(${target.start_date})이 확정되었어요. 예약 내역에서 확인해주세요`,
-        reservationId,
-      )
-      .run();
-  }
   return c.json({ ok: true });
 });
 

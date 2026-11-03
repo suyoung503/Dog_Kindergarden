@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
 **기준일:** 2026-11-03
-**기준 브랜치:** `codex/photo-cleanup-index` (main 기반 구조 점검·사진 정리 인덱스 보완, 운영 미반영)
+**기준 브랜치:** `codex/concurrency-integrity` (인덱스 변경 push 후 동시성·무결성 보완, 운영 미반영)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -531,7 +531,7 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 | 우선순위 | 근거·문제 | 조치·상태 |
 |---|---|---|
 | P2 성능·읽기 비용 | `src/index.ts`의 삭제 대기 SQL이 날짜 함수를 감싼 조건을 쓰지만0027 인덱스는 원본 `available_at`에만 있어 `SCAN`+임시 정렬을 수행했다. | **로컬 수정·검증 완료:**0033에서 조건과 같은 표현식 인덱스로 교체. 정상 삭제·실패 보존·미래 유예·기존 NULL/ISO offset 의미를 유지한다. |
-| P2 고객센터 초안·응답 경합 | `Views/MyPage/SupportViews.swift`의 전송 실패가 `inputText = content`로 새 초안을 무조건 덮고, `reloadMessages()`가 지연 조회 결과를 문맥/세대 검사 없이 적용한다. | **미수정 후속:** 일반 채팅의 최근 보완과 같은 실패/지연 응답 시나리오를 고객센터에서도 재현하고 최소 수정할 것. 이번 인덱스 변경으로 해결됐다고 보지 않는다. |
+| P2 고객센터 초안·응답 경합 | `Views/MyPage/SupportViews.swift`의 전송 실패가 `inputText = content`로 새 초안을 무조건 덮고, `reloadMessages()`가 지연 조회 결과를 문맥/세대 검사 없이 적용한다. | 당시 인덱스 변경에서는 미수정. 이후 사용자 요청으로3.23에서 실제 실패를 재현하고 보완했다. |
 | 유지보수 | 서버 `src/index.ts` 약4,100줄에 라우트·권한·사진·피드·보유기간이 집중돼 있다. iOS는 API/화면/상태 역할이 분리돼 있으나 고객센터 등 상태 보호가 일관되지 않다. | 도메인 수정 시 응집된 기능 단위로 점진 추출한다. 파일 수만 줄이기·모든 화면 공통 거대 모델·계층 추가는 하지 않는다. 상세 판단은 ARCHITECTURE의 구조 점검 절에 기록했다. |
 | 출시 차단 | Apple 가입/Sign in with Apple/APNs 실제 연동·배포 서명·Connect 입력·심사 계정·파트너/데이터/이미지 권리·두 기기 Release 검증은 외부 계정/운영 확인이 남아 있다. | 기존2~3절 미완료 항목 유지. 이번 공개 GET 검사나 과거 Simulator 통과로 완료 처리하지 않는다. |
 
@@ -552,6 +552,41 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 수정/검증: `git switch -c codex/photo-cleanup-index`, `node scripts/test-photo-cleanup.mjs`(실패→수정 후 통과), `npm test`, `scripts/release-audit-smoke.sh --backend-only`, `npm audit --audit-level=moderate`, `node scripts/production-readonly-smoke.mjs`, `node scripts/validate-app-icon.mjs`, `node scripts/validate-privacy-declarations.mjs`, `git diff --check`. SQL 실행 실패·권한 제한과 유효한 회귀 실패는 위에 구분했다. 출시 smoke의 자세한 결과는 `/tmp/matgyeomung-release-smoke-20261103-230012/`에 남겼다.
 
 0033은 기존 행을 수정/삭제하지 않는 인덱스 교체다. 운영 적용 전에는 복구 시점과 적용 계획을 확인하고 승인을 받아야 한다. 되돌릴 경우 데이터를 복구하거나 테이블을 지울 필요 없이 이전 인덱스 정의를 복원할 수 있다. 기존 운영 서비스는 현재 스키마로 계속 동작한다. 이후 사용자의 후속 push 요청으로 이 인덱스 변경·회귀·기록을 작업 브랜치에 commit·push한다. main 병합과 운영 D1 반영은 포함하지 않는다.
+
+### 3.23 2026-11-03 동시 요청·지연 응답·데이터 무결성 보완
+
+**승인·범위:** 먼저 사용자가 요청한 이전 인덱스 변경5개 파일을 `ef09fa4`로 `origin/codex/photo-cleanup-index`에 push하고 원격 해시를 확인했다. main 병합과 운영 D1 반영은 하지 않았다. 이후 `codex/concurrency-integrity`에서 이번 검토/수정을 수행했다. 사용자 기준대로 실제 재현에서 중복·손실·잘못된 상태가 확인된 경우만 수정하고, 정상인 동시 요청을 새 결함으로 세지 않았다. 로컬 검증 이후 사용자의 후속 push 요청으로 아래 추가 변경과 회고를 이 작업 브랜치에 commit·push한다. main 병합·운영 배포·운영 D1 반영은 포함하지 않는다.
+
+| 문제·수정 전 실제 재현 | 최소 수정·결과 |
+|---|---|
+| 같은 신규 가게 claim10개→가게10개/PENDING10개 | 기존 resolveStoreId에서 단일 INSERT의 NOT EXISTS로 재검사하고 같은 batch에서 정본 ID 조회. 가게1개/PENDING1개로 수렴한다. |
+| 기존 가게 최초 신청10개→9개 UNIQUE500; 본인 조회 지연 중 같은 사용자 신청 완료 시 잘못된409 | claim 충돌 후 본인 PENDING 재조회. 중복 otherPending 사전 조회를 제거하고 원자적 쓰기/정본 조회로 판정해 같은 신청 ID를200/201로 반환한다. 다른 사용자의 신청을 돌려주지 않는다. |
+| 소유권 NULL 조회 응답 전달 중 다른 신청 승인→새 PENDING이 남음 | INSERT 시점에도 owner_id IS NULL 확인. 이미 승인된 가게에는409, 새 대기신청0건. |
+| 첫 방 동시 생성→1성공/9실패, 같은 방을 쓸 서로 다른 예약10건도1건만 저장 | 기존 getOrCreateRoom에서 ON CONFLICT DO NOTHING 후 정본 방 조회. 방1개를 공유하고 서로 다른 예약10건·안내10건 보존. |
+| 예약 생성·확정·점주 취소에서 안내 INSERT 실패→예약/상태만 남고 재시도 시 안내 유실 | 예약 쓰기와 안내를 D1 batch로 묶어 함께 rollback. 바로 앞 쓰기 성공에만 안내 생성. 기존 확정/취소 중복 전이 가드는 유지. |
+| 고객센터 전송 실패가 새 초안을 덮음, 지연GET/POST가 보낸 글을 없애거나 중복 | 기존 reloadMessages로 load/refresh 통합·single-flight·세대 검사, 전송 중 성공ID만 보충/중복 제거, 새 초안 있으면 복원 생략. |
+| 다른 문의 딥링크가 같은 View의 대화만 바꾸지만 configure task는1회 | 대화/계정/역할/토큰/서버별 task와 종료 무효화, 같은 전송 함수에서 context 캡처. 이전 문맥 응답을 새 화면에 적용하지 않는다. |
+
+**간결함과 안전성:** 기존 생성 함수2개를 보완했으며 범용 저장소·락 서비스·전이 엔진은 만들지 않았다. 확정/점주 취소의 중복 JOIN/안내 INSERT는 SQL 상수 하나로 모아 기존 라우트에서 사용한다. 고객센터도 기존 조회 함수와 버튼/키보드의 단일 전송 경로를 사용한다. 일반 채팅과 고객센터를 거대 공통 ViewModel로 합치지 않았다. 새 API·스키마·멱등 키 계약은 추가하지 않았고, 과거 중복 가게를 임의 병합하지 않았다. SQL source/SwiftUI 기존 파일의 관련 구간만 수정했다.
+
+#### 확인한 정상 경계·한계
+
+- 같은 확정/취소10개와 확정↔고객 취소 경쟁은 기존 CAS로 중복 안내/취소 되돌림이 없었다. 이 부분은 정상으로 기록하고, 실제 실패한 예약/안내의 원자성을 수정했다.
+- 별도 격리 stress에서 반려견 사진 교체10개·PUT/DELETE 경쟁, 알림장 동일키10개/다른키10개, 운영자 승인/거절 경쟁, 고객센터 open10개는 DB/R2·권한·장수·이벤트 정합성이 유지됐다. 이 범위에서 새 문제로 판정하지 않았다. 탐색 fixture와 결과는 `/tmp/dog-integrity-readonly-audit/`에 남겼다.
+- 성공한 예약 POST의 응답 자체가 유실된 뒤 재전송을 정확히 한 번으로 처리하는 새 계약을 구현한 것은 아니다. 명시적 작업 식별자 없이 서로 다른 예약을 본문·시간만으로 자동 합치지 않았다. R2를 D1 트랜잭션에 넣거나 화면 취소가 서버 접수를 되돌리도록 바꾸지도 않았다.
+
+#### 검증 증거
+
+- TDD: 예약 전이2개 원자성 실패(`/private/tmp/matgyeomung-transitions-red.log`), 생성 실패(`/private/tmp/matgyeomung-booking-atomic-red.log`), 가게/신청/방5개 baseline 실패와 추가 본인 지연신청 실패(`/tmp/dog-integrity-readonly-audit/store-identity-baseline-red.log`, `store-identity-own-pending-red.log`), 고객센터9개 테스트17issues와 추가 중복ID 실패(`/tmp/support-red.log`, `/tmp/support-ack-red.log`)를 먼저 확인했다. 도구 포트 권한 실패는 제품 결함 RED로 세지 않았다.
+- signed iPhone17/iOS27 Simulator **176개·24suite 전체 통과**: `/private/tmp/matgyeomung-concurrency-20261103/ios-tests.log`, xcresult `Test-Dog_kindergarden-2026.11.03_23-24-52-+0900.xcresult`. 신규 고객센터11개가 전체176개에 포함되므로 더해서 세지 않는다. 기존 사용자 Xcode 프로젝트·설정·Info.plist는 변경하지 않았다.
+- 실제 Swift 모델 standalone **11개**와 SwiftUI 연결 검사 통과: 같은 로그 폴더의 `support-model.log`. 신규 Swift 파일은 기존 synchronized 테스트 타깃에 자동 포함된다.
+- 표준 `npm test` **16suite 전체 통과**: `backend-tests.log`, 최종 `backend-tests-final.log`. 새 예약 원자성6개 검사와 가게/신청/방6개 하위 검사를 포함한다. 후자는 실제 Hono와 Miniflare D1을 사용하며 SELECT 결과 전달만 gate로 지연했다. `cloudflare:workers`의 Node 기반클래스 대체 범위는 테스트 주석에 명시하고 원본 DO·인증·SQL은 유지했다.
+- 통합 Release smoke의 Worker dry-run·빈 D1 전체33개 migration·인증/권한216개, iOS Release·앱 소스 경고·Secret/개발 메뉴·Privacy Manifest·권한 게이트 통과: `release.log`, `/tmp/matgyeomung-release-smoke-20261103-232453/`. 외부 SDK/도구 경고까지 전부 없다는 뜻은 아니다. 실패 주입의 DB 오류 로그는 의도된 검사 입력이다.
+- 마지막 중복 사전 조회 제거 후에도 서버16suite 전체를 재실행했고, 별도 최종 backend Release smoke의 dry-run·빈 D1·인증216개가 통과했다: `backend-tests-final.log`, `backend-release-final.log`, 같은 로그 폴더의 `final-backend-release/`. 이 마지막 서버 정리 뒤 iOS 소스는 변경하지 않았다.
+- 독립 읽기 전용 리뷰에서 예약6개·가게/신청/방의 최초5개·고객센터11개를 재실행하고 SQL 순서/권한/세대 무효화를 확인했다. 추가 지연신청1개와 중복 사전 조회 제거는 별도 코드/RED·GREEN 로그 리뷰를 거쳤다. 추가로 확정할 신규 P1/P2 finding은 없었다. 실제 기기 UI·운영 환경은 이 리뷰에서 실행하지 않았다.
+- `git diff --check`, 새 Node 검사 구문, 기존 MD 링크·절 번호·이슈 ID 중복을 검사한다. 상세 회고와 정상으로 판단한 경계는 기존 `PORTFOLIO.md`34절에 통합했고 새 프로젝트 MD는 만들지 않았다.
+
+**운영·후속:** 서버 수정은 별도 승인 후 Worker 반영이 필요하고 기존0033 인덱스 마이그레이션도 아직 운영 미반영이다. 앱 수정은 Xcode에서 최신 빌드를 실행해야 한다. 이번에는 실제 사용자 계정·예약·사진을 운영에 만들거나 DB를 수정하지 않았다. 실제 두 기기 문의 전환·키보드·시스템 알림, 네트워크 단절/복귀, TestFlight·Apple/APNs·권리 확인은 기존 출시 체크 항목으로 유지한다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
