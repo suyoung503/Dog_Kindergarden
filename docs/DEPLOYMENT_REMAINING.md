@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-01
-**기준 브랜치:** `main` (채팅 안정화 병합·포트폴리오 기록 정리)
+**기준일:** 2026-11-03
+**기준 브랜치:** `codex/photo-cleanup-index` (main 기반 구조 점검·사진 정리 인덱스 보완, 운영 미반영)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -521,6 +521,37 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 - 최신 프로젝트 문서17개와 용도가 다른5개 `README.md`는 모두 유지했다. 고유한 내부 작업 기록3개와 앱의 `NotoEmojiNotices.txt` 라이선스 고지도 보존했다. 새 프로젝트 MD 파일은 만들지 않았다.
 - 복구 자료와 파일별 판단·해시는 `/private/tmp/matgyeomung-docs-unify-20261101/`의 압축파일2개와 `consolidation-manifest.json`에 저장했다. 이전 포트폴리오 원문은 `/private/tmp/matgyeomung-portfolio-unify-20261101/`에 별도 보존되어 있다. 임시 경로 백업은 OS 정리 대상일 수 있으며 Git 이력도 유지한다.
 - 문서 정리 단계에는 앱·서버·DB 동작 변경, 운영 배포, commit/push를 포함하지 않았다. 2026-11-02 후속 요청으로 통합 포트폴리오와 이 정리 기록만 commit·push한다. 이전 worktree 자체 제거는 포함하지 않는다.
+
+### 3.22 2026-11-03 구조·배포 준비 점검 및 사진 삭제 조회 최적화
+
+**범위와 결론:** 사용자가 수정/배포 준비 작업과 구조 단순화를 요청했다. 먼저 읽기 전용으로 핵심 앱·서버 경로, CI, 마이그레이션, 기존 출시 차단 기록을 점검했다. 감사 단계와 아래 수정/검증 단계를 구분한다. 새로운 제품 기능·범용 추상화·전체 라우트 이동은 하지 않았고, 새 프로젝트 MD 대신 이 문서와 ARCHITECTURE에 기록한다. 운영 배포·DB 변경·worktree 제거·commit/push는 실행하지 않았다.
+
+#### 발견 사항과 판단
+
+| 우선순위 | 근거·문제 | 조치·상태 |
+|---|---|---|
+| P2 성능·읽기 비용 | `src/index.ts`의 삭제 대기 SQL이 날짜 함수를 감싼 조건을 쓰지만0027 인덱스는 원본 `available_at`에만 있어 `SCAN`+임시 정렬을 수행했다. | **로컬 수정·검증 완료:**0033에서 조건과 같은 표현식 인덱스로 교체. 정상 삭제·실패 보존·미래 유예·기존 NULL/ISO offset 의미를 유지한다. |
+| P2 고객센터 초안·응답 경합 | `Views/MyPage/SupportViews.swift`의 전송 실패가 `inputText = content`로 새 초안을 무조건 덮고, `reloadMessages()`가 지연 조회 결과를 문맥/세대 검사 없이 적용한다. | **미수정 후속:** 일반 채팅의 최근 보완과 같은 실패/지연 응답 시나리오를 고객센터에서도 재현하고 최소 수정할 것. 이번 인덱스 변경으로 해결됐다고 보지 않는다. |
+| 유지보수 | 서버 `src/index.ts` 약4,100줄에 라우트·권한·사진·피드·보유기간이 집중돼 있다. iOS는 API/화면/상태 역할이 분리돼 있으나 고객센터 등 상태 보호가 일관되지 않다. | 도메인 수정 시 응집된 기능 단위로 점진 추출한다. 파일 수만 줄이기·모든 화면 공통 거대 모델·계층 추가는 하지 않는다. 상세 판단은 ARCHITECTURE의 구조 점검 절에 기록했다. |
+| 출시 차단 | Apple 가입/Sign in with Apple/APNs 실제 연동·배포 서명·Connect 입력·심사 계정·파트너/데이터/이미지 권리·두 기기 Release 검증은 외부 계정/운영 확인이 남아 있다. | 기존2~3절 미완료 항목 유지. 이번 공개 GET 검사나 과거 Simulator 통과로 완료 처리하지 않는다. |
+
+#### 실제 변경과 검증
+
+- `0033_photo_deletion_queue_index.sql`만 실행 스키마에 추가했다. 기존 인덱스를 표현식 인덱스1개로 교체하며 행·테이블·API·Worker/iOS 실행 코드는 바꾸지 않는다. 기존 Worker와도 같은 SQL에 적용되므로 승인 후 운영 D1 인덱스 적용만 필요하다. 서버 재배포·iOS 재빌드를 요구하는 변경은 아니다.
+- 새 `test-photo-cleanup.mjs`는 실제 Worker 조회 SQL을 D1에서 실행한다. 미래 예정5,000건·삭제 도래3건·잘못된 날짜1건을 사용했고 수정 전 인덱스 검사 실패와 읽은 행5,007을 확인했다. 적용 후 `SEARCH ... USING INDEX`·읽은 행7로 통과했다. 테스트 데이터에서의 비교이며 실제 사용자 수·월 비용 절감률로 일반화하지 않는다. 도래 대상에 대한 정렬용 임시 B-tree는 유지된다.
+- 실제 로컬 R2 삭제, 유예 객체 보존, NULL/ISO offset 호환, D1 완료 기록 삭제의 의도적 실패 후 재실행 복구, 한 번에1,000건 처리 제한을 검증했다. 실패 주입의 `fixture cleanup failure` 로그는 예상된 검증 결과다. 첫 실행의 샌드박스 포트 `EPERM`은 유효한 RED로 세지 않았고, 로컬 포트 허용 뒤 실제 assertion 실패를 확인했다. 테스트 fixture의 multi-line trigger 실행 오류는 prepare/run으로 보완했다.
+- 표준 `npm test`에 새 회귀를 연결해 **서버14suite 전체 통과**했다. 서버 Release smoke는 Worker dry-run·빈 D1 전체33개 마이그레이션·인증/권한 **216/216** 회귀를 통과했다. 새 테스트에서는 기존32개 마이그레이션 DB에 대기 데이터5,004건을 먼저 넣고0033을 적용한 뒤 행 수·조회 결과 보존도 확인했다. 의존성 `npm audit --audit-level=moderate`는 **0건**이었다. 실행 로그는 `/private/tmp/matgyeomung-structure-audit-20261103/`에 보관했다.
+- 운영 공개 GET·무인증 차단·공유 랜딩 **15/15 통과**했다. 운영 인증 토큰·개인정보를 읽거나 시험 계정·사진·예약을 만들지 않았다. 이는0033 운영 적용 여부나 실제 로그인 사용자 쓰기 흐름을 검증한 결과는 아니다.
+- App Icon 소스 규격·Privacy Manifest9종/제출 문서 정합성을 별도 검사했다. iOS 소스·Xcode 설정·앱 번들 변경이 없어 이번에는 Simulator 전체/Release/기기 Archive를 다시 실행하지 않았다. 과거165개 앱 테스트를 이번 실행 결과로 재사용하지 않는다.
+- 독립 읽기 전용 리뷰에서 새 회귀를 재실행하고 인덱스·기존 데이터 보존·실패 복구·처리 한도를 확인했다. 이번 변경의 중요 finding은 없었으며, 도래 대상 전체의 정렬 비용이 남는 한계를 재확인했다. 위 고객센터 후속 항목을 해결 완료로 바꾸지 않았다.
+
+#### 실행 명령·복구 경계
+
+점검: `git status --short`, `git log -5 --oneline`, `git ls-files -z`, 주요 소스/CI/설정의 `sed`·`rg`·`wc -l`, Python으로 추적 파일의 충돌/자격증명 패턴·민감 설정 추적 확인, 전체 마이그레이션을 in-memory SQLite에 적용한 뒤 실제 SQL의 `EXPLAIN QUERY PLAN` 확인. 알려진 자격증명 패턴·충돌 마커·추적된 Secret 설정은 발견하지 않았으나 이것이 모든 비밀정보 부재의 증명은 아니다.
+
+수정/검증: `git switch -c codex/photo-cleanup-index`, `node scripts/test-photo-cleanup.mjs`(실패→수정 후 통과), `npm test`, `scripts/release-audit-smoke.sh --backend-only`, `npm audit --audit-level=moderate`, `node scripts/production-readonly-smoke.mjs`, `node scripts/validate-app-icon.mjs`, `node scripts/validate-privacy-declarations.mjs`, `git diff --check`. SQL 실행 실패·권한 제한과 유효한 회귀 실패는 위에 구분했다. 출시 smoke의 자세한 결과는 `/tmp/matgyeomung-release-smoke-20261103-230012/`에 남겼다.
+
+0033은 기존 행을 수정/삭제하지 않는 인덱스 교체다. 운영 적용 전에는 복구 시점과 적용 계획을 확인하고 승인을 받아야 한다. 되돌릴 경우 데이터를 복구하거나 테이블을 지울 필요 없이 이전 인덱스 정의를 복원할 수 있다. 기존 운영 서비스는 현재 스키마로 계속 동작한다. 이후 사용자의 후속 push 요청으로 이 인덱스 변경·회귀·기록을 작업 브랜치에 commit·push한다. main 병합과 운영 D1 반영은 포함하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 

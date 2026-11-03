@@ -105,6 +105,22 @@ userId는 항상 `AuthSession.userId`를 guard로 꺼내 쓴다 — `?? 1` 같�
 - D1 바인딩 이름은 `DB` (`wrangler.toml`).
 - 활성 Cron Trigger는 리뷰 요청 `0 9 * * *`와 보유기간 정리 `*/15 * * * *`다. 매일 09:00 UTC(KST 18시)에 이용일(start_date)이 어제였던 CONFIRMED 예약의 채팅방으로 리뷰 요청 자동 메시지를 보내며, 중복은 `reservations.review_requested`로 막고 데모용 수동 트리거는 `POST /api/internal/review-requests`다. 네이버 플레이스 상세정보 순환 갱신은 출처·권리 검토 전까지 Cron에서 제거했고 `NAVER_PLACE_REFRESH_ENABLED=false`로 서버에서도 차단한다. `EXPOSE_UNVERIFIED_STORE_DETAILS=false`는 일반·파트너 모두의 기존 미검증 가격·영업시간·이미지·편의정보를 공개 응답에서 숨긴다. export는 `{ fetch: app.fetch, scheduled }` 형태를 유지한다. `start_date`는 연도 포함 형식 — 시간권은 `"2026-07-12 (일) 14:00"`, 종일권·하루 숙박권은 날짜만 `"2026-07-12 (일)"` (iOS `BookingViewModel.dateLabel`·`CalendarService.parseSchedule`과 맞물림, 날짜만이면 캘린더에 종일 일정) — 연도 없는 구형 `"토 7/12 14:00"` 데이터는 월/일 대조로 계속 처리된다. 예약 유형은 시간권·종일권·하루 숙박권 3종이며, 업체별 가격 등록 전에는 앱이 총액을 계산하지 않고 예약 확정 전에 업체와 확인하도록 안내한다.
 
+## 구조 점검과 단순화 기준 (2026-11-03)
+
+현재 구조는 서버를 여러 서비스로 나누거나 모든 기능을 Controller→Service→Repository로 경유시키는 구조가 아니다. iOS→인증된 Worker→D1/R2가 기본이며, WebSocket은 변경 신호·REST는 영속 데이터 조회로 역할이 다르다. 삭제 대기 테이블도 별도 서버가 아니라 기존 D1 안에서 사진·탈퇴·보유기간 정리가 재사용하는 복구 기록이다. 이 경계를 없애는 것이 곧 단순화는 아니다.
+
+| 점검 대상 | 판단·다음 작업 |
+|---|---|
+| 서버 `src/index.ts` 약4,100줄 | 과도한 계층보다 책임 집중이 문제다. 다음 도메인 수정 시 인증/사용자, 예약/알림장, 채팅/알림 등 응집된 경계부터 순차 분리한다. 파일 길이만 줄이는 전체 이동이나 새 범용 Repository 계층은 도입하지 않는다. |
+| iOS `APITransport`·각 화면 상태 모델 | 인증·401 처리는 공통 전송 경로에 유지한다. 채팅·알림장에 있던 비동기 보호가 고객센터에는 일부 빠져 있으므로 실패 초안·지연 조회 경합을 먼저 회귀로 보완해야 한다. 공통화한다면 실제로 같은 불변식만 공유하고 단일 거대 ViewModel로 합치지 않는다. |
+| `AppRouter`의 선택값과 화면 enum | 현재 화면 수에서는 사용 가능하나 새 화면은 예약 상세처럼 관련 값을 context로 묶는다. 화면마다 독립 selected 필드를 계속 늘리거나 내비게이션 체계 전체를 한 번에 교체하지 않는다. |
+| 알림 종류 하나 변경 시 여러 파일 수정 | 서버 이벤트의 의미·피드 DTO·앱 이동 대상이 함께 바뀌는 계약 변경은 필요하다. 단순 문구·아이콘 수정과 구분하며, 같은 라우팅 규칙을 여러 화면에 복사하지 않는다. |
+| 사진 삭제 조회 | 실행 계획으로 기존 일반 인덱스 미사용을 확인했다. 새 계층·테이블을 추가하거나 조회 SQL을 바꾸지 않고0033의 표현식 인덱스로 기존 조회를 최적화한다. |
+
+`0033_photo_deletion_queue_index.sql`은 기존 `available_at` 인덱스를 `datetime(COALESCE(available_at, queued_at))` 조건과 일치하는 인덱스로 교체한다. 삭제 시각 해석·NULL 호환·정렬·성공/실패 처리·API는 그대로다. 로컬 D1에서 미래 예정5,000건과 도래3건의 읽은 행 수는5,007→7이었다. 도래한 대상끼리의 정렬은 여전히 필요하므로 ‘항상1,000행만 읽는다’거나 운영 요금이 같은 비율로 줄었다고 보지 않는다. 인덱스도 저장·쓰기 비용이 있어 기존 인덱스를 교체했으며, 운영 반영에는 D1 마이그레이션 승인이 필요하다. Worker/iOS 실행 코드는 바꾸지 않아 이 변경만을 위한 앱 재빌드·Worker 재배포는 필요하지 않다.
+
+근거: [Cloudflare D1 인덱스·실행 계획](https://developers.cloudflare.com/d1/best-practices/use-indexes/), [SQLite 표현식 인덱스](https://www.sqlite.org/expridx.html), `backend-cloudflare/scripts/test-photo-cleanup.mjs`. 검증 결과와 미반영 상태는 배포 문서3.22를 따른다.
+
 ## 현재 미완성 영역 (작업 시 주의)
 
 - Sign in with Apple: 상세 설계만 있으며 Apple Developer 설정과 서버·iOS 구현, 실계정 검증이 남아 있다.
