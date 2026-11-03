@@ -12,48 +12,54 @@ final class SupportConversationViewModel {
     private(set) var conversationId: Int?
 
     private var isAdmin = false
+    private(set) var generation: UInt = 0
+    private var isReloading = false
 
-    func configure(conversationId: Int?, isAdmin: Bool) {
+    private let fetchConversation: () async throws -> SupportConversationStatus
+    private let openConversation: () async throws -> SupportConversation
+    private let fetchMessages: (Int) async throws -> [SupportMessageResponse]
+    private let postMessage: (Int, String) async throws -> SupportMessageResponse
+
+    init(
+        fetchConversation: @escaping () async throws -> SupportConversationStatus = { try await APIClient.shared.fetchMySupportConversation() },
+        openConversation: @escaping () async throws -> SupportConversation = { try await APIClient.shared.openSupportConversation() },
+        fetchMessages: @escaping (Int) async throws -> [SupportMessageResponse] = { try await APIClient.shared.fetchSupportMessages(conversationId: $0) },
+        postMessage: @escaping (Int, String) async throws -> SupportMessageResponse = { try await APIClient.shared.sendSupportMessage(conversationId: $0, content: $1) }
+    ) {
+        self.fetchConversation = fetchConversation
+        self.openConversation = openConversation
+        self.fetchMessages = fetchMessages
+        self.postMessage = postMessage
+    }
+
+    @discardableResult
+    func configure(conversationId: Int?, isAdmin: Bool) -> UInt {
+        invalidate()
         self.conversationId = conversationId
         self.isAdmin = isAdmin
+        return generation
     }
 
-    func load() async {
-        isLoading = true
+    func invalidate(generation expected: UInt? = nil) {
+        if let expected, expected != generation { return }
+        generation &+= 1
+        conversationId = nil
+        messages = []
+        inputText = ""
         errorMessage = nil
-        defer { isLoading = false }
-
-        do {
-            if conversationId == nil {
-                guard !isAdmin else {
-                    errorMessage = "선택한 문의를 찾을 수 없어요."
-                    return
-                }
-                let status = try await APIClient.shared.fetchMySupportConversation()
-                guard status.adminAvailable else {
-                    errorMessage = "현재 문의를 받을 운영자가 없어요. 잠시 후 다시 시도해주세요."
-                    return
-                }
-                if let existing = status.conversation {
-                    conversationId = existing.conversationId
-                } else {
-                    conversationId = try await APIClient.shared.openSupportConversation().conversationId
-                }
-            }
-            try await reloadMessages()
-        } catch {
-            errorMessage = supportErrorMessage(error)
-        }
+        isLoading = false
+        isSending = false
+        isReloading = false
     }
 
-    func refresh() async {
-        guard !isLoading, !isSending, errorMessage == nil else { return }
-        try? await reloadMessages()
-    }
+    func load() async { await reloadMessages(showLoading: true) }
+
+    func refresh() async { await reloadMessages(showLoading: false) }
 
     func send() async {
         let content = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty, !isSending else { return }
+        guard !Task.isCancelled, !content.isEmpty, !isSending else { return }
+        let requestGeneration = generation
         guard let conversationId else {
             errorMessage = "문의 대화를 열지 못했어요. 다시 시도해주세요."
             return
@@ -62,15 +68,14 @@ final class SupportConversationViewModel {
         isSending = true
         errorMessage = nil
         inputText = ""
-        defer { isSending = false }
+        defer { if generation == requestGeneration { isSending = false } }
         do {
-            let message = try await APIClient.shared.sendSupportMessage(
-                conversationId: conversationId,
-                content: content
-            )
-            messages.append(message)
+            let message = try await postMessage(conversationId, content)
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            if !messages.contains(where: { $0.id == message.id }) { messages.append(message) }
         } catch {
-            inputText = content
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            if inputText.isEmpty { inputText = content }
             errorMessage = supportErrorMessage(error)
         }
     }
@@ -79,9 +84,51 @@ final class SupportConversationViewModel {
         isAdmin ? message.senderRole == "ADMIN" : message.senderRole == "USER"
     }
 
-    private func reloadMessages() async throws {
-        guard let conversationId else { return }
-        messages = try await APIClient.shared.fetchSupportMessages(conversationId: conversationId)
+    private func reloadMessages(showLoading: Bool) async {
+        guard !Task.isCancelled, !isReloading, !isSending,
+              showLoading || errorMessage == nil else { return }
+        let requestGeneration = generation
+        isReloading = true
+        isLoading = showLoading
+        if showLoading { errorMessage = nil }
+        defer {
+            if generation == requestGeneration {
+                isLoading = false
+                isReloading = false
+            }
+        }
+        do {
+            if conversationId == nil {
+                guard !isAdmin else {
+                    errorMessage = "선택한 문의를 찾을 수 없어요."
+                    return
+                }
+                let status = try await fetchConversation()
+                guard !Task.isCancelled, generation == requestGeneration else { return }
+                guard status.adminAvailable else {
+                    errorMessage = "현재 문의를 받을 운영자가 없어요. 잠시 후 다시 시도해주세요."
+                    return
+                }
+                if let existing = status.conversation {
+                    conversationId = existing.conversationId
+                } else {
+                    let opened = try await openConversation()
+                    guard !Task.isCancelled, generation == requestGeneration else { return }
+                    conversationId = opened.conversationId
+                }
+            }
+            guard let conversationId else { return }
+            let previousIDs = Set(messages.map(\.id))
+            let loaded = try await fetchMessages(conversationId)
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            let loadedIDs = Set(loaded.map(\.id))
+            // 조회를 기다리는 동안 전송에 성공한 글만 오래된 스냅샷에 보충한다.
+            let sentWhileLoading = messages.filter { !previousIDs.contains($0.id) && !loadedIDs.contains($0.id) }
+            messages = (loaded + sentWhileLoading).sorted { $0.id < $1.id }
+        } catch {
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            if showLoading { errorMessage = supportErrorMessage(error) }
+        }
     }
 
     private func supportErrorMessage(_ error: Error) -> String {
@@ -95,38 +142,68 @@ final class SupportConversationViewModel {
     }
 }
 
+private struct SupportConversationContext: Hashable {
+    let conversationId: Int?
+    let userId: Int?
+    let isAdmin: Bool
+    let token: String?
+    let baseURL: URL
+}
+
 struct SupportConversationView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AuthSession.self) private var authSession
     @State private var viewModel = SupportConversationViewModel()
+    @State private var configuredContext: SupportConversationContext?
     @State private var didInitialScroll = false
     @State private var messageAreaWidth: CGFloat = 0
 
     private let bottomAnchor = "support-conversation-bottom"
+
+    private var conversationContext: SupportConversationContext {
+        SupportConversationContext(conversationId: router.selectedSupportConversationId,
+                                   userId: authSession.userId, isAdmin: authSession.isAdmin,
+                                   token: AuthTokenStore.load(), baseURL: APIEnvironment.apiBaseURL)
+    }
+
+    private var displayedMessages: [SupportMessageResponse] {
+        configuredContext == conversationContext ? viewModel.messages : []
+    }
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { configuredContext == conversationContext ? viewModel.inputText : "" },
+                set: { if configuredContext == conversationContext { viewModel.inputText = $0 } })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             navigationBar
             Divider().foregroundStyle(Color.brandBeigeBorder)
             messageArea
-            if let errorMessage = viewModel.errorMessage {
+            if configuredContext == conversationContext, let errorMessage = viewModel.errorMessage {
                 errorBanner(errorMessage)
             }
             inputBar
         }
         .background(Color.brandCream.ignoresSafeArea())
-        .task {
-            viewModel.configure(
-                conversationId: router.selectedSupportConversationId,
-                isAdmin: authSession.isAdmin
-            )
+        .task(id: conversationContext) {
+            guard !Task.isCancelled else { return }
+            let context = conversationContext
+            let generation = viewModel.configure(conversationId: context.conversationId, isAdmin: context.isAdmin)
+            configuredContext = context
+            didInitialScroll = false
+            defer { viewModel.invalidate(generation: generation) }
             await viewModel.load()
-        }
-        .task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                do { try await Task.sleep(nanoseconds: 3_000_000_000) }
+                catch { return }
+                guard conversationContext == context else { return }
                 await viewModel.refresh()
             }
+        }
+        .onDisappear {
+            configuredContext = nil
+            viewModel.invalidate()
         }
     }
 
@@ -163,10 +240,10 @@ struct SupportConversationView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 8) {
-                    if viewModel.isLoading && viewModel.messages.isEmpty {
+                    if viewModel.isLoading && displayedMessages.isEmpty {
                         ProgressView().padding(.top, 48)
                     } else if !viewModel.isLoading,
-                              viewModel.messages.isEmpty,
+                              displayedMessages.isEmpty,
                               viewModel.errorMessage == nil {
                         VStack(spacing: 8) {
                             Image(systemName: "bubble.left.and.bubble.right")
@@ -184,7 +261,7 @@ struct SupportConversationView: View {
                         .padding(.top, 56)
                     }
 
-                    ForEach(viewModel.messages) { message in
+                    ForEach(displayedMessages) { message in
                         messageBubble(message)
                             .id(message.id)
                     }
@@ -193,7 +270,7 @@ struct SupportConversationView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
             }
-            .onChange(of: viewModel.messages.count) { _, _ in
+            .onChange(of: displayedMessages.count) { _, _ in
                 if didInitialScroll {
                     withAnimation { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 } else {
@@ -255,7 +332,14 @@ struct SupportConversationView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("재시도") { Task { await viewModel.load() } }
+            Button("재시도") {
+                let context = conversationContext, generation = viewModel.generation
+                Task {
+                    guard configuredContext == context, conversationContext == context,
+                          viewModel.generation == generation else { return }
+                    await viewModel.load()
+                }
+            }
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(Color.brandOrange)
         }
@@ -264,20 +348,29 @@ struct SupportConversationView: View {
         .background(Color.red.opacity(0.06))
     }
 
+    private func sendMessage() {
+        let context = conversationContext, generation = viewModel.generation
+        Task {
+            guard configuredContext == context, conversationContext == context,
+                  viewModel.generation == generation else { return }
+            await viewModel.send()
+        }
+    }
+
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("메시지를 입력해주세요", text: $viewModel.inputText, axis: .vertical)
+            TextField("메시지를 입력해주세요", text: draftBinding, axis: .vertical)
                 .font(.system(size: 13))
                 .lineLimit(1...4)
                 .submitLabel(.send)
-                .onSubmit { Task { await viewModel.send() } }
+                .onSubmit(sendMessage)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(Color.brandCream)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.brandBeigeBorder, lineWidth: 1))
 
-            Button { Task { await viewModel.send() } } label: {
+            Button(action: sendMessage) {
                 Circle()
                     .fill(Color.brandOrange)
                     .frame(width: 40, height: 40)
@@ -288,6 +381,7 @@ struct SupportConversationView: View {
                     )
             }
             .disabled(
+                configuredContext != conversationContext ||
                 viewModel.isSending ||
                 viewModel.conversationId == nil ||
                 viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
