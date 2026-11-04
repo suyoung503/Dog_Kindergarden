@@ -7,6 +7,7 @@ struct FavoritesView: View {
 
     @State private var favorites: [FavoriteStoreResponse] = []
     @State private var loadPhase: AsyncLoadPhase = .idle
+    @State private var removingStoreId: Int?
 
     var body: some View {
         ScrollView {
@@ -141,6 +142,7 @@ struct FavoritesView: View {
                         .foregroundStyle(Color.brandOrange)
                         .frame(width: 32, height: 32)
                 }
+                .disabled(removingStoreId != nil || loadPhase.isLoading)
             }
             .padding(14)
             .background(.white)
@@ -152,7 +154,7 @@ struct FavoritesView: View {
     // MARK: - Actions
 
     private func load() async {
-        guard !loadPhase.isLoading else { return }
+        guard !loadPhase.isLoading, removingStoreId == nil else { return }
         guard let uid = authSession.userId else {
             loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
             return
@@ -184,19 +186,21 @@ struct FavoritesView: View {
         router.go(.storeDetail)
     }
 
-    // 낙관적 해제 — 실패 시 목록 복원
+    // 전체 목록 백업을 복원하지 않고 서버에서 해제한 가게만 제거한다.
     private func remove(_ favorite: FavoriteStoreResponse) {
-        guard let uid = authSession.userId else { return }
-        let backup = favorites
-        favorites.removeAll { $0.storeId == favorite.storeId }
+        guard let uid = authSession.userId,
+              removingStoreId == nil, !loadPhase.isLoading,
+              favorites.contains(where: { $0.storeId == favorite.storeId }) else { return }
+        removingStoreId = favorite.storeId
         Task {
+            defer { removingStoreId = nil }
             do {
                 try await APIClient.shared.removeFavorite(userId: uid, storeId: favorite.storeId)
+                favorites.removeAll { $0.storeId == favorite.storeId }
                 loadPhase = .loaded
             }
             catch {
-                favorites = backup
-                loadPhase = .failed("찜 해제를 완료하지 못했어요. 기존 목록을 복원했어요.")
+                loadPhase = .failed("찜 해제를 완료하지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
             }
         }
     }

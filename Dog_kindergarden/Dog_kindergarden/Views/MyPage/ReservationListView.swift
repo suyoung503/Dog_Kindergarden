@@ -9,6 +9,8 @@ struct ReservationListView: View {
     @State private var reservations: [ReservationSummary] = []
     @State private var loadPhase: AsyncLoadPhase = .idle
     @State private var pendingCancel: ReservationSummary?
+    @State private var cancelingReservationId: Int?
+    @State private var reloadRequested = false
 
     var body: some View {
         ScrollView {
@@ -153,7 +155,7 @@ struct ReservationListView: View {
             if isCancelable {
                 HStack(spacing: 8) {
                     Button(action: { pendingCancel = reservation }) {
-                        Text("예약 취소")
+                        Text(cancelingReservationId == reservation.reservationId ? "취소 중…" : "예약 취소")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(Color.brandOrange)
                             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -161,6 +163,7 @@ struct ReservationListView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .disabled(cancelingReservationId != nil || loadPhase.isLoading)
                 }
             }
         }
@@ -182,37 +185,53 @@ struct ReservationListView: View {
     // MARK: - Actions
 
     private func load() async {
-        guard !loadPhase.isLoading else { return }
+        if cancelingReservationId != nil || loadPhase.isLoading {
+            reloadRequested = true
+            return
+        }
         guard let uid = authSession.userId else {
             loadPhase = .failed("로그인 정보를 확인하지 못했어요.")
             return
         }
-        loadPhase = .loading
-        do {
-            let loaded = try await APIClient.shared.fetchReservations(userId: uid)
-            reservations = loaded
-            loadPhase = .loaded
-            // 사장님이 취소한 예약의 일정을 내 기기 캘린더에서 제거
-            await CalendarService.syncReservationEvents(loaded)
-        } catch {
-            loadPhase = .failed("예약 내역을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
-        }
+        repeat {
+            reloadRequested = false
+            loadPhase = .loading
+            do {
+                let loaded = try await APIClient.shared.fetchReservations(userId: uid)
+                reservations = loaded
+                // 사장님이 취소한 예약의 일정을 내 기기 캘린더에서 제거
+                await CalendarService.syncReservationEvents(loaded)
+                loadPhase = .loaded
+            } catch {
+                loadPhase = .failed("예약 내역을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.")
+            }
+        } while reloadRequested && !Task.isCancelled
     }
 
-    // 낙관적 취소 — 목록에서 즉시 제거, 실패 시 원래 자리에 복원
+    // 서버 성공 후 해당 예약만 갱신한다. 취소 내역은 서버의 7일 보유기간까지 유지한다.
     private func cancel(_ reservation: ReservationSummary) {
         guard let rid = reservation.reservationId,
-              let index = reservations.firstIndex(where: { $0.reservationId == rid }) else { return }
-        let previous = reservations[index]
-        reservations.remove(at: index)
+              cancelingReservationId == nil, !loadPhase.isLoading,
+              let current = reservations.first(where: { $0.reservationId == rid }),
+              current.status == "REQUEST" || current.status == "CONFIRMED" else { return }
+        cancelingReservationId = rid
         Task {
             do {
                 try await APIClient.shared.cancelReservation(reservationId: rid)
-                await CalendarService.removeReservationEvent(reservationId: rid)
+                if let index = reservations.firstIndex(where: { $0.reservationId == rid }) {
+                    reservations[index].status = "CANCELED"
+                }
                 loadPhase = .loaded
+                await CalendarService.removeReservationEvent(reservationId: rid)
             } catch {
-                reservations.insert(previous, at: index)
-                loadPhase = .failed("예약 취소를 완료하지 못했어요. 기존 내역을 복원했어요.")
+                loadPhase = .failed("예약 취소를 완료하지 못했어요. 연결이나 예약 상태를 확인하고 다시 시도해 주세요.")
+            }
+            cancelingReservationId = nil
+            // 취소 도중 받은 실시간 변경 신호는 버리지 않고 한 번의 재조회로 합친다.
+            if reloadRequested {
+                let actionPhase = loadPhase
+                await load()
+                if case .failed = actionPhase { loadPhase = actionPhase }
             }
         }
     }

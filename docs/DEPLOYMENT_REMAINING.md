@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-03
-**기준 브랜치:** `main` (사진 정리·동시성 보완 병합, 운영 미반영)
+**기준일:** 2026-11-04
+**기준 브랜치:** `main` (목록 상태 보완 포함, 이전 서버 보완은 운영 미반영)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -15,7 +15,7 @@
 - [x] 2026-10-27 추가 알림 보완 운영 배포 — `d12625f1-1a72-41fe-8a4b-9dd548ed290c`, 트래픽100%, 운영 읽기 점검15개 통과
 - [x] 2026-10-26 실기기 수정 서버 운영 배포 — 최종 버전 `e9484b5c-8872-4ed7-bae3-1c644496f024`, 트래픽 100%, R2·Durable Object·15분 보유기간 Cron 적용
 - [x] 사용자 별도 승인으로 취소 시각 없는 과거 예약 **9건** 영구 삭제·대상 ID 잔여 **0건** 확인
-- [x] 운영 D1 미적용 마이그레이션 **0건** 확인
+- [x] 이전 운영 반영 시 D1 미적용 마이그레이션 **0건** 확인 — 현재 추가된0033은 미반영이며3.22~3.25의 후속 상태를 따른다
 - [x] 운영 Worker 공개 상태·개인정보처리방침·고객지원·가게·공지 조회 확인
 - [x] 운영 Worker에서 예약·사장님 가게·운영자 승인함·고객센터 무인증 요청이 모두 `401`인지 확인
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
@@ -596,6 +596,27 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 - 사용자가 물은 실제 폴더는 프로젝트 옆 `Dog_Kindergarden_archive`다. 내부는 `crawl-results-superseded-2026-08-21.tar.gz` 한 개(650,165bytes)이며 CSV/JSON/SQL 원본29개와 macOS 메타데이터29개가 들어 있다. 앱/서버 소스에서 이 archive 경로를 참조하지 않는다. 실행용 소스 사본이 아닌 과거 수집 결과 백업이다.
 - archive 자체는 Git 저장소/등록 worktree가 아니고 압축파일은 추적되지 않는다. 현재 저장소에서 도달 가능한 Git 이력과 원문 blob을 비교해 압축파일 및 내부 원본과 완전히 동일한 보관본은 찾지 못했다. 삭제하면 Git으로 해당 원본을 복구할 수 있다고 안내하지 않는다. 과거 데이터 재현·출처 확인이 필요하면 별도 보관을 권장하며 이번에는 실제 파일/폴더를 삭제하지 않았다. 압축파일 SHA-256: `3cf09e72e258365153f064f2a5bdc4d49aa27e125af70801e640d46081df085d`.
 
+### 3.25 2026-11-04 예약 취소·찜 해제 지연 응답과 출시 재점검
+
+**범위·판단:** 코드상 가능성을 나열하지 않고 실제 기존 화면의 `load`·`cancel`·`remove` 함수 본문을 실행해 확인했다. 구조를 나누기 위한 새 ViewModel·Repository·공통 작업 큐는 만들지 않았다. 기존 View의 처리 중 ID와 갱신 요청 플래그만으로 조회·변경을 직렬화한다.
+
+- [x] **예약 취소 실패 시 앱 종료:** 세 번째 예약(index2)을 취소하며 먼저 목록에서 제거한 뒤 새 조회가 빈 목록을 반환하고 취소가 네트워크 오류로 끝나면, 예전 index2에 복원하다 `Array index is out of range / SIGTRAP`이 발생했다. 서버 성공 전 행을 제거하거나 실패 시 배열을 복원하지 않도록 수정했다. 성공한 예약 ID만 `CANCELED`로 바꾸며 취소 내역은 기존 서버의 취소 시각+7일 보유 정책까지 유지한다.
+- [x] **찜 해제의 전체 목록 복원:** 가게A 해제가 대기하는 동안 가게B를 해제한 뒤 A만 실패하면 전체 백업이 B의 성공까지 되돌렸다. 서버 성공한 가게 ID만 제거하며, 처리 중 다른 해제·조회는 겹치지 않게 했다. 실패한 가게는 원래 목록에 남고 재시도할 수 있다.
+- [x] **취소 중 실시간 신호 유실 방지:** 취소 중 받은 갱신 요청은 플래그로 합쳐 취소 성공/실패 직후 재조회한다. 이 후속 GET 도중 추가 신호가 와도 다음 GET 한 번으로 합쳐 다음60초 안전망을 기다리지 않는다. GET 성공이 취소 실패 안내를 숨기지 않도록 했다.
+- [x] 새 회귀 `scripts/test-list-mutations.py`: 실제 함수 본문은 바꾸지 않고 SwiftUI 저장 래퍼와 API/EventKit 경계만 격리해 **11개 비동기 시나리오 통과**. 실제 화면 렌더링·실기기 EventKit 검증과는 구분한다. 처음11개 assertion 실패, 별도 기존 index2 종료, 추가 갱신 누락9개 및 후속 GET 누락3개 assertion 실패를 각각 RED로 확인했다. 로그는 `/private/tmp/matgyeomung-app-audit-20261104/`의 `list-red.log`, `list-crash-red.log`, `queued-update-red.log`, `inflight-update-red.log`, `list-final-green.log`.
+- [x] 최종 소스 signed iPhone17/iOS27 Simulator **176개·24suite 전체 통과**: `ios-tests-final.log`, xcresult `Test-Dog_kindergarden-2026.11.04_22-30-05-+0900.xcresult`. 새11개 standalone 검사는 이176개에 포함되지 않는다. Xcode 프로젝트·서명 설정·Info.plist는 변경하지 않았다.
+- [x] 표준 서버 `npm test` **16suite 통과**: `backend-tests.log`. 실패 주입의 DB 오류 로그는 의도된 검사 입력이다. 서버 실행 코드·스키마는 이번에 변경하지 않았다.
+- [x] 로컬 backend Release smoke의 Worker 번들 dry-run·빈 D1 전체33개 migration·인증/권한 **216개 통과**: `backend-release.log`, `backend-release/logs/B04.log`.
+- [x] 최종 Simulator **Release 빌드와 번들 게이트 전체 통과**: `ios-release.log`, `ios-release/summary.tsv`. 서버용 Secret·개발 메뉴·앱 소스 경고·최소 iOS·표시 이름/카테고리·Privacy Manifest·권한 선언을 확인했다. 게이트 경고0건이며 외부 SDK/Xcode 도구 경고까지 없다는 뜻은 아니다. 서명 배포 Archive·실기기 수신·App Store 심사를 대신하지 않는다.
+- [x] 운영 읽기 전용 점검 **15개 통과**, 의존성 `npm audit` 취약점 **0건**, App Icon·Privacy Manifest 소스 검사 통과: `production.log`, `/private/tmp/matgyeomung-audit-20261104-npm.json`. 공개 조회와 무인증 차단만 검사했으며 실제 계정으로 쓰지 않았다.
+- [x] 최종 실행 코드에 대한 독립 읽기 전용 리뷰에서11개 회귀와 `git diff --check`를 재실행했고 새 P1/P2는 발견되지 않았다. 리뷰에서 지적한 취소 중/후속 GET 중 갱신 누락은 위 RED/GREEN 후 보완했다.
+- [x] 기존 MD 링크·절 번호와 포트폴리오 이슈 ID **107개 중복 없음**을 확인했다.
+- [x] 사용자 commit·push 요청 후 목록11개·서버16suite·signed Simulator 앱176개/24suite를 다시 실행해 통과했다. 커밋 전 로그: `/private/tmp/matgyeomung-app-prepush-20261104/`의 `list.log`·`backend.log`·`ios.log`. xcresult: `Test-Dog_kindergarden-2026.11.04_22-50-05-+0900.xcresult`. 실행 코드와 문서·회귀 테스트를 함께 반영한다.
+
+**Git 반영:** 사용자의2026-11-04 요청에 따라 이번 앱 코드·회귀 테스트와 기존 `ARCHITECTURE.md`·`DEPLOYMENT_REMAINING.md`·`PORTFOLIO.md`를 같은 커밋으로 main에 반영한다. 커밋 직전 목록 회귀·서버 전체·앱 전체 검사를 다시 실행하고, push 뒤 로컬 HEAD와 원격 main의 커밋이 같은지 확인한다. 별도 프로젝트 MD나 archive 파일을 추가하지 않는다.
+
+**운영 반영:** Worker 배포·운영 DB 변경·TestFlight 제출은 실행하지 않았다. 이번 수정 자체는 iOS만 반영하면 되지만, 이전 서버 상태/메시지 원자성 보완과0033 인덱스는 별도 운영 반영이 여전히 필요하다. Apple 개발자 가입·Sign in with Apple/APNs 인증·실기기/TestFlight·데이터/이미지 권리 확인은2~3절의 출시 차단/수동 항목으로 남는다. archive 폴더와 그 내용은 조회·수정·재압축·Git 추가하지 않았다. 새 프로젝트 MD 없이 기존 문서에 기록했다.
+
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
 - [x] Cloudflare R2 기반 알림장 다중 사진 업로드·삭제·보유기간 관리 — 비공개 버킷·최대 3장·권한 검사·탈퇴/보유기간 정리 구현
@@ -617,6 +638,9 @@ scripts/release-device-archive-preflight.sh
 # 운영 서버에 데이터를 쓰지 않는 공개·인증 경계 검사
 node scripts/production-readonly-smoke.mjs
 
+# 예약 취소·찜 해제의 실제 함수 비동기 상태 회귀(macOS Swift 컴파일러 필요)
+python3 scripts/test-list-mutations.py
+
 # 백엔드 의존성 취약점
 cd backend-cloudflare && npm audit
 ```
@@ -625,7 +649,7 @@ cd backend-cloudflare && npm audit
 
 ```bash
 cd backend-cloudflare
-npm test # 독립 Miniflare/D1/R2 회귀13suite, 실패 시 즉시 중단
+npm test # 독립 Miniflare/D1/R2 회귀16suite, 실패 시 즉시 중단
 # 사진 API 회귀는 마이그레이션된 로컬 wrangler dev가 실행 중일 때만 수행한다.
 # API_BASE_URL=http://127.0.0.1:<port> PET_PHOTO_TEST_DB=/tmp/<local-d1.sqlite> node scripts/test-pet-photos.mjs
 ```

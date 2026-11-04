@@ -472,7 +472,7 @@ struct ReservationSummary: Decodable {
     let startDate: String?
     let endDate: String?
     let reservationType: String?
-    let status: String?
+    var status: String?
 }
 
 struct ReservationCancelResponse: Decodable {
