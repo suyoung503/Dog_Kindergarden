@@ -871,17 +871,20 @@ async function getOrCreateRoom(
   db: D1Database,
   userId: number,
   storeId: number,
-): Promise<number> {
+): Promise<number | null> {
   const lookup = db.prepare(`SELECT room_id FROM chat_rooms WHERE user_id = ? AND store_id = ?`).bind(userId, storeId);
   const room = await lookup.first<{ room_id: number }>();
   if (room) return room.room_id;
 
   const [, canonical] = await db.batch([
-    db.prepare(`INSERT INTO chat_rooms (user_id, store_id) VALUES (?, ?)
-      ON CONFLICT(user_id, store_id) DO NOTHING`).bind(userId, storeId),
+    db.prepare(`INSERT INTO chat_rooms (user_id, store_id)
+      SELECT u.user_id, c.store_id FROM users u
+      JOIN store_capabilities c ON c.store_id = ?
+      WHERE u.user_id = ? AND u.deleted_at IS NULL AND c.can_chat = 1
+      ON CONFLICT(user_id, store_id) DO NOTHING`).bind(storeId, userId),
     lookup,
   ]);
-  return Number(canonical.results[0].room_id);
+  return canonical.results[0] ? Number(canonical.results[0].room_id) : null;
 }
 
 // 조회 전용: store가 있어야 방을 찾고, 없으면 null. 쓰기 없음.
@@ -1513,6 +1516,7 @@ app.post("/api/reservations", async (c) => {
     );
   const storeId = storeAccess.store_id;
   const roomId = await getOrCreateRoom(c.env.DB, userId, storeId);
+  if (roomId === null) return c.json({ message: "user or partner store is no longer available" }, 403);
 
   // 가게 유형(호텔/유치원) — 비어 있는 경우에만 채움 (기존 값 보존)
   const storeType = body.store_type ?? body.storeType ?? null;
@@ -1537,7 +1541,8 @@ app.post("/api/reservations", async (c) => {
                 'pet_weight', p.weight, 'pet_gender', p.gender, 'pet_note', p.note
               )
        FROM users u JOIN pets p ON p.user_id = u.user_id
-       WHERE u.user_id = ? AND p.pet_id = ? AND u.deleted_at IS NULL`,
+       WHERE u.user_id = ? AND p.pet_id = ? AND u.deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM store_capabilities WHERE store_id = ? AND can_book = 1)`,
     ).bind(
       storeId,
       storeName,
@@ -1551,6 +1556,7 @@ app.post("/api/reservations", async (c) => {
       body.guardian_address ?? null,
       userId,
       petId,
+      storeId,
     ),
     c.env.DB.prepare(
       `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id)
@@ -1559,7 +1565,7 @@ app.post("/api/reservations", async (c) => {
     ).bind(roomId),
   ]);
   if ((result.meta.changes ?? 0) === 0)
-    return c.json({ message: "pet does not belong to user" }, 403);
+    return c.json({ message: "pet or partner store state changed" }, 403);
 
   const reservationId = Number(result.meta.last_row_id ?? 1);
 
@@ -2496,6 +2502,7 @@ app.post("/api/chatrooms", async (c) => {
     );
   const storeId = storeAccess.store_id;
   const roomId = await getOrCreateRoom(c.env.DB, userId, storeId);
+  if (roomId === null) return c.json({ message: "user or partner store is no longer available" }, 403);
 
   return c.json(
     { room_id: roomId, store_id: storeId, store_name: storeName },
@@ -3164,7 +3171,15 @@ app.post("/api/pet-reviews", async (c) => {
     INSERT INTO pet_reviews
       (store_key, store_name, user_id, reservation_id, user_name, rating,
        revisit, cctv, pickup, large_dog, separation_care, content)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM reservations r
+    JOIN stores s ON s.store_id = r.store_id
+    JOIN users u ON u.user_id = r.user_id
+    WHERE r.reservation_id = ? AND r.user_id = ? AND s.store_key = ?
+      AND r.status = 'CONFIRMED' AND u.deleted_at IS NULL
+      AND s.partner_status = 'ACTIVE' AND s.owner_id IS NOT NULL
+      AND date(substr(r.end_date, 1, 10)) < date('now', '+9 hours')
+      AND NOT EXISTS (SELECT 1 FROM pet_reviews WHERE reservation_id = r.reservation_id)
   `,
   )
     .bind(
@@ -3180,8 +3195,22 @@ app.post("/api/pet-reviews", async (c) => {
       b(body.large_dog),
       b(body.separation_care),
       body.content ?? "",
+      eligibility.reservation_id,
+      userId,
+      storeKey,
     )
     .run();
+
+  if ((result.meta.changes ?? 0) === 0) {
+    const existing = await c.env.DB.prepare(`SELECT 1 AS found FROM pet_reviews WHERE reservation_id = ?`)
+      .bind(eligibility.reservation_id).first();
+    let reason = "already_reviewed";
+    if (!existing) {
+      const current = await getReviewEligibility(c.env.DB, userId, storeKey);
+      reason = current.eligible ? "reservation_changed" : current.reason;
+    }
+    return c.json({ message: "review eligibility changed", reason }, existing ? 409 : 403);
+  }
 
   return c.json(
     {
@@ -3460,20 +3489,18 @@ app.delete("/api/users/:id/account", async (c) => {
   if (!sameUser(c.get("authUserId"), userId))
     return c.json({ message: "forbidden" }, 403);
 
-  const activeAsCustomer = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS count
+  const activeCustomerQuery = `SELECT COUNT(*) AS count
      FROM reservations
      WHERE user_id = ?
        AND status IN ('REQUEST', 'CONFIRMED')
        AND (
          date(substr(end_date, 1, 10)) >= date('now', '+9 hours')
          OR date(substr(end_date, 1, 10)) IS NULL
-       )`,
-  )
+       )`;
+  const activeAsCustomer = await c.env.DB.prepare(activeCustomerQuery)
     .bind(userId)
     .first<{ count: number }>();
-  const activeAsOwner = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS count
+  const activeOwnerQuery = `SELECT COUNT(*) AS count
      FROM reservations r
      JOIN stores s ON s.store_id = r.store_id
      WHERE s.owner_id = ?
@@ -3482,8 +3509,8 @@ app.delete("/api/users/:id/account", async (c) => {
        AND (
          date(substr(r.end_date, 1, 10)) >= date('now', '+9 hours')
          OR date(substr(r.end_date, 1, 10)) IS NULL
-       )`,
-  )
+       )`;
+  const activeAsOwner = await c.env.DB.prepare(activeOwnerQuery)
     .bind(userId)
     .first<{ count: number }>();
   const customerCount = activeAsCustomer?.count ?? 0;
@@ -3501,7 +3528,18 @@ app.delete("/api/users/:id/account", async (c) => {
   }
 
   const deletedAt = new Date().toISOString();
+  const deletionMarker = `deleted:${userId}:${crypto.randomUUID().replaceAll("-", "")}`;
+  const deletionScope = `SELECT user_id FROM users WHERE user_id = ? AND kakao_id = ? AND deleted_at IS NOT NULL`;
+  const scopeValues = [userId, deletionMarker] as const;
   const results = await c.env.DB.batch([
+    // 같은 트랜잭션에서 진행 예약을 재검사하고 이 요청이 선점한 탈퇴에만 정리를 실행한다.
+    c.env.DB.prepare(
+      `UPDATE users
+       SET kakao_id = ?, nickname = '탈퇴한 사용자', email = NULL, phone = NULL, address = NULL,
+           is_owner = 0, is_admin = 0, deleted_at = ?
+       WHERE user_id = ? AND deleted_at IS NULL
+         AND (${activeCustomerQuery}) = 0 AND (${activeOwnerQuery}) = 0`,
+    ).bind(deletionMarker, deletedAt, userId, userId, userId),
     // 보호자 데이터: 반려견·찜·알림장·개인 채팅은 삭제한다.
     c.env.DB.prepare(
       `INSERT OR IGNORE INTO diary_photo_deletion_queue (r2_key)
@@ -3509,84 +3547,92 @@ app.delete("/api/users/:id/account", async (c) => {
        FROM diary_photos p
        JOIN diaries d ON d.diary_id = p.diary_id
        JOIN reservations r ON r.reservation_id = d.reservation_id
-       WHERE r.user_id = ?`,
-    ).bind(userId),
+       WHERE r.user_id IN (${deletionScope})`,
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `DELETE FROM diary_photos
        WHERE diary_id IN (
          SELECT d.diary_id FROM diaries d
          JOIN reservations r ON r.reservation_id = d.reservation_id
-         WHERE r.user_id = ?
+         WHERE r.user_id IN (${deletionScope})
        )`,
-    ).bind(userId),
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `DELETE FROM diaries
-       WHERE reservation_id IN (SELECT reservation_id FROM reservations WHERE user_id = ?)`,
-    ).bind(userId),
+       WHERE reservation_id IN (SELECT reservation_id FROM reservations WHERE user_id IN (${deletionScope}))`,
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `DELETE FROM chat_room_reads
-       WHERE user_id = ?
-          OR room_id IN (SELECT room_id FROM chat_rooms WHERE user_id = ?)`,
-    ).bind(userId, userId),
+       WHERE user_id IN (${deletionScope})
+          OR room_id IN (SELECT room_id FROM chat_rooms WHERE user_id IN (${deletionScope}))`,
+    ).bind(...scopeValues, ...scopeValues),
     c.env.DB.prepare(
       `DELETE FROM chat_messages
-       WHERE room_id IN (SELECT room_id FROM chat_rooms WHERE user_id = ?)`,
-    ).bind(userId),
-    c.env.DB.prepare(`DELETE FROM chat_rooms WHERE user_id = ?`).bind(userId),
+       WHERE room_id IN (SELECT room_id FROM chat_rooms WHERE user_id IN (${deletionScope}))`,
+    ).bind(...scopeValues),
+    c.env.DB.prepare(`DELETE FROM chat_rooms WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
     c.env.DB.prepare(
       `DELETE FROM support_messages
        WHERE conversation_id IN (
-         SELECT conversation_id FROM support_conversations WHERE user_id = ?
+         SELECT conversation_id FROM support_conversations WHERE user_id IN (${deletionScope})
        )`,
-    ).bind(userId),
-    c.env.DB.prepare(`DELETE FROM support_conversations WHERE user_id = ?`).bind(userId),
-    c.env.DB.prepare(`DELETE FROM owner_application_rejections WHERE user_id = ?`).bind(userId),
-    c.env.DB.prepare(`DELETE FROM favorites WHERE user_id = ?`).bind(userId),
+    ).bind(...scopeValues),
+    c.env.DB.prepare(`DELETE FROM support_conversations WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
+    c.env.DB.prepare(`DELETE FROM owner_application_rejections WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
+    c.env.DB.prepare(`DELETE FROM favorites WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
     // The pet deletion trigger queues private R2 photos in this same transaction.
-    c.env.DB.prepare(`DELETE FROM pets WHERE user_id = ?`).bind(userId),
+    c.env.DB.prepare(`DELETE FROM pets WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
 
     // 거래·후기 이력은 개인정보와 연결되지 않도록 익명화해 최소 정보만 보존한다.
     c.env.DB.prepare(
-      `UPDATE reservations SET request_message = NULL, booking_snapshot = NULL WHERE user_id = ?`,
-    ).bind(userId),
+      `UPDATE reservations SET request_message = NULL, booking_snapshot = NULL WHERE user_id IN (${deletionScope})`,
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `UPDATE pet_reviews
        SET user_id = NULL, user_name = '익명', content = ''
-       WHERE user_id = ?`,
-    ).bind(userId),
+       WHERE user_id IN (${deletionScope})`,
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `UPDATE chat_messages
        SET sender_name = '탈퇴한 사용자', content = '삭제된 메시지입니다.'
-       WHERE sender_id = ?`,
-    ).bind(userId),
+       WHERE sender_id IN (${deletionScope})`,
+    ).bind(...scopeValues),
 
     // 사장님 탈퇴: 진행 예약이 없는 것이 확인된 뒤 가게 연결을 해제한다.
     c.env.DB.prepare(
       `UPDATE stores
        SET owner_id = NULL, partner_status = 'TERMINATED',
            partner_approved_at = NULL, partner_approved_by = NULL
-       WHERE owner_id = ?`,
-    ).bind(userId),
+       WHERE owner_id IN (${deletionScope})`,
+    ).bind(...scopeValues),
     c.env.DB.prepare(
       `UPDATE store_owner_applications
        SET status = 'REJECTED', reviewed_at = CURRENT_TIMESTAMP
-       WHERE user_id = ? AND status = 'PENDING'`,
-    ).bind(userId),
+       WHERE user_id IN (${deletionScope}) AND status = 'PENDING'`,
+    ).bind(...scopeValues),
 
     // 현재 기기뿐 아니라 같은 계정의 모든 기기 세션을 즉시 폐기한다.
-    c.env.DB.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).bind(userId),
-    c.env.DB.prepare(
-      `UPDATE users
-       SET kakao_id = 'deleted:' || user_id || ':' || lower(hex(randomblob(16))),
-           nickname = '탈퇴한 사용자', email = NULL, phone = NULL, address = NULL,
-           is_owner = 0, is_admin = 0, deleted_at = ?
-       WHERE user_id = ? AND deleted_at IS NULL`,
-    ).bind(deletedAt, userId),
+    c.env.DB.prepare(`DELETE FROM auth_sessions WHERE user_id IN (${deletionScope})`).bind(...scopeValues),
   ]);
 
-  const userUpdate = results.at(-1);
-  if (!userUpdate || (userUpdate.meta.changes ?? 0) !== 1)
+  const userUpdate = results[0];
+  if (!userUpdate || (userUpdate.meta.changes ?? 0) !== 1) {
+    const [customer, owner] = await c.env.DB.batch([
+      c.env.DB.prepare(activeCustomerQuery).bind(userId),
+      c.env.DB.prepare(activeOwnerQuery).bind(userId),
+    ]);
+    const activeCustomerCount = Number(customer.results[0]?.count ?? 0);
+    const activeOwnerCount = Number(owner.results[0]?.count ?? 0);
+    if (activeCustomerCount > 0 || activeOwnerCount > 0) {
+      return c.json({
+        message: "active reservations must be completed or canceled before account deletion",
+        code: "ACTIVE_RESERVATIONS",
+        active_reservations: activeCustomerCount,
+        active_owned_reservations: activeOwnerCount,
+      }, 409);
+    }
     return c.json({ message: "user not found" }, 404);
+  }
   await drainDiaryPhotoDeletionQueueBestEffort(c.env);
   return c.json({ ok: true, deleted_at: deletedAt });
 });
@@ -3620,12 +3666,13 @@ app.put("/api/users/:id", async (c) => {
   if (fields.length === 0) return c.json({ message: "nothing to update" }, 400);
 
   values.push(userId);
-  await c.env.DB.prepare(`UPDATE users SET ${fields.join(", ")} WHERE user_id = ?`)
+  const result = await c.env.DB.prepare(`UPDATE users SET ${fields.join(", ")} WHERE user_id = ? AND deleted_at IS NULL`)
     .bind(...values)
     .run();
+  if ((result.meta.changes ?? 0) === 0) return c.json({ message: "user not found" }, 404);
 
   const updated = await c.env.DB.prepare(
-    `SELECT user_id, kakao_id, nickname, email, phone, address FROM users WHERE user_id = ?`,
+    `SELECT user_id, kakao_id, nickname, email, phone, address FROM users WHERE user_id = ? AND deleted_at IS NULL`,
   )
     .bind(userId)
     .first();
@@ -3660,10 +3707,9 @@ app.post("/api/users/:id/pets", async (c) => {
 
   const result = await c.env.DB.prepare(
     `INSERT INTO pets (user_id, name, breed, age, weight, gender, note, image_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     SELECT user_id, ?, ?, ?, ?, ?, ?, ? FROM users WHERE user_id = ? AND deleted_at IS NULL`,
   )
     .bind(
-      userId,
       body.name,
       body.breed ?? null,
       body.age ?? null,
@@ -3671,8 +3717,10 @@ app.post("/api/users/:id/pets", async (c) => {
       body.gender ?? null,
       body.note ?? null,
       imageUrl,
+      userId,
     )
     .run();
+  if ((result.meta.changes ?? 0) === 0) return c.json({ message: "user not found" }, 404);
 
   const created = await c.env.DB.prepare(
     `SELECT pet_id, user_id, name, breed, age, weight, gender, note, image_url FROM pets WHERE pet_id = ?`,
@@ -3680,6 +3728,7 @@ app.post("/api/users/:id/pets", async (c) => {
     .bind(result.meta.last_row_id)
     .first();
 
+  if (!created) return c.json({ message: "pet not found" }, 404);
   return c.json(created, 201);
 });
 

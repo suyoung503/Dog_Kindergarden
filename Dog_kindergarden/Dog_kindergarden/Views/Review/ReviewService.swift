@@ -60,7 +60,7 @@ struct StoreTags: Decodable {
 
     // 보호자 절반 이상이 인증한 태그만 true
     func has(_ tag: ReviewTag) -> Bool {
-        let half = max(1, count / 2)
+        let half = max(1, count / 2 + count % 2)
         switch tag {
         case .cctv:           return (cctv ?? 0) >= half
         case .pickup:         return (pickup ?? 0) >= half
