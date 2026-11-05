@@ -1,7 +1,7 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-04
-**기준 브랜치:** `main` (목록 상태 보완 포함, 이전 서버 보완은 운영 미반영)
+**기준일:** 2026-11-05
+**기준 브랜치:** `main` (캘린더 보완 포함, 이전 서버 보완은 운영 미반영)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
@@ -617,6 +617,26 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 
 **운영 반영:** Worker 배포·운영 DB 변경·TestFlight 제출은 실행하지 않았다. 이번 수정 자체는 iOS만 반영하면 되지만, 이전 서버 상태/메시지 원자성 보완과0033 인덱스는 별도 운영 반영이 여전히 필요하다. Apple 개발자 가입·Sign in with Apple/APNs 인증·실기기/TestFlight·데이터/이미지 권리 확인은2~3절의 출시 차단/수동 항목으로 남는다. archive 폴더와 그 내용은 조회·수정·재압축·Git 추가하지 않았다. 새 프로젝트 MD 없이 기존 문서에 기록했다.
 
+### 3.26 2026-11-05 출시 전 캘린더 권한·삭제 복구·날짜 경계 보완
+
+**선정 근거:** 기존 실기기 체크리스트3절의 캘린더 권한/취소 검증을 준비하면서 실제 `CalendarService` 경로를 확인했다. Apple 가입·심사 계정·권리 증빙이 필요한 항목을 임의로 완료하지 않고, 계정 없이 재현할 수 있는 아래 문제만 수정했다. 앱 실행 코드는 기존 서비스 한 파일에 한정하며 새 관리 계층·DB 테이블·외부 의존성을 추가하지 않았다.
+
+- [x] **미등록 일정의 불필요한 권한 요청:** 기기 캘린더에 추가한 적 없는 예약을 취소해도 `requestFullAccessToEvents`를 먼저 호출하던 순서를 바꿨다. 기존 예약→이벤트 연결이 있을 때만 권한·이벤트 API에 진입한다. 권한 거부가 서버 예약 취소를 되돌리지 않는 흐름은 유지한다.
+- [x] **삭제 실패 후 재시도 정보 소실:** EventKit 삭제 오류를 무시하고 연결까지 지워 다음 조회에서 재시도하지 못했다. 실제 삭제 성공 뒤에만 연결을 지운다. 권한 거부·이벤트 일시 조회 실패·삭제 오류에는 기존 UserDefaults 연결을 유지한다. 취소 내역이 서버에서 조회되는 동안 다음 예약 내역 동기화로 다시 시도하며, 새 저장 테이블이나 상시 백그라운드 작업을 만들지 않았다.
+- [x] **시간대에 따른 예약 시각 변경:** 시간권은 기존 `ReservationSchedule.calendar`의 한국 시각을 재사용하고 EventKit 시간대도 `Asia/Seoul`로 지정한다. 종일 일정은 기기 시간대의 같은 그레고리 날짜·floating 일정으로 유지한다. 윤년·연말·유효하지 않은 날짜/시각의 자동 보정도 검사한다.
+- [x] **리뷰에서 드러난 DST 회귀:** 날짜만 예약까지00:00을 요구하면 `America/Santiago`의2026-09-06처럼 자정이 생략되는 정상 날짜를 거부했다. 추가 RED를 확인한 뒤 종일은 연·월·일만, 시간권은 시·분까지 검증하도록 수정했다. 일반 시간대의 검사 통과를 모든 시간대 보장으로 확대하지 않았다.
+- [x] 실제 서비스 전체와 기존 일정 변환 코드를 컴파일한 `scripts/test-calendar-service.py` 통과: **4개 시간대 각각13개 시나리오·47개 assertion**. 실제 Foundation 날짜 계산을 사용하고 EventKit·UserDefaults 외부 경계만 메모리 격리한다. 최초 코드의3개 시간대15/18/18개 assertion 실패와 추가 DST1개 실패를 먼저 확인했다. 로그: `/private/tmp/matgyeomung-calendar-20261105/`의 `red.log`·`dst-red.log`·`final-green.log`. 실제 달력·시스템 권한·사용자 설정은 변경하지 않았다.
+- [x] 최종 signed iPhone17/iOS27 Simulator **179개·25suite 전체 통과**: `ios-tests-final.log`, xcresult `Test-Dog_kindergarden-2026.11.05_19-01-16-+0900.xcresult`. 새 실제 서비스 날짜 검사3개는179개에 포함된다. standalone의4×13개 실행과 더해 앱 테스트 수로 세지 않는다.
+- [x] 표준 서버 `npm test` **16suite**와 이전 목록 상태 회귀 **11개** 통과: `backend-tests.log`·`list-regression.log`. 이번 서버 코드·API·스키마 변경은 없다. 실패 주입의 DB 오류 출력은 의도된 검사 입력이다.
+- [x] 최종 Simulator **Release 빌드·번들 게이트 통과**: `ios-release.log`·`ios-release/summary.tsv`. 서버용 Secret·개발 메뉴·앱 소스 경고·최소 iOS·앱 표시 정보·Privacy Manifest·권한 선언을 검사했다. 게이트 경고0건은 외부 SDK/Xcode 도구 경고까지 없다는 뜻이 아니다. backend-only 검사는 이 Release 실행에서 생략됐으며 위 별도 서버16suite 결과와 구분한다.
+- [x] 독립 읽기 전용 리뷰가 DST 경계를 재현했고, 수정 후4개 시간대 검사를 다시 실행해 추가 중요 회귀를 발견하지 못했다. 실제 EventKit 저장/렌더링·권한 팝업은 격리 검사의 보장 범위가 아니므로 실기기 항목은 미체크로 남긴다.
+- [x] 기존 MD 링크·절 번호와 포트폴리오 이슈 ID **110개 중복 없음**을 검사했다. 실기기 체크리스트의 과거 ‘외부 지도 열기’도 현재 내부 지도창 동작으로 맞췄고, 과거 DST fixture를 앱에서 새로 예약하라는 절차로 오해하지 않도록 구분했다.
+- [x] push 요청 후 캘린더4개 시간대·기존 목록11개·signed Simulator 앱179개/25suite를 다시 검증했다. 커밋 전 로그는 `/private/tmp/matgyeomung-calendar-prepush-20261105/`의 `calendar.log`·`list.log`·`ios.log`, xcresult는 `Test-Dog_kindergarden-2026.11.05_19-08-11-+0900.xcresult`다. 대상7개 파일·문서 링크·diff 공백도 확인했다.
+
+**Git 반영:** 사용자의 push 요청에 따라 캘린더 서비스·새 날짜 검사·격리 회귀와 기존 문서4개를 같은 커밋으로 main에 반영한다. 커밋 직전 캘린더4개 시간대·기존 목록·앱 전체 회귀를 다시 실행하고 원격 main과 로컬 HEAD 일치를 확인한다. 운영 반영과는 구분한다.
+
+**수동·운영 후속:** 최신 앱을 실제 iPhone에서 실행해 캘린더 미추가 취소의 팝업 없음, 추가한 일정의 취소 삭제, 권한 거부→재허용 후 복구, 기기 시간대 변경을 확인한다. 상세 절차는 기존 `RELEASE_TEST_CHECKLIST.md`3절에 합쳤다. Worker 배포·운영 DB 변경·실제 계정/캘린더 쓰기는 하지 않았다. 이전 서버 변경과0033 운영 반영, Apple 가입·Apple 로그인/APNs 인증·TestFlight·심사 계정·권리 확인은 별도 미완료다. archive 폴더와 내부 파일은 조회·변경·Git 추가하지 않았다. 새 프로젝트 MD는 만들지 않았다.
+
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
 - [x] Cloudflare R2 기반 알림장 다중 사진 업로드·삭제·보유기간 관리 — 비공개 버킷·최대 3장·권한 검사·탈퇴/보유기간 정리 구현
@@ -640,6 +660,9 @@ node scripts/production-readonly-smoke.mjs
 
 # 예약 취소·찜 해제의 실제 함수 비동기 상태 회귀(macOS Swift 컴파일러 필요)
 python3 scripts/test-list-mutations.py
+
+# 캘린더 권한/삭제 복구·한국 시각/종일 날짜·DST 경계(실제 기기 달력은 사용하지 않음)
+python3 scripts/test-calendar-service.py
 
 # 백엔드 의존성 취약점
 cd backend-cloudflare && npm audit

@@ -10,23 +10,35 @@ enum CalendarService {
     // 연도가 포함된 형식이라 추정 없이 정확한 날짜로 해석
     static func parseSchedule(_ raw: String) -> Date? {
         let parts = raw.split(separator: " ")
-        guard parts.count >= 2 else { return nil }
+        guard parts.count == 2 || parts.count == 3 else { return nil }
         let dateParts = parts[0].split(separator: "-")
         guard dateParts.count == 3,
-              let year = Int(dateParts[0]), let month = Int(dateParts[1]), let day = Int(dateParts[2]) else { return nil }
+              let year = Int(dateParts[0]), let month = Int(dateParts[1]), let day = Int(dateParts[2]),
+              (1...9999).contains(year) else { return nil }
 
         var comps = DateComponents()
         comps.year = year
         comps.month = month
         comps.day = day
-        if parts.count >= 3 {
+        comps.hour = 0
+        comps.minute = 0
+        if parts.count == 3 {
             let timeParts = parts[2].split(separator: ":")
             guard timeParts.count == 2,
-                  let hour = Int(timeParts[0]), let minute = Int(timeParts[1]) else { return nil }
+                  let hour = Int(timeParts[0]), let minute = Int(timeParts[1]),
+                  (0...23).contains(hour), (0...59).contains(minute) else { return nil }
             comps.hour = hour
             comps.minute = minute
         }
-        return Calendar.current.date(from: comps)
+        var calendar = ReservationSchedule.calendar
+        // 시간권은 한국 시각, 종일 일정은 기기 시간대의 같은 날짜를 유지한다.
+        if parts.count == 2 { calendar.timeZone = .current }
+        guard let date = calendar.date(from: comps) else { return nil }
+        let actual = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        guard actual.year == year, actual.month == month, actual.day == day else { return nil }
+        // 종일 일정은 DST로 자정이 없어도 같은 날짜의 첫 유효 시각을 허용한다.
+        if parts.count == 3, actual.hour != comps.hour || actual.minute != comps.minute { return nil }
+        return date
     }
 
     @discardableResult
@@ -40,6 +52,7 @@ enum CalendarService {
         event.startDate = date
         event.endDate = isAllDay ? date : date.addingTimeInterval(TimeInterval(durationHours) * 60 * 60)
         event.isAllDay = isAllDay
+        event.timeZone = isAllDay ? nil : ReservationSchedule.calendar.timeZone
         event.calendar = store.defaultCalendarForNewEvents
         guard (try? store.save(event, span: .thisEvent)) != nil else { return false }
         setEventIdentifier(event.eventIdentifier, for: reservationId)
@@ -57,10 +70,10 @@ enum CalendarService {
     }
 
     static func removeReservationEvent(reservationId: Int) async {
+        guard let identifier = eventIdentifier(for: reservationId) else { return }
         guard await requestAccess() else { return }
-        guard let identifier = eventIdentifier(for: reservationId),
-              let event = store.event(withIdentifier: identifier) else { return }
-        try? store.remove(event, span: .thisEvent)
+        guard let event = store.event(withIdentifier: identifier),
+              (try? store.remove(event, span: .thisEvent)) != nil else { return }
         setEventIdentifier(nil, for: reservationId)
     }
 
