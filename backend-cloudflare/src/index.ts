@@ -418,13 +418,17 @@ function invalidJsonBody(c: {
   );
 }
 
-async function hasActiveSupportAdmin(db: D1Database): Promise<boolean> {
-  const row = await db.prepare(
-    `SELECT 1 AS available
+const activeSupportAdminQuery = `SELECT 1 AS available
      FROM users
      WHERE is_admin = 1 AND deleted_at IS NULL
-     LIMIT 1`,
-  ).first<{ available: number }>();
+     LIMIT 1`;
+const supportAdminUnavailable = {
+  message: "현재 문의를 받을 운영자 계정이 없습니다.",
+  code: "SUPPORT_ADMIN_UNAVAILABLE",
+} as const;
+
+async function hasActiveSupportAdmin(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(activeSupportAdminQuery).first<{ available: number }>();
   return row?.available === 1;
 }
 
@@ -784,21 +788,22 @@ async function fetchNaverBlogs(
   }
 }
 
+const roomAccessQuery = `SELECT 1 AS allowed
+     FROM chat_rooms r
+     JOIN stores s ON s.store_id = r.store_id
+     JOIN users customer ON customer.user_id = r.user_id AND customer.deleted_at IS NULL
+     WHERE r.room_id = ?
+       AND s.partner_status = 'ACTIVE'
+       AND s.owner_id IS NOT NULL
+       AND (r.user_id = ? OR s.owner_id = ?)
+     LIMIT 1`;
+
 async function canAccessRoom(
   db: D1Database,
   roomId: number,
   userId: number,
 ): Promise<boolean> {
-  const room = await db.prepare(
-    `SELECT 1 AS allowed
-     FROM chat_rooms r
-     JOIN stores s ON s.store_id = r.store_id
-     WHERE r.room_id = ?
-       AND s.partner_status = 'ACTIVE'
-       AND s.owner_id IS NOT NULL
-       AND (r.user_id = ? OR s.owner_id = ?)
-     LIMIT 1`,
-  )
+  const room = await db.prepare(roomAccessQuery)
     .bind(roomId, userId, userId)
     .first<{ allowed: number }>();
   return Boolean(room);
@@ -2289,26 +2294,25 @@ app.get("/api/support/conversation", async (c) => {
 app.post("/api/support/conversation", async (c) => {
   if (c.get("authIsAdmin")) return c.json({ message: "forbidden" }, 403);
   if (!(await hasActiveSupportAdmin(c.env.DB))) {
-    return c.json(
-      {
-        message: "현재 문의를 받을 운영자 계정이 없습니다.",
-        code: "SUPPORT_ADMIN_UNAVAILABLE",
-      },
-      503,
-    );
+    return c.json(supportAdminUnavailable, 503);
   }
 
   const userId = c.get("authUserId");
   const inserted = await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO support_conversations (user_id) VALUES (?)`,
+    `INSERT OR IGNORE INTO support_conversations (user_id)
+     SELECT user_id FROM users WHERE user_id = ? AND deleted_at IS NULL
+       AND COALESCE(is_admin, 0) = 0 AND EXISTS (${activeSupportAdminQuery})`,
   ).bind(userId).run();
   const conversation = await c.env.DB.prepare(
-    `SELECT conversation_id, user_id, status, created_at, updated_at
-     FROM support_conversations
-     WHERE user_id = ?`,
+    `SELECT sc.conversation_id, sc.user_id, sc.status, sc.created_at, sc.updated_at
+     FROM support_conversations sc JOIN users u ON u.user_id = sc.user_id
+     WHERE sc.user_id = ? AND u.deleted_at IS NULL AND COALESCE(u.is_admin, 0) = 0
+       AND EXISTS (${activeSupportAdminQuery})`,
   ).bind(userId).first();
-  if (!conversation)
-    return c.json({ message: "failed to open support conversation" }, 500);
+  if (!conversation) {
+    if (!(await hasActiveSupportAdmin(c.env.DB))) return c.json(supportAdminUnavailable, 503);
+    return c.json({ message: "support access changed" }, 403);
+  }
   return c.json(conversation, (inserted.meta.changes ?? 0) > 0 ? 201 : 200);
 });
 
@@ -2365,13 +2369,7 @@ app.post("/api/support/conversations/:id/messages", async (c) => {
     authIsAdmin,
   ))) return c.json({ message: "forbidden" }, 403);
   if (!authIsAdmin && !(await hasActiveSupportAdmin(c.env.DB))) {
-    return c.json(
-      {
-        message: "현재 문의를 받을 운영자 계정이 없습니다.",
-        code: "SUPPORT_ADMIN_UNAVAILABLE",
-      },
-      503,
-    );
+    return c.json(supportAdminUnavailable, 503);
   }
 
   const body = await readJsonObject<SupportMessageBody>(c.req);
@@ -2381,21 +2379,30 @@ app.post("/api/support/conversations/:id/messages", async (c) => {
   if (content.length > 4000)
     return c.json({ message: "content is too long" }, 400);
 
-  const inserted = await c.env.DB.prepare(
-    `INSERT INTO support_messages
+  // INSERT 바로 다음 UPDATE의 changes()로 0건이면 상태를 보존한다. 중간 SQL을 끼우지 않는다.
+  const [inserted] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO support_messages
        (conversation_id, sender_id, sender_role, content)
-     VALUES (?, ?, ?, ?)`,
-  ).bind(
-    conversationId,
-    authUserId,
-    authIsAdmin ? "ADMIN" : "USER",
-    content,
-  ).run();
-  await c.env.DB.prepare(
-    `UPDATE support_conversations
-     SET updated_at = CURRENT_TIMESTAMP, status = 'OPEN'
-     WHERE conversation_id = ?`,
-  ).bind(conversationId).run();
+       SELECT sc.conversation_id, sender.user_id, ?, ?
+       FROM support_conversations sc
+       JOIN users customer ON customer.user_id = sc.user_id AND customer.deleted_at IS NULL
+       JOIN users sender ON sender.user_id = ? AND sender.deleted_at IS NULL
+       WHERE sc.conversation_id = ? AND COALESCE(sender.is_admin, 0) = ?
+         AND (? = 1 OR sc.user_id = sender.user_id)
+         AND (sender.is_admin = 1 OR EXISTS (${activeSupportAdminQuery}))`,
+    ).bind(authIsAdmin ? "ADMIN" : "USER", content, authUserId, conversationId,
+      authIsAdmin ? 1 : 0, authIsAdmin ? 1 : 0),
+    c.env.DB.prepare(
+      `UPDATE support_conversations
+       SET updated_at = CURRENT_TIMESTAMP, status = 'OPEN'
+       WHERE conversation_id = ? AND changes() = 1`,
+    ).bind(conversationId),
+  ]);
+  if ((inserted.meta.changes ?? 0) === 0) {
+    if (!authIsAdmin && !(await hasActiveSupportAdmin(c.env.DB))) return c.json(supportAdminUnavailable, 503);
+    return c.json({ message: "support access changed" }, 403);
+  }
   const message = await c.env.DB.prepare(
     `SELECT message_id, conversation_id, sender_id, sender_role, content, created_at
      FROM support_messages WHERE message_id = ?`,
@@ -2430,12 +2437,6 @@ app.post("/api/chatrooms/:id/messages", async (c) => {
   if (requestedSenderId !== undefined && requestedSenderId !== authUserId)
     return c.json({ message: "forbidden" }, 403);
   const senderId = authUserId;
-  const user = await c.env.DB.prepare(
-    `SELECT nickname FROM users WHERE user_id = ?`,
-  )
-    .bind(authUserId)
-    .first<{ nickname: string | null }>();
-  const senderName = user?.nickname ?? "나";
   const messageType = body.message_type ?? body.messageType ?? "TEXT";
   const content = body.content?.trim();
 
@@ -2444,11 +2445,14 @@ app.post("/api/chatrooms/:id/messages", async (c) => {
   const result = await c.env.DB.prepare(
     `
     INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content)
-    VALUES (?, ?, ?, ?, ?)
+    SELECT ?, u.user_id, COALESCE(u.nickname, '나'), ?, ?
+    FROM users u WHERE u.user_id = ? AND u.deleted_at IS NULL
+      AND EXISTS (${roomAccessQuery})
   `,
   )
-    .bind(roomId, senderId, senderName, messageType, content)
+    .bind(roomId, messageType, content, senderId, roomId, senderId, senderId)
     .run();
+  if ((result.meta.changes ?? 0) === 0) return c.json({ message: "chat access changed" }, 403);
 
   const row = await c.env.DB.prepare(
     `
