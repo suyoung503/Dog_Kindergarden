@@ -250,6 +250,9 @@ struct MyPageView: View {
             MyPageItem(icon: "questionmark.circle", label: "도움말·지원") {
                 UIApplication.shared.open(APIEnvironment.supportURL)
             }
+            MyPageItem(icon: "doc.text", label: "이용약관") {
+                UIApplication.shared.open(APIEnvironment.termsOfServiceURL)
+            }
             MyPageItem(icon: "hand.raised",        label: "개인정보처리방침") {
                 UIApplication.shared.open(APIEnvironment.privacyPolicyURL)
             }
@@ -372,10 +375,17 @@ private struct AccountDeletionSheet: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(.red)
 
-                    deletionNotice("프로필, 반려견 정보, 찜, 개인 채팅과 알림 상태가 삭제돼요.")
-                    deletionNotice("완료된 예약과 리뷰는 서비스 운영을 위해 개인정보를 제거한 상태로 남을 수 있어요.")
+                    deletionNotice("계정 식별자·프로필을 제거하고 반려견·찜·내 고객센터 대화를 삭제해요.")
+                    deletionNotice("보호자 예약의 알림장·사진과 개인 채팅은 삭제하고, 가게 채팅의 내 메시지와 리뷰는 표시 이름·본문을 지워요.")
+                    deletionNotice("사진은 조회 연결을 먼저 없애고 저장소에서 삭제해요. 오류가 나면 삭제 대기 기록으로 재시도해요.")
+                    deletionNotice("예약 당시 개인정보는 지우지만 최소 예약 기록·익명 별점/태그·내부 사용자 번호는 남을 수 있어요. 사장님 탈퇴 시 가게 연결은 종료되며 다른 보호자의 기록까지 삭제되지는 않아요.")
+                    deletionNotice("운영자가 다른 고객에게 작성한 고객센터 답변은 해당 고객의 문의 기록으로 남을 수 있어요.")
                     deletionNotice("진행 중인 내 예약이나 내 가게의 진행 예약이 있으면 먼저 완료하거나 취소해야 해요.")
-                    deletionNotice("탈퇴가 끝나면 모든 기기에서 로그아웃되며 되돌릴 수 없어요.")
+                    deletionNotice("모든 기기의 서비스 세션이 폐기돼요. 카카오 계정 자체는 삭제되지 않으며 재가입해도 이전 데이터는 자동 복구되지 않아요.")
+
+                    Link("개인정보 보유기간 확인", destination: APIEnvironment.privacyPolicyURL)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.brandBrown)
 
                     if let errorMessage {
                         Text(errorMessage)

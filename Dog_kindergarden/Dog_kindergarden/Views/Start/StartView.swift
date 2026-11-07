@@ -159,9 +159,10 @@ struct StartView: View {
                 .foregroundStyle(Color.brandBrownMid)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
-            HStack(spacing: 2) {
-                Text("시작 전")
-                Link("개인정보처리방침을 확인해주세요", destination: APIEnvironment.privacyPolicyURL)
+            VStack(spacing: 8) {
+                Link("이용약관(준비안)", destination: APIEnvironment.termsOfServiceURL)
+                    .underline()
+                Link("개인정보처리방침", destination: APIEnvironment.privacyPolicyURL)
                     .underline()
             }
             .font(.system(size: 10))

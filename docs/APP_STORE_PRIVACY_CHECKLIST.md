@@ -1,6 +1,6 @@
 # 맡겨멍 App Store App Privacy 매핑 체크리스트
 
-**점검 기준일:** 2026-10-30
+**점검 기준일:** 2026-11-07
 **대상:** 현재 저장소의 iOS 앱, Cloudflare Worker·D1 스키마, CocoaPods SDK
 **주의:** 이 문서는 App Store Connect 입력을 준비하기 위한 코드 기반 매핑이다. 실제 Archive의 Xcode Privacy Report와 운영 환경을 다시 대조한 후 제출해야 한다.
 
@@ -136,9 +136,11 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 - [ ] Archive 안의 앱 루트에 `PrivacyInfo.xcprivacy`가 존재하는지 확인
 - [ ] App Store Connect에서 제2절의 데이터 유형·연결·추적·목적을 동일하게 입력
 - [x] 개인정보처리방침의 운영자 이메일 확정 — `yikum503@naver.com`
-- [x] 개인정보처리방침의 계정·예약·채팅·알림장·리뷰·백업 보유기간 확정 — 세션 30일, 법령 적용 예약 5년, 분쟁 기록 3년, 수동 백업 30일
-- [x] 회원 탈퇴와 서버 삭제·익명화 기능을 실제 동작과 대조 — 진행 예약 차단, 개인정보 삭제, 운영 기록 익명화, 전 세션 폐기 반영
-- [x] 공개 HTTPS URL에 최종 개인정보처리방침 게시 — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`
+- [ ] 보유기간의 법적 적용 범위 최종 확정 — 현재 코드의 세션30일·완료 예약5년·취소+7일·종결 문의3년과 수동 백업 운영 기준을 법률 검토 완료로 간주하지 않음
+- [x] 회원 탈퇴의 현재 코드·로컬 동작 대조 — 전 세션 폐기·역할별 삭제/표시 이름 및 본문 제거·내부 참조 잔존·R2 장애 시 접근 차단 후 대기/재시도(배포 기록3.29). 자동 검사가 실기기·보유 적법성 검증을 대신하지 않음
+- [x] 기존 개인정보처리방침 HTTPS 게시 — `https://matgyeomung-api.dog-kindergarden.workers.dev/privacy`. 2026-11-07 수정 준비안은 운영 미반영이며 최종 방침 게시 완료와 구분
+- [ ] 이용약관 준비안의 운영자·버전·적용일과 실제 동의 절차, 개인정보 제3자 제공·위탁/국외 처리 근거·연령 처리를 확정(배포 문서2.6)
+- [ ] 수정 전후 비교와 공고/시행일을 확정한 최종 개인정보처리방침·약관 운영 반영 및 실제 공개 URL 확인
 - [ ] App Store Connect의 Privacy Policy URL 입력
 - [ ] 실제 iPhone에서 카카오 로그인, 캘린더 권한, 알림 권한과 거부 흐름 확인
 - [ ] 위치·사진·APNs·분석 SDK를 추가하거나 SDK 버전을 올릴 때 manifest와 App Privacy를 재검토
@@ -154,5 +156,6 @@ Apple의 현재 필수 제3자 SDK 목록에는 Alamofire가 포함되고 Kakao 
 1. App Store Connect의 App Privacy 응답을 실제 Archive Privacy Report와 최종 대조
 2. 실제 Archive Privacy Report 미생성
 3. App Store Connect App Privacy 미입력
+4. 이용약관은 미시행 준비안이며 서비스 약관 동의 기록은 미구현. 운영자·가게 정보 제공·위탁/국외 처리·연령·보유 근거는 `DEPLOYMENT_REMAINING.md`2.6의 확정 필요
 
 따라서 이번 작업은 **코드·문서 준비 완료**이지, 개인정보 관련 출시 요건 전체 완료가 아니다.

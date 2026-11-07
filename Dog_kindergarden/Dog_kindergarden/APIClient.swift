@@ -36,6 +36,10 @@ enum APIEnvironment {
     static var supportURL: URL {
         apiBaseURL.deletingLastPathComponent().appendingPathComponent("support")
     }
+
+    static var termsOfServiceURL: URL {
+        apiBaseURL.deletingLastPathComponent().appendingPathComponent("terms")
+    }
 }
 
 enum AuthTokenStore {

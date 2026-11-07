@@ -4,6 +4,24 @@ import Testing
 
 // Keychain과 standard defaults를 쓰는 기존 프로필 테스트와 같은 직렬 suite다.
 extension AuthStateTests.ProfileEmailTests {
+    @Test("공개 문서 URL은 현재 API origin과 경로를 따르고 인증 정보를 넣지 않는다")
+    func publicDocumentURLs() {
+        let previous = UserDefaults.standard.object(forKey: "API_BASE_URL")
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: "API_BASE_URL") }
+            else { UserDefaults.standard.removeObject(forKey: "API_BASE_URL") }
+        }
+        for base in [nil, "http://127.0.0.1:8787/api", "https://staging.example.com/service/api"] as [String?] {
+            if let base { UserDefaults.standard.set(base, forKey: "API_BASE_URL") }
+            else { UserDefaults.standard.removeObject(forKey: "API_BASE_URL") }
+            let expected = URL(string: base ?? "https://matgyeomung-api.dog-kindergarden.workers.dev/api")!.deletingLastPathComponent()
+            for (url, path) in [(APIEnvironment.termsOfServiceURL, "terms"), (APIEnvironment.privacyPolicyURL, "privacy"), (APIEnvironment.supportURL, "support")] {
+                #expect(url == expected.appendingPathComponent(path))
+                #expect(url.query == nil && url.fragment == nil && url.user == nil && url.password == nil)
+            }
+        }
+    }
+
     @Test("Delayed transport 401 cannot invalidate a replacement token or API server", arguments: ["transport", "update", "delete"])
     func staleTransportUnauthorized(route: String) async throws {
         for change in ["token", "server"] {

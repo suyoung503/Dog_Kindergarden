@@ -264,6 +264,25 @@ try {
         '다른 계정의 세션은 보존한다');
     });
 
+    await t.test('R2 삭제 실패에도 탈퇴·사진 접근 차단을 유지하고 후속 정리가 파일과 대기 기록을 지운다', { timeout: 20000 }, async () => {
+      const f = await fixture();
+      const photos = new Proxy(bucket, { get(target, key) {
+        if (key === 'delete') return async () => { throw Error('fixture R2 unavailable'); };
+        return typeof target[key] === 'function' ? target[key].bind(target) : target[key];
+      } });
+      assert.equal((await removeAccount(f.customer, { photos })).status, 200);
+      assert.equal((await api('/auth/me', f.customer, undefined, { method: 'GET' })).status, 401);
+      for (const path of [`/pets/${f.customer}/photo`, `/diary-photos/${f.customer}`])
+        assert.equal((await api(path, f.owner, undefined, { method: 'GET' })).status, 404, '살아 있는 다른 계정으로도 삭제된 조회 연결은 열 수 없다');
+      for (const kind of ['diary', 'pet']) {
+        const key = `account-lifecycle/${f.customer}/${kind}.jpg`;
+        assert.ok(await bucket.get(key), '저장소 장애 중 실제 파일은 아직 남아 있다');
+        assert.equal((await rows('SELECT * FROM diary_photo_deletion_queue WHERE r2_key=?', key)).length, 1);
+      }
+      await worker.scheduled({ cron: '*/15 * * * *' }, env, { waitUntil() {} });
+      await assertDeleted(f.customer);
+    });
+
     await t.test('cleanup 중 실제 D1 오류가 나면 tombstone부터 사진 대기열까지 batch 전체를 rollback한다', { timeout: 20000 }, async () => {
       const f = await fixture(), trigger = `fail_account_delete_${f.customer}`;
       await db.prepare(`CREATE TRIGGER ${trigger} BEFORE DELETE ON pets WHEN OLD.user_id=${f.customer}

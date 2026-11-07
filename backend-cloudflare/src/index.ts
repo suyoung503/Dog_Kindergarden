@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { privacyPolicyHTML } from "./privacyPolicy";
 import { supportPageHTML } from "./supportPage";
+import { termsOfServiceHTML } from "./termsOfService";
 import { storeShareResponse } from "./storeSharePage";
 import { refreshStaleStoreDetails } from "./storeDetailRefresh";
 import { connectRealtime, realtimeChanges } from "./realtime";
@@ -917,22 +918,22 @@ async function findRoomId(
   return room ? room.room_id : null;
 }
 
+const publicDocumentHeaders = {
+  "Cache-Control": "public, max-age=3600",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+};
+
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME }));
 app.get("/privacy", (c) =>
-  c.html(privacyPolicyHTML, 200, {
-    "Cache-Control": "public, max-age=3600",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-  }),
+  c.html(privacyPolicyHTML, 200, publicDocumentHeaders),
 );
 app.get("/support", (c) =>
-  c.html(supportPageHTML, 200, {
-    "Cache-Control": "public, max-age=3600",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-  }),
+  c.html(supportPageHTML, 200, publicDocumentHeaders),
+);
+app.get("/terms", (c) =>
+  c.html(termsOfServiceHTML, 200, publicDocumentHeaders),
 );
 
 // 공지사항 목록 — 본문 제외, 최신순
