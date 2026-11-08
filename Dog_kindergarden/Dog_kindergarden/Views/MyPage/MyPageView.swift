@@ -268,12 +268,20 @@ struct MyPageView: View {
     @MainActor
     private func deleteAccount() async {
         guard let userId = authSession.userId, !isDeletingAccount else { return }
+        let token = AuthTokenStore.load()
+        let apiBaseURL = APIEnvironment.apiBaseURL
+        let isCurrentSession = {
+            self.authSession.userId == userId && AuthTokenStore.load() == token
+                && APIEnvironment.apiBaseURL == apiBaseURL
+        }
         isDeletingAccount = true
         accountDeletionError = nil
         defer { isDeletingAccount = false }
 
         do {
             try await APIClient.shared.deleteAccount(userId: userId)
+            // 지연된 탈퇴 결과로 새 계정의 인증·프로필·기기 연결을 지우지 않는다.
+            guard isCurrentSession() else { return }
             AppNotificationService.shared.clearAfterAccountDeletion(userId: userId)
             CalendarService.clearLocalMappings()
             userProfile.clearAfterAccountDeletion()
@@ -281,11 +289,13 @@ struct MyPageView: View {
             showAccountDeletionSheet = false
             router.clearAccountData(userId: userId)
         } catch AccountDeletionError.activeReservations(let customer, let owner) {
+            guard isCurrentSession() else { return }
             var reasons: [String] = []
             if customer > 0 { reasons.append("내 진행 예약 \(customer)건") }
             if owner > 0 { reasons.append("내 가게 진행 예약 \(owner)건") }
             accountDeletionError = "\(reasons.joined(separator: ", "))이 있어 탈퇴할 수 없어요. 예약을 완료하거나 취소한 뒤 다시 시도해주세요."
         } catch {
+            guard isCurrentSession() else { return }
             accountDeletionError = "회원 탈퇴를 완료하지 못했어요. 잠시 후 다시 시도해주세요."
         }
     }
