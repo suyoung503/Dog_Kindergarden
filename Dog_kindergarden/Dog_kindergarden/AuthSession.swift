@@ -13,6 +13,9 @@ final class AuthSession {
     var isAdmin: Bool = false
     var isLoading = false
     var errorMessage: String?
+    // 전역 토큰을 공유하는 다른 AuthSession의 새 로그인도 함께 구분한다.
+    private static var loginGeneration: UInt = 0
+    var sessionGeneration: UInt { Self.loginGeneration }
     private var sessionInvalidationTask: Task<Void, Never>?
     private let session: URLSession
     private var profileRefreshGeneration: UInt = 0
@@ -222,6 +225,7 @@ final class AuthSession {
             throw URLError(.cannotParseResponse)
         }
 
+        Self.loginGeneration &+= 1
         AuthTokenStore.save(sessionToken)
         userId = id
         nickname = json?["nickname"] as? String ?? fallbackNickname

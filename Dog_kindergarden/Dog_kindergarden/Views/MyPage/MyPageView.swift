@@ -270,9 +270,11 @@ struct MyPageView: View {
         guard let userId = authSession.userId, !isDeletingAccount else { return }
         let token = AuthTokenStore.load()
         let apiBaseURL = APIEnvironment.apiBaseURL
+        let sessionGeneration = authSession.sessionGeneration
         let isCurrentSession = {
             self.authSession.userId == userId && AuthTokenStore.load() == token
                 && APIEnvironment.apiBaseURL == apiBaseURL
+                && self.authSession.sessionGeneration == sessionGeneration
         }
         isDeletingAccount = true
         accountDeletionError = nil
@@ -280,14 +282,24 @@ struct MyPageView: View {
 
         do {
             try await APIClient.shared.deleteAccount(userId: userId)
-            // 지연된 탈퇴 결과로 새 계정의 인증·프로필·기기 연결을 지우지 않는다.
-            guard isCurrentSession() else { return }
-            AppNotificationService.shared.clearAfterAccountDeletion(userId: userId)
+            let isCurrent = isCurrentSession()
+            // 다른 로그인 없이 요청한 세션만 만료됐다면 남은 기기 캐시를 정리한다.
+            let onlySessionEnded = (authSession.userId == nil || authSession.userId == userId)
+                && AuthTokenStore.load() == nil
+                && APIEnvironment.apiBaseURL == apiBaseURL
+                && authSession.sessionGeneration == sessionGeneration
+            let clearCurrentCaches = isCurrent || onlySessionEnded
+            if APIEnvironment.apiBaseURL == apiBaseURL {
+                AppNotificationService.shared.clearAfterAccountDeletion(userId: userId, clearCurrentState: clearCurrentCaches)
+                router.clearAccountData(userId: userId, clearCurrentState: isCurrent)
+            }
+            guard clearCurrentCaches else { return }
             CalendarService.clearLocalMappings()
             userProfile.clearAfterAccountDeletion()
-            authSession.completeAccountDeletion()
-            showAccountDeletionSheet = false
-            router.clearAccountData(userId: userId)
+            if isCurrent {
+                authSession.completeAccountDeletion()
+                showAccountDeletionSheet = false
+            }
         } catch AccountDeletionError.activeReservations(let customer, let owner) {
             guard isCurrentSession() else { return }
             var reasons: [String] = []

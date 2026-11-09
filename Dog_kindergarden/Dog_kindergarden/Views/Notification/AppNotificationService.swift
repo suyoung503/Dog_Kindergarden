@@ -288,14 +288,15 @@ final class AppNotificationService: NSObject {
         }
     }
 
-    func clearAfterAccountDeletion(userId: Int) {
+    func clearAfterAccountDeletion(userId: Int, clearCurrentState: Bool = true) {
+        UserDefaults.standard.removeObject(forKey: "notification_cursor_\(userId)")
+        UserDefaults.standard.removeObject(forKey: inboxKey(userId: userId))
+        UserDefaults.standard.removeObject(forKey: "notification_seen_\(userId)")
+        guard clearCurrentState else { return }
         if self.userId == userId { configure(userId: nil) }
         pendingDeepLink = nil
         activeRoomId = nil
         inboxItems = []
-        UserDefaults.standard.removeObject(forKey: "notification_cursor_\(userId)")
-        UserDefaults.standard.removeObject(forKey: inboxKey(userId: userId))
-        UserDefaults.standard.removeObject(forKey: "notification_seen_\(userId)")
         let center = UNUserNotificationCenter.current()
         center.removeAllDeliveredNotifications()
         center.removeAllPendingNotificationRequests()

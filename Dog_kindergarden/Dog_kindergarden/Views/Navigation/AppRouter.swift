@@ -206,8 +206,9 @@ final class AppRouter {
         UserDefaults.standard.set(data, forKey: "recent_pins_\(activeUserId)")
     }
 
-    func clearAccountData(userId: Int) {
+    func clearAccountData(userId: Int, clearCurrentState: Bool = true) {
         UserDefaults.standard.removeObject(forKey: "recent_pins_\(userId)")
+        guard clearCurrentState else { return }
         if activeUserId == userId { activeUserId = nil }
         reset(to: .start)
     }

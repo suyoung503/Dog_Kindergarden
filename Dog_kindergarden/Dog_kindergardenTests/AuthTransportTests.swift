@@ -4,6 +4,69 @@ import Testing
 
 // Keychain과 standard defaults를 쓰는 기존 프로필 테스트와 같은 직렬 suite다.
 extension AuthStateTests.ProfileEmailTests {
+    @Test("세션 종료·중복 만료 알림은 새 로그인 세대로 기록하지 않는다")
+    func accountDeletionSessionGeneration() async {
+        let fixture = AuthTransportFixture { _, complete in complete(401) }
+        defer { fixture.close() }
+        await fixture.drainInvalidations()
+        let generation = fixture.auth.sessionGeneration
+        var request = URLRequest(url: APIEnvironment.apiBaseURL.appendingPathComponent("auth/me"))
+        request.setValue("Bearer transport-fixture-old", forHTTPHeaderField: "Authorization")
+        APITransport.handleUnauthorized(401, request: request)
+        // 토큰 삭제와 비동기 AuthSession observer 사이의 실제 순서를 확인한다.
+        #expect(AuthTokenStore.load() == nil)
+        #expect(fixture.auth.userId == 920001)
+        await fixture.drainInvalidations()
+        #expect(fixture.auth.userId == nil)
+        #expect(fixture.auth.sessionGeneration == generation)
+        NotificationCenter.default.post(name: .apiSessionInvalidated, object: nil)
+        await fixture.drainInvalidations()
+        #expect(fixture.auth.sessionGeneration == generation)
+    }
+
+    @Test("탈퇴 계정의 최근 본 가게만 지우고 새 계정의 화면과 저장값은 유지한다")
+    func accountScopedRecentPinsCleanup() {
+        let old = Int.random(in: 960_000_000...970_000_000), current = old + 1
+        let defaults = UserDefaults.standard
+        defer {
+            defaults.removeObject(forKey: "recent_pins_\(old)")
+            defaults.removeObject(forKey: "recent_pins_\(current)")
+        }
+        defaults.set(Data("old".utf8), forKey: "recent_pins_\(old)")
+        defaults.set(Data("current".utf8), forKey: "recent_pins_\(current)")
+        let router = AppRouter()
+        router.setActiveUser(current)
+        router.go(.myPage)
+        router.clearAccountData(userId: old, clearCurrentState: false)
+        #expect(defaults.object(forKey: "recent_pins_\(old)") == nil)
+        #expect(defaults.data(forKey: "recent_pins_\(current)") == Data("current".utf8))
+        if case .myPage = router.current {} else { Issue.record("다른 계정 정리로 화면이 바뀌면 안 됨") }
+        router.clearAccountData(userId: current)
+        #expect(defaults.object(forKey: "recent_pins_\(current)") == nil)
+        if case .start = router.current {} else { Issue.record("현재 계정의 기존 정리 동작 유지") }
+    }
+
+    @Test("탈퇴 프로필의 실제 메모리와 저장된 이름·연락처·주소·이메일을 모두 제거한다")
+    func accountDeletionProfileCacheCleanup() {
+        let defaults = UserDefaults.standard
+        let keys = ["profile_name", "profile_phone", "profile_address", "profile_email"]
+        let saved = Dictionary(uniqueKeysWithValues: keys.compactMap { key in defaults.object(forKey: key).map { (key, $0) } })
+        defer {
+            for key in keys {
+                if let value = saved[key] { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let profile = UserProfile()
+        profile.name = "탈퇴 테스트"
+        profile.phone = "01011112222"
+        profile.address = "테스트 주소"
+        profile.email = "fixture@example.test"
+        profile.clearAfterAccountDeletion()
+        #expect(profile.name == "보호자" && profile.phone.isEmpty && profile.address.isEmpty && profile.email.isEmpty)
+        for key in keys { #expect(defaults.object(forKey: key) == nil) }
+    }
+
     @Test("공개 문서 URL은 현재 API origin과 경로를 따르고 인증 정보를 넣지 않는다")
     func publicDocumentURLs() {
         let previous = UserDefaults.standard.object(forKey: "API_BASE_URL")

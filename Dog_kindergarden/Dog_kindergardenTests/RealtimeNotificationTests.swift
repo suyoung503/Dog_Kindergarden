@@ -7,6 +7,33 @@ extension AuthStateTests {
 @Suite("Foreground notification catchup", .serialized)
 @MainActor
 struct RealtimeNotificationTests {
+    @Test("이전 계정 저장 캐시 삭제는 현재 알림함·딥링크·채팅 상태를 바꾸지 않는다", arguments: [false, true])
+    func accountScopedInboxCleanup(configureCurrentUser: Bool) {
+        let fixture = NotificationFixture { _, complete in complete(500, Data()) }
+        defer { fixture.close() }
+        let defaults = UserDefaults.standard
+        for user in [fixture.userID, fixture.otherUserID] {
+            for prefix in ["notification_cursor_", "notification_inbox_", "notification_seen_"] {
+                defaults.set(Data("cache-\(user)".utf8), forKey: "\(prefix)\(user)")
+            }
+        }
+        if configureCurrentUser { fixture.service.configure(userId: fixture.otherUserID) }
+        // configure가 아직 이전 계정이어도 명시된 저장값 정리는 현재 화면을 건드리지 않는다.
+        fixture.service.activeRoomId = 17
+        fixture.service.pendingDeepLink = .reservationList
+        fixture.service.inboxItems = [AppInboxItem(id: "current", type: "chat", title: "현재 알림", body: "내용",
+            roomId: 17, reservationId: nil, conversationId: nil, applicationId: nil, asOwner: false,
+            storeType: nil, receivedAt: Date(), isRead: false)]
+        fixture.service.clearAfterAccountDeletion(userId: fixture.userID, clearCurrentState: false)
+        for prefix in ["notification_cursor_", "notification_inbox_", "notification_seen_"] {
+            #expect(defaults.object(forKey: "\(prefix)\(fixture.userID)") == nil)
+            #expect(defaults.data(forKey: "\(prefix)\(fixture.otherUserID)") == Data("cache-\(fixture.otherUserID)".utf8))
+        }
+        #expect(fixture.service.inboxItems.map(\.id) == ["current"])
+        #expect(fixture.service.pendingDeepLink == .reservationList)
+        #expect(fixture.service.activeRoomId == 17)
+    }
+
     @Test("Repeated feed delivery keeps one inbox item and its read state")
     func duplicateFeed() async throws {
         let fixture = NotificationFixture { _, complete in
