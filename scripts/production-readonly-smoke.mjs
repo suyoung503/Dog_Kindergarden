@@ -60,6 +60,8 @@ await check("서비스 상태", "/", async (response, body) => {
 
 await check("개인정보처리방침", "/privacy", (response, body) =>
   validatePublicPage(response, body, "보유기간과 파기"));
+await check("이용약관", "/terms", (response, body) =>
+  validatePublicPage(response, body, "맡겨멍 이용약관"));
 await check("고객지원", "/support", (response, body) =>
   validatePublicPage(response, body, "yikum503@naver.com"));
 

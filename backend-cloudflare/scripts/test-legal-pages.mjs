@@ -39,6 +39,21 @@ try {
       for (const text of ['출시 준비안', '미시행', '운영자', 'yikum503@naver.com', '앱 내 결제', '동의로 간주하지 않습니다']) assert.ok(html.includes(text), text);
       assert.doesNotMatch(html, /동의한 것으로|모든 책임을 지지 않/);
     });
+    await t.test('공개 승인한 담당자 이름을 문서에 표시하되 준비안 상태를 유지한다', async () => {
+      const privacy = await (await mf.dispatchFetch('https://example.com/privacy')).text();
+      const terms = await (await mf.dispatchFetch('https://example.com/terms')).text();
+      assert.ok(privacy.includes('책임자: 이수영'));
+      assert.ok(terms.includes('운영자: 이수영'));
+      assert.doesNotMatch(terms, /운영자 정식 표기: 출시 전 확정 필요/);
+      assert.ok(privacy.includes('2026년 11월 12일 수정 준비안'));
+      assert.doesNotMatch(privacy, /운영 반영 전/);
+      assert.ok(privacy.includes('공고일·시행일: 2026년 10월 26일'));
+      assert.ok(terms.includes('미시행'));
+      const markdown = await readFile(new URL('../../docs/PRIVACY_POLICY.md', import.meta.url), 'utf8');
+      assert.ok(markdown.includes('개인정보 보호책임자: 이수영'));
+      const start = await readFile(new URL('../../Dog_kindergarden/Dog_kindergarden/Views/Start/StartView.swift', import.meta.url), 'utf8');
+      assert.ok(!start.includes('이수영'));
+    });
     await t.test('탈퇴 고지는 지연 사진 삭제·역할별 기록·재가입 경계를 설명한다', async () => {
       const html = await (await mf.dispatchFetch('https://example.com/privacy')).text();
       for (const text of ['삭제 대기', '재시도', '내부 사용자 번호', '사장님', '재가입', '7일']) assert.ok(html.includes(text), text);
