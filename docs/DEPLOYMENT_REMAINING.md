@@ -1,14 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
 **기준일:** 2026-11-13
-**기준 브랜치:** `main` (2026-11-12 기존 서버 보완·공개용 성명 운영 반영, 픽업·동의 기능은 미구현)
+**기준 브랜치:** `main` (2026-11-12 Worker·공개용 성명, 2026-11-13 운영 D1 인덱스 반영, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
-- [x] 2026-11-13 미적용0033 인덱스의 운영 적용 사전 검증 — 대기 데이터 보존·삭제 재시도 로컬 회귀, 빈 D1 전체33개 migration·인증/권한216개·운영 읽기16개 통과. 운영 D1 적용은 별도 승인 대기(3.34)
+- [x] 2026-11-13 사용자 승인 후0033 인덱스 운영 D1 반영 — 미적용0개·적용 기록33개·실제 쿼리의 새 인덱스 검색 확인. 데이터 보존·삭제 재시도 로컬 회귀, 빈 D1 전체33개 migration·인증/권한216개·적용 전후 운영 읽기 각16개 통과(3.34)
 - [x] 2026-11-12 본인 승인 성명 표기·약관 준비안과 기존 미배포 Worker 보완 운영 반영 — 최종 버전 `112c8d8a-4dad-46a1-a45e-91991c471c79`, 트래픽100%, 운영 읽기16개·문서3개 확인. 0033 운영 D1 적용·픽업/동의 기능·정식 정책 시행과는 구분(3.33)
 - [x] Hono·Wrangler와 전이 의존성을 안전 버전으로 갱신하고 깨끗한 설치에서 `npm audit` **0건** 확인
 - [x] 갱신된 Wrangler로 Worker 배포 번들 dry-run 성공
@@ -17,7 +17,7 @@
 - [x] 2026-10-27 추가 알림 보완 운영 배포 — `d12625f1-1a72-41fe-8a4b-9dd548ed290c`, 트래픽100%, 운영 읽기 점검15개 통과
 - [x] 2026-10-26 실기기 수정 서버 운영 배포 — 최종 버전 `e9484b5c-8872-4ed7-bae3-1c644496f024`, 트래픽 100%, R2·Durable Object·15분 보유기간 Cron 적용
 - [x] 사용자 별도 승인으로 취소 시각 없는 과거 예약 **9건** 영구 삭제·대상 ID 잔여 **0건** 확인
-- [x] 이전 운영 반영 시 D1 미적용 마이그레이션 **0건** 확인 — 현재 추가된0033은 미반영이며3.22~3.25의 후속 상태를 따른다
+- [x] 이전 운영 반영 시 D1 미적용 마이그레이션 **0건** 확인 — 이후 추가된0033도2026-11-13 반영해 현재 미적용0개(3.34). 3.22~3.25의 미반영 기록은 당시 상태다
 - [x] 운영 Worker 공개 상태·개인정보처리방침·고객지원·가게·공지 조회 확인
 - [x] 운영 Worker에서 예약·사장님 가게·운영자 승인함·고객센터 무인증 요청이 모두 `401`인지 확인
 - [x] 운영 읽기 전용 회귀를 반복할 `scripts/production-readonly-smoke.mjs` 추가
@@ -920,25 +920,27 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 
 **2026-11-13 후속 Git 요청:** 사용자가 push를 요청해 공개 문서 원문·회귀·기존 문서9개를 같은 커밋의 main push 범위에 포함한다. 직전 법률 페이지9개·문서 링크/구문·diff 검사와 원격 main 무분기를 확인한다. 앞의 미커밋 기록은 배포 당시 상태로 보존하며, 커밋만을 이유로 Worker를 다시 배포하거나 새 정책을 시행하지 않는다.
 
-### 3.34 2026-11-13 사진 삭제 대기열 인덱스 운영 적용 준비
+### 3.34 2026-11-13 사진 삭제 대기열 인덱스 운영 반영
 
-**선택한 다음 작업:** `c9b5147`을 main에 push하고 원격 해시 일치를 확인한 뒤, 새 정책·Apple 유료 계정 없이 마무리할 수 있는 기존0033을 재검증했다. 새 기능이나 새 결함을 만든 작업이 아니라3.22에서 검증한 인덱스 교체의 운영 적용 준비다. 운영 DB 변경은 사용자에게 구체적인 범위를 제시해 별도 승인을 요청했으며, 아래 사전 점검만으로 적용 완료로 표시하지 않는다.
+**선택한 다음 작업:** `c9b5147`을 main에 push하고 원격 해시 일치를 확인한 뒤, 새 정책·Apple 유료 계정 없이 마무리할 수 있는 기존0033을 재검증했다. 새 기능이나 새 결함을 만든 작업이 아니라3.22에서 검증한 인덱스 교체의 운영 반영이다. 사전 검증은 `a818a64`로 push했고, 이후 사용자가 “검증 후 운영 DB 적용”을 선택해 별도 승인했다. 아래 사전 점검과 실제 운영 적용 결과를 구분한다.
 
-**현재 검증 결과**
+**사전 검증 결과**
 
 - 실제 Worker SQL을 실행하는 `test-photo-cleanup.mjs` 통과. 기존32개 migration에 미래 예정5,000건 등5,004개 대기 행을 넣고0033 적용 후 행 수·기존 NULL/시간대 날짜·조회 순서·미래 대상 제외를 보존했다. 인덱스 사용과 읽은 행5,007→7, 삭제 후 완료 기록 쓰기 실패의 재시도, 한 번에1,000건 처리 제한도 확인했다. 실패 주입 로그는 예상된 검사 입력이다. 이 수치를 실제 운영 성능/비용 절감률로 일반화하지 않는다.
 - `release-audit-smoke.sh --backend-only`는8개 PASS/10개 SKIP, 게이트 경고0건. Worker dry-run·빈 로컬 D1 전체33개 migration·인증/권한216/216 통과. iOS 및 표준 서버20개 검사 전체를 이번에 다시 실행한 것은 아니다.
 - 운영 읽기 smoke16/16 통과. 운영 migration 목록은0033 하나만 미적용이며 기록32개, 확인 시점의 삭제 대기 행0개다. 기존 인덱스 정의와 실제 SQL의 `SCAN diary_photo_deletion_queue` 실행 계획을 읽었다. 사용자 행·사진 키·Secret 값은 조회하지 않았고 이 조회들의 `rows_written`은0이다.
 - `0033_photo_deletion_queue_index.sql`이 인덱스 DROP/CREATE 두 문장뿐인지 검사했다. 파일 SHA-256은 `fe796fea7ec1871fc736c1c65ff88a8a0481f27020daa81a1821607dca3f601f`다. [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)의 현재 bookmark를 읽어 임시 검증 기록에 남겼으며 복원·전체 데이터 덤프는 실행하지 않았다.
 
-**승인 후 적용·검증 순서 — 아직 미실행**
+**승인 후 실제 적용·검증 결과**
 
-1. 운영 대상 DB 이름/ID와 새 미적용 목록·파일 해시를 다시 대조한다.0033 외 migration이나 예상하지 않은 스키마 차이가 있으면 함께 적용하지 않고 중단한다.
-2. `wrangler d1 migrations apply dog_kindergarden_db --remote --config wrangler.toml`로 기존0033만 적용한다. 예약/사진 행을 삭제하거나 보유기간·Cron·Worker를 변경하지 않는다.
-3. 미적용0개·기록33개·새 인덱스 정의와 실제 쿼리의 `SEARCH ... USING INDEX idx_diary_photo_deletion_due`를 확인하고, 운영 읽기16개를 다시 검사한다. 적용 전후 대기 행 수는 기존 Cron/사용자 요청으로도 달라질 수 있어 무조건 고정됐다고 단정하지 않는다.
-4. 문제가 있으면 행/테이블이나 migration 이력을 지우지 않고 이전 인덱스 정의 복원을 위한 후속 migration을 검토한다. DB 전체 시점 복원은 이후 정상 쓰기까지 되돌릴 수 있으므로 이 인덱스 교체의 기본 복구로 선택하지 않는다.
+1. 운영 DB `dog_kindergarden_db`/ID `02c8c308-32cb-4a5c-b785-a0d6ba01d236`, 위 파일 해시와 기존32개 적용 이름을 재대조했다. 미적용은0033 하나였고 기존 인덱스·실행 계획도 예상과 일치했다. 새 복구 bookmark를 읽어 기록했으며 사용자 행·사진 키·Secret 값은 조회하지 않았다.
+2. 로컬 사진 정리 회귀와 backend-only Release를 재실행해8개 PASS/10개 SKIP·권한216/216·전체33개 migration·dry-run을 확인하고 운영 읽기16/16도 다시 통과했다. 이어 고정 Wrangler4.154.0으로 `wrangler d1 migrations apply dog_kindergarden_db --remote --config wrangler.toml`을 실행해 승인한0033만 성공적으로 적용했다. 인덱스 교체와 migration 이력 추가 외 예약/사진 행의 수동 수정·삭제나 보유기간·Cron·Worker 변경은 하지 않았다.
+3. 적용 후 **미적용0개·기록33개**, 기존 인덱스 제거와 새 인덱스 정의, 테이블/기본키 정의 보존을 확인했다. 실제 Worker SQL은 `SCAN` 대신 **`SEARCH diary_photo_deletion_queue USING INDEX idx_diary_photo_deletion_due`**를 사용한다. 정렬용 임시 B-tree는 여전히 남는다. 확인 시점 대기 행은 전후0개였지만 기존 Cron/사용자 요청으로도 바뀔 수 있는 값이며, 운영 행이 많은 상황의 성능이나 비용 절감률까지 측정한 것은 아니다.
+4. 적용 후 운영 공개/무인증 경계/공유 smoke **16/16**을 다시 통과했다. 실제 계정의 예약/사진 쓰기나 iOS 전체·표준 서버20개 검사 전체를 실행한 결과로 세지 않는다. 이 작업은 Worker/iOS 실행 소스를 바꾸지 않아 앱 재빌드·Worker 재배포를 하지 않았다.
 
-**범위·로그:** 현재는 운영 D1 스키마/데이터 변경·Worker 재배포·정식 정책 시행·픽업/동의 기능 구현 모두 미실행이다. 로그는 `/private/tmp/matgyeomung-index-20261113/`의 `photo-cleanup.log`, `release.log`·`release/summary.tsv`·`release/logs/B04.log`, `production-before.log`, `migrations-before.log`·`schema-before.json`·`time-travel-before.json`·`preflight.json`이다. 기존 문서에 합쳤고 새 프로젝트MD·archive·iOS 설정은 변경하지 않았다.
+**복구 경계:** 문제가 있으면 행/테이블이나 migration 이력을 지우지 않고 이전 인덱스 정의 복원을 위한 후속 migration을 검토한다. DB 전체 시점 복원은 이후 정상 쓰기까지 되돌릴 수 있으므로 이 인덱스 교체의 기본 복구로 선택하지 않는다. 이번에 rollback·Time Travel 복원은 실행하지 않았다.
+
+**범위·로그:** 정식 정책 시행·픽업/동의 기능 구현은 계속 미실행이다. 사전 검증 로그는 `/private/tmp/matgyeomung-index-20261113/`에 보존했다. 승인 후 재검증·적용 기록은 같은 경로의 `apply/` 아래 `photo-cleanup.log`, `release.log`·`release/summary.tsv`·`release/logs/B04.log`, `production-before.log`·`production-after.log`, `migrations-before.log`·`migrations-after.log`, `schema-before.json`·`schema-after.json`, `time-travel-before.json`, `approved-preflight.json`·`migration-apply.log`·`verified-result.json`이다. `schema-file-read-summary.log`는 SELECT 전용 파일 실행의 쓰기0건 요약이며, 개별 메타데이터 결과는 이어 `--command`로 읽어 별도 확인했다. 기존 문서·포트폴리오에 합쳤고 새 프로젝트MD·archive·iOS 설정은 변경하지 않았다. 이후2026-11-14 사용자 요청에 따라 운영 반영 기록·아키텍처·포트폴리오의 기존MD3개를 함께 main 커밋·push 범위에 포함한다. 문서 반영을 이유로 운영 migration을 재실행하거나 Worker를 재배포하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
