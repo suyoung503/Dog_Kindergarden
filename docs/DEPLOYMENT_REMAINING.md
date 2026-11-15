@@ -1,13 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-13
-**기준 브랜치:** `main` (2026-11-12 Worker·공개용 성명, 2026-11-13 운영 D1 인덱스 반영, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-15
+**기준 브랜치:** `main` (운영0033 반영 완료, 11월15일 알림장·Hono 보완은 운영 배포 전, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-15 알림장 게시 본문/안내의 저장 원자성 보완·Hono4.13.18 보안 패치 — 실제 실패 재현 후 수정, 깨끗한 설치·audit0건·표준 서버20개 검사 파일·인증/권한216개·backend-only Release 통과. 운영 배포와는 구분(3.35)
 - [x] 2026-11-13 사용자 승인 후0033 인덱스 운영 D1 반영 — 미적용0개·적용 기록33개·실제 쿼리의 새 인덱스 검색 확인. 데이터 보존·삭제 재시도 로컬 회귀, 빈 D1 전체33개 migration·인증/권한216개·적용 전후 운영 읽기 각16개 통과(3.34)
 - [x] 2026-11-12 본인 승인 성명 표기·약관 준비안과 기존 미배포 Worker 보완 운영 반영 — 최종 버전 `112c8d8a-4dad-46a1-a45e-91991c471c79`, 트래픽100%, 운영 읽기16개·문서3개 확인. 0033 운영 D1 적용·픽업/동의 기능·정식 정책 시행과는 구분(3.33)
 - [x] Hono·Wrangler와 전이 의존성을 안전 버전으로 갱신하고 깨끗한 설치에서 `npm audit` **0건** 확인
@@ -941,6 +942,33 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 **복구 경계:** 문제가 있으면 행/테이블이나 migration 이력을 지우지 않고 이전 인덱스 정의 복원을 위한 후속 migration을 검토한다. DB 전체 시점 복원은 이후 정상 쓰기까지 되돌릴 수 있으므로 이 인덱스 교체의 기본 복구로 선택하지 않는다. 이번에 rollback·Time Travel 복원은 실행하지 않았다.
 
 **범위·로그:** 정식 정책 시행·픽업/동의 기능 구현은 계속 미실행이다. 사전 검증 로그는 `/private/tmp/matgyeomung-index-20261113/`에 보존했다. 승인 후 재검증·적용 기록은 같은 경로의 `apply/` 아래 `photo-cleanup.log`, `release.log`·`release/summary.tsv`·`release/logs/B04.log`, `production-before.log`·`production-after.log`, `migrations-before.log`·`migrations-after.log`, `schema-before.json`·`schema-after.json`, `time-travel-before.json`, `approved-preflight.json`·`migration-apply.log`·`verified-result.json`이다. `schema-file-read-summary.log`는 SELECT 전용 파일 실행의 쓰기0건 요약이며, 개별 메타데이터 결과는 이어 `--command`로 읽어 별도 확인했다. 기존 문서·포트폴리오에 합쳤고 새 프로젝트MD·archive·iOS 설정은 변경하지 않았다. 이후2026-11-14 사용자 요청에 따라 운영 반영 기록·아키텍처·포트폴리오의 기존MD3개를 함께 main 커밋·push 범위에 포함한다. 문서 반영을 이유로 운영 migration을 재실행하거나 Worker를 재배포하지 않는다.
+
+### 3.35 2026-11-15 알림장 게시 실패 복구와 런타임 보안 패치
+
+**범위와 판단:** 사용자의 “오늘 할일 하고 push” 요청에 따라 기존 배포 준비 문서와 알림장 게시/실패 복구 경로를 점검했다. 정책 확정·Apple 계정 없이 진행할 수 있는 실제 결함과 실패한 보안 게이트만 보완한다. 전체 소스의 결함 부재를 선언하거나 새 동의/픽업 정책을 시행하지 않는다.
+
+| 점검 | 실제 근거·판단 | 수정 |
+|---|---|---|
+| 알림장 본문과 안내의 부분 저장 | 안내 INSERT에 로컬 D1 실패 트리거를 넣으면 HTTP500인데 본문4→5, 안내11개 유지. iOS는 성공 응답에서만 생성 ID를 기억하므로 재시도 시 새 게시가 된다. 실제 무결성 결함이다. | 두 INSERT를 같은 기존 D1 `batch`로 저장. 앞선 본문 INSERT의 `last_insert_rowid()`를 안내에 연결하고, 보호자+가게 방 조회는 안내의 `INSERT…SELECT` 안에서 수행한다. 새 함수·테이블·API·멱등 키는 추가하지 않는다. |
+| 의존성 보안 게이트 실패 | 기존 Hono4.13.13에서 `npm audit --audit-level=moderate`가1 moderate dependency로 실패했다. 공지 존재를 실제 정보 유출 사고로 확대하지 않는다. | 공식 보안 패치가 포함된 동일4.13 계열의4.13.18로 갱신. 매니페스트 하한과 lockfile을 함께 올리고 변경 항목이 root/Hono뿐인지 대조해 Wrangler·전이 패키지는 유지한다. |
+| 인코딩 줄바꿈 인증 경계 | `%0A`·`%0D`·`%E2%80%A8`·`%E2%80%A9` 경로의 무인증401/no-store/nosniff 검사는 기존 버전에서도 통과했다. 이 앱의 인증 우회 재현으로 세지 않는다. | 기존 공개 문서/인증 회귀에 해당4종 보호 동작을 추가해 패치 전후 유지한다. |
+
+**보존한 계약·한계**
+
+- 기존 HTTP200·응답 DTO·동적 반려견 이름/안내·예약별 알림·계정 격리·빈 본문 거절을 유지한다. 채팅방이 없는 기존 확정 예약은 본문을 저장하되 다른 고객의 방에 안내하지 않는다. 같은 가게/고객의 서로 다른 게시10건은 합치지 않고 각 ID로 연결한다.
+- 두 INSERT 사이에 다른 INSERT를 끼우면 안내 ID 연결이 깨질 수 있다. 반환 ID는 첫 batch 결과에서 가져온다. 사진의 R2 업로드·삭제는 기존 별도 단계이며 사진까지 같은 DB 트랜잭션이라고 설명하지 않는다.
+- 커밋은 성공했지만 응답 자체가 유실된 경우까지 정확히 한 번 게시를 보장한 것은 아니다. 기존 소유권/연령/주소 정책도 이번에 바꾸지 않는다.
+
+**최종 검증**
+
+- 실제 Worker/격리 D1의 안내 실패 assertion RED를 확인한 뒤 GREEN으로 바꿨다. 실패 시 본문/안내 보존, 정상 재시도1건, 본문 실패, 별도 동시 게시10건의 ID 연결, 방 없는 예약·읽기 전용 권한을 확인했다. 실패 주입 로그는 예상된 입력이며 운영 장애가 아니다.
+- Hono 패치 후 `npm ci --ignore-scripts`로 깨끗한 설치, `npm audit --audit-level=moderate` 취약점0건을 확인했다. 최종 `npm test`의 표준20개 검사 파일 전체가 exit0이다. 공개 문서/인증 경계는 하위9개(부모 포함10개) 통과했다.
+- 최종 `release-audit-smoke.sh --backend-only`는8개 PASS/10개 SKIP, 게이트 경고0건. 번들 dry-run·빈 로컬 D1 전체33개 migration·인증/권한216/216 통과. iOS 소스/서명/설정 변경이 없어 앱 전체/Release/실기기 검사를 다시 실행하지 않았다.
+- 독립 읽기 리뷰는 실제 diff·RED/GREEN 로그·마이그레이션을 대조해 차단 finding이 없었다. 리뷰어가 전체 테스트를 대신 실행한 것으로 세지 않으며 최종 전체 결과는 부모가 직접 확인했다.
+
+**근거·명령·로그:** [D1 batch의 rollback 계약](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [SQLite 마지막 INSERT ID](https://www.sqlite.org/c3ref/last_insert_rowid.html), [Hono4.13.18 보안 릴리스](https://github.com/honojs/hono/releases/tag/v4.13.18), [와일드카드 미들웨어 공지](https://github.com/honojs/hono/security/advisories/GHSA-h7mg-cq63-vhpq)를 확인했다. 실행 명령은 `git status/log/diff`, 관련 경로의 `rg/sed`, `node scripts/test-diary-notification.mjs`, `node scripts/test-legal-pages.mjs`, `npm view`, `npm install hono@4.13.18 --save-prefix='^' --ignore-scripts`, `npm ci --ignore-scripts`, `npm audit --audit-level=moderate`, `npm test`, `scripts/release-audit-smoke.sh --backend-only`다. 로그는 `/private/tmp/matgyeomung-diary-atomic-20261115/`의 `red.log`·`green.log`, `audit.log`·`dependency-update.log`·`clean-install.log`·`audit-final.log`, `security-before.log`·`security-final.log`, `backend-final.log`, `release-final.log`·`release-final/summary.tsv`·`release-final/logs/B04.log`다. 초반 패치 전 전체 검사와 Release 결과는 `backend.log`·`release.log`에 구분한다.
+
+**Git·운영 후속:** 기존 문서·포트폴리오43절과 회귀를 함께 커밋해 main에 push한다. 새 프로젝트MD·DB migration·archive·다른 프로젝트는 만들거나 변경하지 않는다. Worker 운영 배포는 별도 승인 대기이며 이번 로컬 검증·push가 운영 서버 반영을 뜻하지 않는다. 최종 정책/동의 수집·픽업·APNs·Apple 로그인·심사/실기기 항목은 계속 미완료다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 

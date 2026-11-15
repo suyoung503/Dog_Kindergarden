@@ -1921,32 +1921,24 @@ app.post("/api/reservations/:id/diaries", async (c) => {
     }>();
   if (!r) return c.json({ message: "reservation not found" }, 404);
 
-  const inserted = await c.env.DB.prepare(
-    `INSERT INTO diaries (reservation_id, store_id, content) VALUES (?, ?, ?)`,
-  )
-    .bind(reservationId, r.store_id, content)
-    .run();
-  const diaryId = inserted.meta.last_row_id;
-
-  const room = await c.env.DB.prepare(
-    `SELECT room_id FROM chat_rooms WHERE user_id = ? AND store_id = ?`,
-  )
-    .bind(r.user_id, r.store_id)
-    .first<{ room_id: number }>();
-  if (room) {
-    const petName = r.pet_name ?? "우리 아이";
-    await c.env.DB.prepare(
+  const petName = r.pet_name ?? "우리 아이";
+  // 본문과 도착 안내를 함께 저장한다. 안내 실패 뒤 재시도해도 미완료 본문이 남지 않는다.
+  const [inserted] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO diaries (reservation_id, store_id, content) VALUES (?, ?, ?)`,
+    ).bind(reservationId, r.store_id, content),
+    c.env.DB.prepare(
       `INSERT INTO chat_messages (room_id, sender_id, sender_name, message_type, content, event_type, reservation_id, diary_id)
-       VALUES (?, 0, '맡겨멍', 'AUTO', ?, 'diary', ?, ?)`,
-    )
-      .bind(
-        room.room_id,
-        `${petName}의 새 알림장이 도착했어요.\n확정예약. 알림장에서 확인해주세요.`,
-        reservationId,
-        diaryId,
-      )
-      .run();
-  }
+       SELECT room_id, 0, '맡겨멍', 'AUTO', ?, 'diary', ?, last_insert_rowid()
+       FROM chat_rooms WHERE user_id = ? AND store_id = ?`,
+    ).bind(
+      `${petName}의 새 알림장이 도착했어요.\n확정예약. 알림장에서 확인해주세요.`,
+      reservationId,
+      r.user_id,
+      r.store_id,
+    ),
+  ]);
+  const diaryId = inserted.meta.last_row_id;
 
   const created = await c.env.DB.prepare(
     `SELECT diary_id, reservation_id, store_id, content, created_at FROM diaries WHERE diary_id = ?`,

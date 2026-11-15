@@ -70,5 +70,84 @@ try {
     .bind(reservations[2].reservation_id,diaries[2].diary_id).run();
   assert.deepEqual((await feed(801,result.cursor)).notifications,[],'방과 다른 계정의 예약 메타데이터는 노출하지 않는다');
   assert.deepEqual((await feed(803,others.cursor)).notifications,[],'cursor 이후 재전달하지 않는다');
-  console.log('PASS diary notification: 동적 이름·문구, 예약별 개별 알림장 문맥, 고객 읽기 전용, 계정 격리');
+
+  // 안내 저장만 실패해도 게시 본문이 남으면 앱의 재시도가 같은 글을 중복 게시한다.
+  const reservationId = reservations[0].reservation_id;
+  const beforeFailure = await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM diaries) AS diaries,
+    (SELECT COUNT(*) FROM chat_messages) AS messages`).first();
+  const failureBaseline = await feed(801);
+  await db.prepare(`CREATE TRIGGER fail_diary_event BEFORE INSERT ON chat_messages
+    WHEN NEW.event_type='diary' BEGIN SELECT RAISE(ABORT,'fixture diary event failure'); END`).run();
+  try {
+    assert.equal((await api(`/reservations/${reservationId}/diaries`,802,'POST',{content:'재시도할 알림장'})).status,500);
+    const afterFailure = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM diaries) AS diaries,
+      (SELECT COUNT(*) FROM chat_messages) AS messages`).first();
+    console.log('diary event failure counts:', { before: beforeFailure, after: afterFailure });
+    assert.deepEqual(afterFailure,beforeFailure,'안내 저장 실패 시 본문과 안내 모두 남지 않아야 한다');
+    assert.deepEqual((await feed(801,failureBaseline.cursor)).notifications,[],'게시 실패를 도착 알림으로 표시하지 않는다');
+  } finally { await db.exec('DROP TRIGGER fail_diary_event'); }
+  const retryResponse = await api(`/reservations/${reservationId}/diaries`,802,'POST',{content:'재시도할 알림장'});
+  assert.equal(retryResponse.status,200);
+  const retried = await retryResponse.json();
+  const afterRetry = await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM diaries) AS diaries,
+    (SELECT COUNT(*) FROM chat_messages) AS messages`).first();
+  assert.deepEqual(afterRetry,{diaries:beforeFailure.diaries+1,messages:beforeFailure.messages+1},'재시도는 본문1개·안내1개만 추가한다');
+  const retryEvents = (await feed(801,failureBaseline.cursor)).notifications;
+  assert.equal(retryEvents.length,1);
+  assert.equal(retryEvents[0].diary_id,retried.diary_id);
+  assert.equal(retryEvents[0].reservation_id,reservationId);
+  assert.equal(retryEvents[0].pet_name,'초코');
+  console.log('PASS diary atomic failure and retry: 실패 rollback·재시도1건·실제 게시물 알림 연결');
+
+  await db.prepare(`CREATE TRIGGER fail_diary_body BEFORE INSERT ON diaries
+    BEGIN SELECT RAISE(ABORT,'fixture diary body failure'); END`).run();
+  try {
+    assert.equal((await api(`/reservations/${reservationId}/diaries`,802,'POST',{content:'저장 실패할 본문'})).status,500);
+    const afterBodyFailure = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM diaries) AS diaries,
+      (SELECT COUNT(*) FROM chat_messages) AS messages`).first();
+    assert.deepEqual(afterBodyFailure,afterRetry,'본문 저장 실패도 본문·안내를 남기지 않는다');
+  } finally { await db.exec('DROP TRIGGER fail_diary_body'); }
+  console.log('PASS diary body failure: 본문 실패 시 안내도 없음');
+
+  const parallelResponses = await Promise.all(Array.from({length:10},(_,index) =>
+    api(`/reservations/${reservationId}/diaries`,802,'POST',{content:`동시 게시-${index}`})));
+  assert.ok(parallelResponses.every(response=>response.status===200));
+  const parallelEntries = await Promise.all(parallelResponses.map(response=>response.json()));
+  const parallelIds = parallelEntries.map(entry=>entry.diary_id);
+  assert.equal(new Set(parallelIds).size,10,'서로 다른 게시10개는 합치지 않는다');
+  const linked = await db.prepare(`SELECT d.diary_id,d.content,m.diary_id AS notified_diary_id,m.reservation_id,m.room_id
+    FROM diaries d LEFT JOIN chat_messages m ON m.diary_id=d.diary_id AND m.event_type='diary'
+    WHERE d.diary_id IN (${parallelIds.map(()=>'?').join(',')})`).bind(...parallelIds).all();
+  assert.equal(linked.results.length,10);
+  for (const [index,entry] of parallelEntries.entries()) {
+    assert.equal(entry.content,`동시 게시-${index}`);
+    const row = linked.results.find(row=>row.diary_id===entry.diary_id);
+    assert.equal(row.notified_diary_id,entry.diary_id);
+    assert.equal(row.reservation_id,reservationId);
+    assert.equal(row.room_id,801);
+  }
+  console.log('PASS diary concurrent posts: 별도 본문10개·안내10개·각 diary_id 연결');
+
+  // 기존의 채팅방 없는 확정 예약도 게시할 수 있고 다른 고객 방에 안내하지 않는다.
+  await db.exec("INSERT INTO stores(store_id,name,store_key,owner_id,partner_status) VALUES(804,'방 없는 가게','diary-no-room',802,'ACTIVE')");
+  const noRoomReservation = await db.prepare(`INSERT INTO reservations
+    (user_id,pet_id,store_id,start_date,end_date,reservation_type,status)
+    VALUES(803,803,804,'2099-01-01','2099-01-01','NORMAL','CONFIRMED')`).run();
+  const messagesBeforeNoRoom = (await db.prepare('SELECT COUNT(*) AS count FROM chat_messages').first()).count;
+  const noRoomResponse = await api(`/reservations/${noRoomReservation.meta.last_row_id}/diaries`,802,'POST',{content:'방 없는 예약의 기록'});
+  assert.equal(noRoomResponse.status,200);
+  const noRoomEntry = await noRoomResponse.json();
+  assert.equal(noRoomEntry.reservation_id,noRoomReservation.meta.last_row_id);
+  assert.equal(noRoomEntry.content,'방 없는 예약의 기록');
+  assert.deepEqual(noRoomEntry.photos,[]);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM chat_messages').first()).count,messagesBeforeNoRoom);
+  assert.equal((await api(`/reservations/${reservationId}/diaries`,801,'POST',{content:'보호자 작성 금지'})).status,403);
+  assert.equal((await api(`/reservations/${reservationId}/diaries`,803,'POST',{content:'다른 고객 작성 금지'})).status,403);
+  assert.equal((await api(`/reservations/${reservationId}/diaries`,802,'POST',{content:'  '})).status,400);
+  console.log('PASS diary compatibility: 채팅방 없음·빈 사진·기존 권한·빈 본문 거절 유지');
+  console.log('PASS diary notification: 동적 이름·문구, 예약별 개별 알림장 문맥, 고객 읽기 전용, 계정 격리, 게시 원자성');
 } finally { await mf.dispose(); }

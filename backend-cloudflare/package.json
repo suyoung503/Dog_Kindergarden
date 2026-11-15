@@ -24,7 +24,7 @@
     "ocr:prices:local": "node scripts/ocr-price-images-local.mjs --input=crawl-results/price-ocr-input-2026-10-01.json --limit=10 --apply-local"
   },
   "dependencies": {
-    "hono": "^4.13.13"
+    "hono": "^4.13.18"
   },
   "devDependencies": {
     "wrangler": "^4.154.0"

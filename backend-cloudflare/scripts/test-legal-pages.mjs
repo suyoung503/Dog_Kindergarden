@@ -77,5 +77,13 @@ try {
       assert.equal(response.status, 401);
       assert.equal(response.headers.get('cache-control'), 'private, no-store');
     });
+    await t.test('인코딩된 줄바꿈 경로도 API 인증과 보호 응답 헤더를 우회하지 못한다', async () => {
+      for (const encoded of ['%0A', '%0D', '%E2%80%A8', '%E2%80%A9']) {
+        const response = await mf.dispatchFetch(`https://example.com/api/private${encoded}/missing`);
+        assert.equal(response.status, 401, encoded);
+        assert.equal(response.headers.get('cache-control'), 'private, no-store', encoded);
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff', encoded);
+      }
+    });
   });
 } finally { await mf.dispose(); }
