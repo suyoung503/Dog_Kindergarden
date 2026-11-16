@@ -1,13 +1,15 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-15
-**기준 브랜치:** `main` (운영0033 반영 완료, 11월15일 알림장·Hono 보완은 운영 배포 전, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-16
+**기준 브랜치:** `main` (알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-16 실행/배포 README4개를 실제 코드와 대조해 정리 — 로컬 전용 개발 로그인·Node22·명시적 local/remote 구분·Worker 경유 외부 API·전경 WebSocket·APNs 미구현을 안내. 셸 예제15개 구문·Swift 예제 타입·backend-only 게이트/권한216개·운영 읽기16개 확인(3.37)
+- [x] 2026-11-16 승인한 알림장 게시 원자성·Hono4.13.18 운영 배포 — 버전 `280206ff-1f21-423f-b89e-3c827e498a3f`, 트래픽100%, 배포 후 운영 읽기16개·인증 보호 경계4종 통과. 운영 DB migration·수동 데이터 삭제·정식 정책 시행 없음(3.36)
 - [x] 2026-11-15 알림장 게시 본문/안내의 저장 원자성 보완·Hono4.13.18 보안 패치 — 실제 실패 재현 후 수정, 깨끗한 설치·audit0건·표준 서버20개 검사 파일·인증/권한216개·backend-only Release 통과. 운영 배포와는 구분(3.35)
 - [x] 2026-11-13 사용자 승인 후0033 인덱스 운영 D1 반영 — 미적용0개·적용 기록33개·실제 쿼리의 새 인덱스 검색 확인. 데이터 보존·삭제 재시도 로컬 회귀, 빈 D1 전체33개 migration·인증/권한216개·적용 전후 운영 읽기 각16개 통과(3.34)
 - [x] 2026-11-12 본인 승인 성명 표기·약관 준비안과 기존 미배포 Worker 보완 운영 반영 — 최종 버전 `112c8d8a-4dad-46a1-a45e-91991c471c79`, 트래픽100%, 운영 읽기16개·문서3개 확인. 0033 운영 D1 적용·픽업/동의 기능·정식 정책 시행과는 구분(3.33)
@@ -968,7 +970,51 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 
 **근거·명령·로그:** [D1 batch의 rollback 계약](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [SQLite 마지막 INSERT ID](https://www.sqlite.org/c3ref/last_insert_rowid.html), [Hono4.13.18 보안 릴리스](https://github.com/honojs/hono/releases/tag/v4.13.18), [와일드카드 미들웨어 공지](https://github.com/honojs/hono/security/advisories/GHSA-h7mg-cq63-vhpq)를 확인했다. 실행 명령은 `git status/log/diff`, 관련 경로의 `rg/sed`, `node scripts/test-diary-notification.mjs`, `node scripts/test-legal-pages.mjs`, `npm view`, `npm install hono@4.13.18 --save-prefix='^' --ignore-scripts`, `npm ci --ignore-scripts`, `npm audit --audit-level=moderate`, `npm test`, `scripts/release-audit-smoke.sh --backend-only`다. 로그는 `/private/tmp/matgyeomung-diary-atomic-20261115/`의 `red.log`·`green.log`, `audit.log`·`dependency-update.log`·`clean-install.log`·`audit-final.log`, `security-before.log`·`security-final.log`, `backend-final.log`, `release-final.log`·`release-final/summary.tsv`·`release-final/logs/B04.log`다. 초반 패치 전 전체 검사와 Release 결과는 `backend.log`·`release.log`에 구분한다.
 
-**Git·운영 후속:** 기존 문서·포트폴리오43절과 회귀를 함께 커밋해 main에 push한다. 새 프로젝트MD·DB migration·archive·다른 프로젝트는 만들거나 변경하지 않는다. Worker 운영 배포는 별도 승인 대기이며 이번 로컬 검증·push가 운영 서버 반영을 뜻하지 않는다. 최종 정책/동의 수집·픽업·APNs·Apple 로그인·심사/실기기 항목은 계속 미완료다.
+**Git·운영 후속:** 기존 문서·포트폴리오43절과 회귀를 `0f92239`로 main에 push했다. 새 프로젝트MD·DB migration·archive·다른 프로젝트는 만들거나 변경하지 않았다. 당시 Worker 운영 배포는 별도 승인 대기였으며 이후2026-11-16 사용자 승인으로 아래3.36에서 반영했다. 최종 정책/동의 수집·픽업·APNs·Apple 로그인·심사/실기기 항목은 계속 미완료다.
+
+### 3.36 2026-11-16 알림장 게시·Hono 보안 패치 운영 반영
+
+**승인·원본:** 사용자가 “검증 후 운영 배포”를 선택했다. 범위는3.35의 알림장 게시 원자성·Hono4.13.18 보안 패치이며 새 DB migration·기존 데이터 삭제·정책 시행은 제외한다. 배포 시 작업 트리는 깨끗했고 기준 커밋은 **`0f922399e642bc168b1df188505d3cdc51e2c4c1`**이다. 소스7개·Wrangler 설정·매니페스트·lockfile의 경로/바이트를 함께 해시한 SHA-256은 `df942894897c86240c2c0857097a9d2a654bdd78d8341b1a81f774ca1928b1a7`이며 배포 후에도 일치했다.
+
+**배포 전 재검증**
+
+- `npm ci --ignore-scripts`로 커밋된 lockfile을 재현했고 Hono의 선언/잠금/설치 버전4.13.18, 고정 Wrangler4.154.0을 대조했다. `npm audit --audit-level=moderate`는 취약점0건이다.
+- 표준 `npm test`의20개 검사 파일 전체가 exit0이다. 안내 실패 rollback·재시도·별도 게시10건의 ID 연결·방 없는 예약 등 알림장 회귀를 포함한다. DB/R2 실패 주입 로그는 예상된 검사 입력이다.
+- backend-only Release는8개 PASS/10개 SKIP·게이트 경고0건이다. Worker dry-run·빈 로컬 D1 전체33개 migration·인증/권한216/216을 통과했다. 앱 전체/iOS Release/실기기를 새로 검증한 것은 아니다.
+- 배포 전 운영 읽기16/16 통과. 운영 migration은 미적용0개이며 적용 이름33개와0033 인덱스 정의만 읽었다. 사용자·예약·사진 행이나 Secret 값은 조회하지 않았다. 당시 운영 버전 `112c8d8a-4dad-46a1-a45e-91991c471c79`가 트래픽100%인 것을 확인해 복구 기준으로 남겼다.
+
+**실제 배포와 사후 확인**
+
+- 기존 설정을 보존하도록 `wrangler deploy --config wrangler.toml --name matgyeomung-api --keep-vars --strict`로 배포했다. 최종 버전은 **`280206ff-1f21-423f-b89e-3c827e498a3f`**, deployment ID는 `6e3f22d6-34d9-4dd6-86c7-3ebd7ce29011`이다. 배포 메타데이터로 새 버전 **트래픽100%**와 커밋/원본 해시 주석을 확인했다.
+- 전후 메타데이터의 D1/R2/실시간 DO/AI와 Secret5개를 포함한 바인딩이 일치했다. 개발 인증 바인딩은 없고, 네이버 자동 수집/비검증 가게 정보 플래그는false다. 호환 날짜 `2026-05-20`·DO tag `v1-user-realtime`도 유지했다. 배포 출력에서 기존 설정의 두 Cron `*/15 * * * *`·`0 9 * * *`를 확인했다. Secret 원문을 비교/공개한 것이 아니다.
+- 배포 후 공개 문서·API·무인증 거절·공유의 읽기 점검 **16/16**, 인코딩 줄바꿈4종의 무인증401/no-store/nosniff **4/4**를 통과했다. 후자는 기존 버전에서 인증 우회가 재현됐다는 의미가 아니다.
+- 적용 전후 D1 migration 이름33개/기존 인덱스 정의가 같고 메타데이터 조회의 쓰기 수는0이다. 운영 migration 적용·수동 데이터 삭제·실계정 쓰기 테스트·사진 생성·직접 보유기간 정리 호출은 하지 않았다. 기존 운영 트래픽과 Cron의 정상 쓰기까지 없었다고 주장하지 않는다.
+
+**복구·한계:** 문제가 생기면 위 복구 버전으로 Worker rollback을 검토할 수 있다. 다만 이전 알림장 저장 방식과 Hono 버전으로도 돌아가므로 무조건 복구를 권장하지 않고 원인·가용성·보안 영향을 함께 판단한다. 이번 rollback·DB 복원은 실행하지 않았다. 실제 계정의 게시/사진·두 기기·OS 알림 수신 검증과 약관 시행·픽업·동의·Apple 로그인/APNs는 여전히 별도다.
+
+**기록:** `/private/tmp/matgyeomung-production-20261116/`의 `clean-install.log`·`audit.log`·`backend-tests.log`·`release.log`·`release/summary.tsv`·`release/logs/B04.log`, `deployments-before.json`·`version-before.json`·`migrations-before.log`·`schema-before.json`, `provenance.json`·`preflight-passed.json`·`deploy.log`, `production-before.log`·`production-after.log`·`security-paths-after.log`, `deployments-after.json`·`version-after.json`·`schema-after.json`·`verified-result.json`에 근거를 남겼다. 새 프로젝트MD 없이 기존 문서·포트폴리오에 합쳤다. 후속 사용자 push 요청으로 이 운영 기록과 아래 실행 안내 정리를 함께 main 커밋·push 범위에 포함한다. 실행 소스·iOS 설정·archive는 변경하지 않았다.
+
+### 3.37 2026-11-16 로컬 개발·실제 구조·배포 안내 정리
+
+**범위와 이유:** 사용자는 오늘 할일과 push를 요청했다. 이미3.36에서 마친 서버 배포를 반복하지 않고, 남은 운영 기록과 실제 코드에서 어긋난 README를 정리한다. 새 기능/제품 결함을 만들어 기록하거나 미확정 정책·외부 계정·실기기 항목을 자동 완료로 바꾸지 않는다.
+
+| 문서에서 확인한 불일치 | 코드/설정 대조 | 수정 |
+|---|---|---|
+| 루트 README의3초 채팅 폴링·별도 WebSocket 없음·앱의 외부 REST 직접 호출 설명 | `ChatRoomView`의 알림 갱신 구독, `AppNotificationService`의 WS/피드, `StoreEnrichmentService`·`NaverBlogService`의 인증 Worker 호출 | 현재 구조도에 Worker 경유 REST·비공개 R2·사용자별 DO·전경 WebSocket을 반영하고 APNs/출시 준비와 구분 |
+| iOS README가 DEBUG 개발자 계정으로 운영 서버까지 시험할 수 있다고 안내 | `StartView`의 DEBUG/로컬 주소 조건, `AuthSession`의 로컬 guard, 운영 개발 인증 비활성, 서버의 `dev-local-*` 식별자 | 로컬 Worker/역할별 테스트 계정·로그아웃 후 API 변경/재실행·운영 복귀 절차를 안내. 운영 인증을 켜라는 우회는 추가하지 않음 |
+| 백엔드 README의Node18·기본 migration·작업 디렉터리 혼동 | 잠긴 Wrangler4.154.0의 `engines.node >=22.0.0`, CI Node22, 실제 migration/배포 옵션 | `npm ci --ignore-scripts`, `--local` 명시, 운영 대상/미적용 목록/승인 분리, 기존 Secret/vars 보존, 한 디렉터리 기준 명령으로 정리 |
+| scripts README가 전체 디렉터리를 CI 미연결 수동 도구로 설명 | package.json의20개 회귀 체인과 GitHub Actions의 release/회귀 실행 | 자동 로컬 회귀와 수동 수집/보강을 구분. 출처·권리 미확인 운영 수집을 새로 승인하지 않음 |
+
+**이번에 실제 검증한 범위**
+
+- 추적된 Markdown17개에서 사전 로컬 링크/이미지75개를 확인했으며 깨진 링크는0개였다. 수정 후 추가된 링크를 포함한79개도 최종 통과했다. 링크 수리 사례로 세지 않으며 포트폴리오43절/고유 이슈124개·운영안21개·기존 수동 검사 상태와 배포 원본 해시도 보존했다.
+- README의 bash/zsh 코드 블록15개를 해당 셸의 `-n`으로 구문 검사했다. DB 생성·Secret 등록·운영 migration·배포 명령은 예제일 뿐 이번에 실행하지 않았다. LLDB의 Foundation/UserDefaults 표현식은 추출해 `swiftc -typecheck`만 통과했으며 앱 설정을 실행/변경하거나 실제 기기 UI를 확인한 것은 아니다.
+- 문서대로 `backend-cloudflare` 디렉터리에서 `../scripts/release-audit-smoke.sh --backend-only`를 실행해8개 PASS/10개 SKIP·게이트 경고0건, 빈 임시 D1 전체33개 migration·권한216/216·Worker dry-run을 확인했다. `node ../scripts/production-readonly-smoke.mjs`도16/16 통과했다.
+- 이번 작업은 문서뿐이어서 표준 서버20개 검사 전체·앱/Release 전체를 다시 실행하지 않았다. 앞의3.36 배포 검증과 섞어 세지 않으며, 이미 운영 반영된 원본 해시/버전은 그대로다.
+
+**Git·남는 작업:** 운영 배포 기록·README4개·기존 아키텍처/포트폴리오32절을 함께 커밋해 main에 push한다. 새 프로젝트MD·실행 소스·설정/Secret·운영 DB·archive·다른 프로젝트는 변경하지 않는다. Apple 계정/APNs/Apple 로그인·최종 정책·실제 파트너/실기기 검증은 여전히 남는다. 기존 개발 설정을 덮거나 운영 DB를 개발 환경으로 바꾸지 않는다.
+
+**명령·로그:** `git status/log/diff/ls-files`, 해당 소스·CI·매니페스트의 `rg/sed`, 셸 코드 블록 `bash/zsh -n`, Swift 예제 `xcrun swiftc -typecheck`, 위 backend-only/운영 읽기 명령과 문서 상대 링크·공백 검사를 수행했다. 로그는 `/private/tmp/matgyeomung-readme-20261116/`의 `links-before.log`·`snippets.log`·`swift-typecheck.log`, `release.log`·`release/summary.tsv`·`release/logs/B04.log`, `production-readonly.log`·`documents-final.log`에 남겼다. 임시 예제/컴파일 캐시는 Git에 추가하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 

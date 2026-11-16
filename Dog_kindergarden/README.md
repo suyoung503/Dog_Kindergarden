@@ -54,9 +54,27 @@ xcodebuild -workspace Dog_kindergarden.xcworkspace -scheme Dog_kindergarden \
 기본 API 주소는 배포된 Cloudflare Workers(`https://matgyeomung-api.dog-kindergarden.workers.dev`)입니다.
 로컬 백엔드로 바꾸려면 앱 실행 후 `UserDefaults`의 `API_BASE_URL` 값을 로컬 주소로 덮어씁니다. (백엔드 실행 방법은 [`../backend-cloudflare/README.md`](../backend-cloudflare/README.md) 참고)
 
-### 5. 로그인 없이 테스트하기 (시뮬레이터)
+### 5. 로그인 없이 로컬에서 테스트하기 (DEBUG·시뮬레이터)
 
-카카오 로그인 화면에서 역할 카드를 고른 뒤 **"개발자 진입 (시뮬레이터용)"** 버튼을 누르면 역할별 고정 계정 — 보호자는 `dev-simulator`, 사장님은 `dev-simulator-owner` — 으로 실제 서버에 등록되어, 예약·채팅·프로필 저장 등 서버 연동 기능을 모두 테스트할 수 있습니다. 두 역할이 별개 계정이라, 시뮬레이터 한 대에서 로그아웃 → 역할 전환만으로 손님↔사장님 양방향 채팅까지 테스트할 수 있습니다. (DEBUG 빌드에서만 노출)
+개발자 진입은 **운영 서버에서는 사용할 수 없습니다.** `DEBUG` 빌드이며 `APIEnvironment.isLocalDevelopment`가 참인 로컬 주소일 때만 시작 화면에 **"개발자 진입 (로컬 서버용)"**이 표시됩니다. 아래 시뮬레이터 예시는127.0.0.1을 사용합니다. Release에는 노출되지 않고 운영 Worker의 개발 로그인 API도 비활성입니다. 버튼이 안 보인다고 운영에 `ALLOW_DEV_AUTH`를 켜지 않습니다.
+
+1. [백엔드 로컬 실행 안내](../backend-cloudflare/README.md)를 따라 로컬 D1을 마이그레이션하고 `.dev.vars`의 로컬 전용 설정으로 Worker를 실행합니다.
+2. 기존 계정에서 로그아웃한 뒤 시뮬레이터 앱을 Xcode에서 일시정지하고 아래 LLDB 명령으로 API 주소를 지정합니다. 앱을 완전히 종료·재실행해야 시작 화면의 조건이 다시 반영됩니다.
+
+```text
+expr -l Swift -- import Foundation
+expr -l Swift -- UserDefaults.standard.set("http://127.0.0.1:8787", forKey: "API_BASE_URL")
+```
+
+3. 역할 카드를 선택하고 로컬 개발자 진입을 누릅니다. 현재 서버의 기본 개발 식별자는 보호자 `dev-local-guardian`, 사장님 `dev-local-owner`이며 운영 카카오 계정과 무관합니다. 같은 로컬 환경에서 로그아웃→역할 전환으로 양쪽 흐름을 확인할 수 있습니다.
+4. 운영으로 돌아갈 때는 로컬 계정에서 로그아웃하고, 일시정지한 앱의 LLDB에서 아래 설정을 제거한 뒤 앱을 재실행합니다.
+
+```text
+expr -l Swift -- import Foundation
+expr -l Swift -- UserDefaults.standard.removeObject(forKey: "API_BASE_URL")
+```
+
+개발 계정으로 예약을 시험하려면 로컬에서 가게 등록 요청→운영자 승인도 필요합니다. 이는 실제 가게 소유 확인·실계정/실기기 심사 검증을 대신하지 않습니다. 운영 DB나 실제 계정을 테스트 데이터로 사용하지 않습니다.
 
 ## 아키텍처 메모
 

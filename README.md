@@ -23,10 +23,13 @@
 
 - **지도 기반 업체 탐색** — 서울 지역 유치원·호텔을 카카오맵에서 탐색합니다. 지역을 네모 버튼으로 선택하던 초기 디자인 대신 지도를 직접 보며 업체를 찾고, CCTV·픽업·대형견 등 조건으로 필터링합니다.
 - **예약** — 날짜·서비스를 선택해 예약 신청. 예약과 동시에 업체와의 채팅방이 자동 생성됩니다.
-- **1:1 채팅** — 보호자와 업체 간 대화를 화면 내 3초 폴링으로 갱신합니다(사용자+가게 조합당 채팅방 1개).
+- **1:1 채팅** — 앱 사용 중 WebSocket 변경 이벤트로 대화를 갱신합니다. 채팅방은 사용자+가게 조합당 1개이며, 재연결·앱 복귀 시 영속 알림 피드로 누락된 변경을 보충합니다.
+- **알림장** — 예약 한 건의 전체 기록을 모아 보고 최초 게시일 기준 한국 시간 날짜로 구분합니다. 사장님은 글·사진을 작성·수정·삭제하고 보호자는 열람합니다.
 - **리뷰** — 실제 이용자가 남기는 펫 특화 리뷰(CCTV, 픽업, 대형견 가능 여부 등 태그 포함), 네이버 블로그 후기 연동.
 - **찜한 가게** — 가게 상세에서 하트로 찜하고, 마이페이지에서 목록으로 모아보기.
-- **카카오 로그인** — 프로필(이름·연락처·주소) 저장 및 수정.
+- **카카오 로그인** — 프로필(이름·연락처·주소·이메일) 저장 및 수정.
+
+현재 실시간 갱신은 앱이 활성화된 동안의 기능입니다. 앱이 백그라운드이거나 실행 중이 아닐 때 받는 원격 푸시(APNs)는 아직 연동하지 않았습니다.
 
 ## 실제 앱 화면
 
@@ -51,24 +54,29 @@
 ```mermaid
 flowchart LR
     app["iOS 앱 · SwiftUI"]
-    api["REST API · Hono / Cloudflare Workers"]
+    api["Cloudflare Worker · Hono"]
     db[("Cloudflare D1 · SQLite")]
+    r2[("비공개 R2 · 반려견/알림장 사진")]
+    realtime["Durable Object · 사용자별 실시간 이벤트"]
     kakao["Kakao SDK · 로그인 / 지도"]
     local["Kakao Local API · 장소 / 주소 보강"]
     naver["Naver API · 지역 / 블로그 검색"]
-    cron["Cloudflare Cron · 리뷰 요청"]
-    app -->|"가게 · 예약 · 채팅 · 리뷰 · 찜"| api
+    cron["Cloudflare Cron · 리뷰 요청/보유기간 정리"]
+    app -->|"REST · Bearer 인증"| api
+    app <-->|"/api/realtime · WebSocket"| api
     api -->|"조회 / 저장"| db
+    api -->|"인증 후 사진 조회 / 저장"| r2
+    api <--> realtime
     app --> kakao
-    app --> local
-    app --> naver
+    api --> local
+    api --> naver
     cron --> api
 ```
 
-- **앱:** SwiftUI 화면에서 사용자 입력을 받고 APIClient·기능별 Service로 요청합니다. 외부 지도·검색 서비스는 앱에서 직접 호출하는 경로가 있습니다.
-- **백엔드:** Workers의 Hono 라우트가 요청을 처리하고 D1에 가게·예약·채팅·리뷰·사용자 정보를 저장합니다.
+- **앱:** SwiftUI 화면에서 APIClient·기능별 Service로 요청합니다. 카카오 지도·로그인 SDK는 앱에서 사용하고, Naver/Kakao REST 자격 증명이 필요한 장소·블로그 보강은 인증된 Worker를 경유합니다. 서버 Secret은 앱 번들에 넣지 않습니다.
+- **백엔드:** Worker가 인증·소유 관계를 검사하고 D1에 가게·예약·채팅·리뷰·사용자 정보를 저장합니다. 사진은 비공개 R2에, 실시간 연결은 사용자별 Durable Object에 연결합니다.
 - **현재 지도 데이터 경로:** `AnimalBoardingService` → `APIClient.fetchStores()` → `/api/stores` → D1에 저장된 업체 목록입니다. 초기 공공데이터 활용 설명과 현재 저장소의 조회 경로를 구분합니다.
-- **예약 이후 흐름:** 예약 생성 시 채팅방을 연결하고, 예약 상태에 따라 Cron 작업이 리뷰 요청 메시지를 생성합니다. 채팅 API는 HTTP 기반이며 이 구조도는 별도 WebSocket 서버를 가정하지 않습니다.
+- **예약 이후 흐름:** 예약 생성 시 채팅방을 연결하고, 앱 활성 중에는 WebSocket 이벤트와 영속 알림 피드로 예약·채팅·알림장 변경을 반영합니다. 메시지 조회·전송은 REST API를 사용하며 Cron은 리뷰 요청·보유기간 정리를 담당합니다.
 
 ## 구조
 
@@ -76,7 +84,7 @@ flowchart LR
 
 ```
 Dog_kindergarden/       iOS 앱 (Swift, SwiftUI + Observation, iOS 17+)
-backend-cloudflare/     백엔드 (TypeScript, Hono, Cloudflare Workers + D1)
+backend-cloudflare/     백엔드 (TypeScript, Hono, Workers + D1/R2/Durable Objects)
 docs/                   기획·진행상황·포트폴리오 문서
 ```
 
@@ -94,9 +102,9 @@ docs/                   기획·진행상황·포트폴리오 문서
 | 지도 | KakaoMapsSDK, 공공데이터 동물위탁관리업 API (TM→WGS84 좌표 변환 직접 구현) |
 | 로그인 | 카카오 로그인 (KakaoSDKAuth/User) |
 | 백엔드 | Hono, Cloudflare Workers |
-| DB | Cloudflare D1 (SQLite) |
+| 데이터 · 파일 · 실시간 | Cloudflare D1 (SQLite), 비공개 R2, Durable Objects |
 | 배포 | `https://matgyeomung-api.dog-kindergarden.workers.dev` |
 
 ## 배포 상태
 
-포트폴리오 완성 후 App Store 출시까지 이어가는 것을 목표로 진행 중입니다. 현재 배포 상태와 남은 작업은 [`docs/DEPLOYMENT_REMAINING.md`](docs/DEPLOYMENT_REMAINING.md)에서 확인할 수 있습니다.
+서버는 운영 배포되어 있으며 iOS 앱은 App Store 출시 준비 단계입니다. Apple 개발자 계정·Apple 로그인/APNs·실기기/심사 준비와 최종 정책 확정은 별도 미완료 항목입니다. 현재 운영 버전과 남은 작업은 [`docs/DEPLOYMENT_REMAINING.md`](docs/DEPLOYMENT_REMAINING.md)에서 확인할 수 있습니다. 서버 배포를 App Store 출시나 약관의 정식 시행과 동일하게 보지 않습니다.
