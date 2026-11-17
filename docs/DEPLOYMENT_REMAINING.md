@@ -1,13 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-17
-**기준 브랜치:** `main` (알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-18
+**기준 브랜치:** `main` (앱 리뷰 응답 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-18 같은 가게의 늦은 리뷰 조회가 최신 목록/작성 자격을 되돌리는 앱 결함 수정 — 실제 Swift7개 assertion RED→9개 시나리오 GREEN, 최종 앱 로직188개/26 suite·전체 Release18개·권한226개·표준 서버20개 검사 파일·audit0건·운영 읽기16개 통과. 서버/DB 변경·운영 배포 없음, 실기기/UI 조작 미확인 유지(3.39)
 - [x] 2026-11-17 자동 안정성 점검 — 정상 양방향 채팅10개를 기존 예약 통합 검사에 연결해 인증·권한226개, 표준 서버20개 검사 파일, 앱 로직188개/26 suite, Release 고유18개 게이트 통과. UI 기동 검사는 최초3개 시간 초과 후 동일 코드 재실행 통과했으며 원인 미확정·실기기 보류를 유지(3.38)
 - [x] 2026-11-16 실행/배포 README4개를 실제 코드와 대조해 정리 — 로컬 전용 개발 로그인·Node22·명시적 local/remote 구분·Worker 경유 외부 API·전경 WebSocket·APNs 미구현을 안내. 셸 예제15개 구문·Swift 예제 타입·backend-only 게이트/권한216개·운영 읽기16개 확인(3.37)
 - [x] 2026-11-16 승인한 알림장 게시 원자성·Hono4.13.18 운영 배포 — 버전 `280206ff-1f21-423f-b89e-3c827e498a3f`, 트래픽100%, 배포 후 운영 읽기16개·인증 보호 경계4종 통과. 운영 DB migration·수동 데이터 삭제·정식 정책 시행 없음(3.36)
@@ -1038,6 +1039,29 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 **격리와 한계:** 검사용으로 생성한 빈 시뮬레이터만 종료 상태를 확인해 삭제했고 기존 기기 목록 보존을 대조했다. 실제 갤러리·사진 확대/넘김·이동통신 단절·외부 SDK/OS 권한·APNs·실기기 서명은 자동 완료하지 않았다. 계정 전환/지연 응답/실패 주입의 회귀 통과와, 성공 응답 자체가 유실된 모든 쓰기의 정확히 한 번 처리 보장은 구분한다. 서버 실행 원본10개 파일의 해시는 기존 운영 반영 기록과 같으며 테스트/문서 변경만 커밋·push한다. 수동 출시 체크리스트 상태와 미시행 정책·픽업/동의 기능은 그대로다.
 
 **명령·근거:** `npm test`, `npm audit --audit-level=moderate`, `scripts/release-audit-smoke.sh --backend-only/--ios-only`(각각 실행), `node scripts/production-readonly-smoke.mjs`, `xcodebuild test`와 동일 코드의 `-only-testing:Dog_kindergardenUITests` 재실행, 독립 Python 검사3개를 사용했다. 로그는 `/private/tmp/matgyeomung-stability-20261117/`의 `backend-final.log`·`release-final-backend/summary.tsv`·`release-final-backend/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`ui-retry.log`/`ui-retry.xcresult`·`ui-retry-summary.json`·`standalone-summary.tsv`·`test-*.py.log`·`release-ios/summary.tsv`·`audit.log`·`production-readonly.log`·`devices-before.json`/`devices-after.json`에 남긴다. 임시 기기·로그·빌드 산출물은 Git에 추가하지 않는다.
+
+### 3.39 2026-11-18 리뷰 지연 응답의 최신 상태 역전 수정
+
+**목표·범위:** 같은 가게의 재조회/리뷰 등록 후 새로고침에서 오래된 응답이 최신 리뷰·작성 자격을 되돌리는 문제를 실제 `ReviewService`로 재현·수정했다. 정상 응답·실패·초기화 후 동일 가게 재진입을 함께 확인했다. 서버·DB·새 기능·정책·실기기 설정은 변경하지 않는다.
+
+**선택과 진행 순서:** 요청 취소만 믿으면 늦은 완료 적용을 막지 못하고, 조회를 전부 직렬화하면 최신 화면 갱신을 늦춘다. 기존 서비스 안에서 요청 세대를 비교하는 작은 수정으로 처리했다. ① 실제 Swift 서비스/디코더와 격리 전송으로 RED 확인 → ② 최소 수정 후 동일 검사 GREEN → ③ 전체 앱 로직·Release·서버 회귀 및 독립 읽기 리뷰 → ④ 결과·한계를 기존 문서에 기록하고 commit/push한다. 외부 전송만 격리하며 이 검사를 실제 통신망/화면 제스처 검증으로 세지 않는다.
+
+**재현과 수정:** 목록은 가게 키, 작성 자격은 가게/사용자 키만 비교하고 있었다. 같은 키의 이전 성공은 최신 리뷰·집계 또는 `already_reviewed`를 덮었고, 이전 실패는 최신 성공을 오류로 바꿨다. 초기화 후 동일 키 재진입과 실제 `submit → 목록/자격 재조회`도 포함해7개 assertion RED를 확인했다. 앱 표시 역전이며 서버 저장 데이터가 삭제/중복된 사례로 세지 않는다. 초기 sandbox의 Swift 매크로 실행 실패는 제품 RED가 아니며 권한을 갖춘 동일 검사에서 실제 assertion 실패를 따로 확인했다.
+
+기존 `ReviewService.swift`에 독립 요청 세대2개와 조회 시작/성공/실패의 비교만 추가했다(diff 기준 +10/-4줄). 새 서비스·요청 큐·프로덕션 helper·의존성은 만들지 않았다. 초기화는 기존 key=nil 검사로 충분하고 다음 조회가 세대를 바꾸므로, 독립 리뷰에서 중복으로 본 초기화 증가2줄은 제거했다. 최종 소스로 회귀와 앱 로직 전체를 다시 실행했다.
+
+| 실제 실행 | 최종 결과 |
+|---|---|
+| 새 `python3 scripts/test-review-state.py` | 실제 서비스 전체·모델·JSONDecoder·조회 상태를 앱과 같은 MainActor 기본 격리로 컴파일. 목록/자격의 오래된 성공·실패4개, 초기화 후 동일 키 재진입2개, 실제 등록 후 새로고침1개, 현재 실패 안내/캐시 유지2개로9개 시나리오 통과 |
+| 서명된 Simulator 앱 로직 전체 | 최종188개/26 suite 통과(`-only-testing:Dog_kindergardenTests`). 새 빈 전용 기기와 기존 서명 설정을 사용. 최종 수정 뒤 재실행했고 새 회귀9개와 중복 합산하지 않음 |
+| 전체 Release audit | 고유18개 게이트 전부 PASS, 게이트 경고0건. 빈 임시 D1 전체33개 migration·권한226/226·Worker dry-run·앱 Release/경고/Secret/Privacy/권한 검사 통과. 양쪽 Simulator 아키텍처 오브젝트도 최종 소스 변경 뒤 빌드됨을 대조 |
+| 표준 서버 `npm test` | 기존20개 검사 파일 통과. 실패 주입의 예상500을 운영 장애로 세지 않음 |
+| 보안·운영 읽기 | `npm audit --audit-level=moderate` 취약점0건, 운영 읽기 전용16/16 통과. 서버 실행 원본10개 SHA-256은 기존 운영 기록과 동일 |
+| 독립 읽기 리뷰 | 차단할 P1/P2 finding 없음. 불필요한 증가2줄 제거 의견 반영. 리뷰어가 전체 테스트를 직접 실행한 것으로 세지 않음 |
+
+**한계·Git/운영:** 전용 시뮬레이터만 정리하고 기존 기기 목록 보존을 대조했다. 이번 native 실행은 앱 로직 대상이며 UI 템플릿·실기기·실계정·두 기기 쓰기·이동통신망·APNs는 실행하지 않았다. 3.38의 최초 UI 기동 시간 초과 원인을 이번 수정으로 해결했다고 하지 않는다. 서비스 응답 순서 검사이며 모든 계정/서버 전환이나 성공 응답 유실의 멱등성 보장이 아니다. 수동 출시 체크리스트와 미시행 정책/운영안은 그대로다. 앱 실행 파일1개·회귀 스크립트1개·기존MD3개만 commit/push하며 서버 배포·운영 DB migration·데이터 삭제는 하지 않는다. 앱 반영 확인에는 Xcode에서 새 빌드를 실행해야 한다.
+
+**명령·로그:** 위 Python 회귀·`npm test`·audit·운영 읽기, `scripts/release-audit-smoke.sh`, 전용 기기의 `xcodebuild test -only-testing:Dog_kindergardenTests`, `xcresulttool` 결과·문서 링크/공백·Git 변경 범위를 확인했다. `/private/tmp/matgyeomung-review-20261118/`의 `red.log`·`green.log`·`green-final.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios-final.log`/`ios-final.xcresult`·`ios-final-summary.json`·`audit.log`·`production-readonly.log`·`final-source-sha256.txt`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 근거를 남긴다. 새 프로젝트MD는 만들지 않고 Xcode 설정/Info.plist는 변경하지 않았다. archive·다른 프로젝트는 조회/변경하지 않았다. 임시 기기/빌드 산출물·로그는 Git에 추가하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 

@@ -126,6 +126,8 @@ final class ReviewService {
     var eligibilityLoadPhase: AsyncLoadPhase = .idle
     private var activeStoreKey: String?
     private var activeEligibilityKey: String?
+    private var loadGeneration: UInt = 0
+    private var eligibilityGeneration: UInt = 0
 
     var isLoading: Bool { loadPhase.isLoading }
     var isCheckingEligibility: Bool { eligibilityLoadPhase.isLoading }
@@ -135,6 +137,8 @@ final class ReviewService {
     }
 
     func load(storeKey: String) async {
+        loadGeneration &+= 1
+        let generation = loadGeneration
         if activeStoreKey != storeKey {
             summary = nil
             reviews = []
@@ -154,14 +158,14 @@ final class ReviewService {
             let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             let decoded = try JSONDecoder().decode(ReviewListResponse.self, from: data)
             await MainActor.run {
-                guard self.activeStoreKey == storeKey else { return }
+                guard self.activeStoreKey == storeKey, self.loadGeneration == generation else { return }
                 self.summary = decoded.summary
                 self.reviews = decoded.reviews
                 self.loadPhase = .loaded
             }
         } catch {
             await MainActor.run {
-                guard self.activeStoreKey == storeKey else { return }
+                guard self.activeStoreKey == storeKey, self.loadGeneration == generation else { return }
                 self.loadPhase = .failed("리뷰를 불러오지 못했어요. 네트워크 연결을 확인해주세요.")
             }
             #if DEBUG
@@ -185,6 +189,8 @@ final class ReviewService {
     }
 
     func loadEligibility(storeKey: String, userId: Int) async {
+        eligibilityGeneration &+= 1
+        let generation = eligibilityGeneration
         let requestKey = "\(storeKey)|\(userId)"
         if activeEligibilityKey != requestKey { eligibility = nil }
         activeEligibilityKey = requestKey
@@ -206,11 +212,11 @@ final class ReviewService {
         do {
             let (data, _) = try await APITransport.data(for: APITransport.request(url: url))
             let decoded = try JSONDecoder().decode(ReviewEligibility.self, from: data)
-            guard activeEligibilityKey == requestKey else { return }
+            guard activeEligibilityKey == requestKey, eligibilityGeneration == generation else { return }
             eligibility = decoded
             eligibilityLoadPhase = .loaded
         } catch {
-            guard activeEligibilityKey == requestKey else { return }
+            guard activeEligibilityKey == requestKey, eligibilityGeneration == generation else { return }
             eligibilityLoadPhase = .failed("리뷰 작성 자격을 확인하지 못했어요.")
             #if DEBUG
             print("⚠️ 리뷰 작성 자격 확인 실패: \(error)")
