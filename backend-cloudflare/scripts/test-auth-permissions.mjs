@@ -770,6 +770,38 @@ const afterRepeat = await request("GET", `/api/chatrooms/${roomId}/messages`, {
 });
 expect("확정 메시지 중복 방지", afterRepeat.data.length, beforeRepeat.data.length);
 
+// 같은 예약의 정상 채팅도 알림장·사진·취소로 이어지는 통합 흐름에서 확인한다.
+const guardianChat = await request("POST", `/api/chatrooms/${roomId}/messages`, {
+  body: { content: "예약한 보호자의 문의" },
+  token: guardianToken,
+});
+expect("예약 보호자의 정상 채팅 전송", guardianChat.status, 201);
+expect("보호자 채팅의 실제 발신자", guardianChat.data.sender_id, guardianId);
+expect("보호자 채팅의 예약 방 연결", guardianChat.data.room_id, roomId);
+const ownerChat = await request("POST", `/api/chatrooms/${roomId}/messages`, {
+  body: { content: "예약 받은 사장님의 답변" },
+  token: ownerToken,
+});
+expect("예약 점주의 정상 채팅 전송", ownerChat.status, 201);
+expect("점주 채팅의 실제 발신자", ownerChat.data.sender_id, ownerId);
+expect("점주 채팅의 예약 방 연결", ownerChat.data.room_id, roomId);
+const ownerTranscript = await request("GET", `/api/chatrooms/${roomId}/messages`, { token: ownerToken });
+expect("점주의 예약 방 조회", ownerTranscript.status, 200);
+expect(
+  "점주에게 보호자 문의가 동일 ID와 내용으로 조회",
+  ownerTranscript.data.some((message) => message.message_id === guardianChat.data.message_id &&
+    message.sender_id === guardianId && message.content === "예약한 보호자의 문의"),
+  true,
+);
+const guardianTranscript = await request("GET", `/api/chatrooms/${roomId}/messages`, { token: guardianToken });
+expect("보호자의 예약 방 조회", guardianTranscript.status, 200);
+expect(
+  "보호자에게 점주 답변이 동일 ID와 내용으로 조회",
+  guardianTranscript.data.some((message) => message.message_id === ownerChat.data.message_id &&
+    message.sender_id === ownerId && message.content === "예약 받은 사장님의 답변"),
+  true,
+);
+
 expect(
   "보호자 알림장 작성 차단",
   (await request("POST", `/api/reservations/${reservationId}/diaries`, {

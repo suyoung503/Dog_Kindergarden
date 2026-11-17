@@ -1,6 +1,6 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-16
+**기준일:** 2026-11-17
 **기준 브랜치:** `main` (알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
@@ -8,6 +8,7 @@
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-17 자동 안정성 점검 — 정상 양방향 채팅10개를 기존 예약 통합 검사에 연결해 인증·권한226개, 표준 서버20개 검사 파일, 앱 로직188개/26 suite, Release 고유18개 게이트 통과. UI 기동 검사는 최초3개 시간 초과 후 동일 코드 재실행 통과했으며 원인 미확정·실기기 보류를 유지(3.38)
 - [x] 2026-11-16 실행/배포 README4개를 실제 코드와 대조해 정리 — 로컬 전용 개발 로그인·Node22·명시적 local/remote 구분·Worker 경유 외부 API·전경 WebSocket·APNs 미구현을 안내. 셸 예제15개 구문·Swift 예제 타입·backend-only 게이트/권한216개·운영 읽기16개 확인(3.37)
 - [x] 2026-11-16 승인한 알림장 게시 원자성·Hono4.13.18 운영 배포 — 버전 `280206ff-1f21-423f-b89e-3c827e498a3f`, 트래픽100%, 배포 후 운영 읽기16개·인증 보호 경계4종 통과. 운영 DB migration·수동 데이터 삭제·정식 정책 시행 없음(3.36)
 - [x] 2026-11-15 알림장 게시 본문/안내의 저장 원자성 보완·Hono4.13.18 보안 패치 — 실제 실패 재현 후 수정, 깨끗한 설치·audit0건·표준 서버20개 검사 파일·인증/권한216개·backend-only Release 통과. 운영 배포와는 구분(3.35)
@@ -1015,6 +1016,28 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 **Git·남는 작업:** 운영 배포 기록·README4개·기존 아키텍처/포트폴리오32절을 함께 커밋해 main에 push한다. 새 프로젝트MD·실행 소스·설정/Secret·운영 DB·archive·다른 프로젝트는 변경하지 않는다. Apple 계정/APNs/Apple 로그인·최종 정책·실제 파트너/실기기 검증은 여전히 남는다. 기존 개발 설정을 덮거나 운영 DB를 개발 환경으로 바꾸지 않는다.
 
 **명령·로그:** `git status/log/diff/ls-files`, 해당 소스·CI·매니페스트의 `rg/sed`, 셸 코드 블록 `bash/zsh -n`, Swift 예제 `xcrun swiftc -typecheck`, 위 backend-only/운영 읽기 명령과 문서 상대 링크·공백 검사를 수행했다. 로그는 `/private/tmp/matgyeomung-readme-20261116/`의 `links-before.log`·`snippets.log`·`swift-typecheck.log`, `release.log`·`release/summary.tsv`·`release/logs/B04.log`, `production-readonly.log`·`documents-final.log`에 남겼다. 임시 예제/컴파일 캐시는 Git에 추가하지 않는다.
+
+### 3.38 2026-11-17 예약 통합 흐름 보강과 자동 안정성 점검
+
+**범위:** 사용자는 오늘 실기기 확인을 할 수 없으므로 자동 검증 후 push를 요청했다. 운영 쓰기나 실계정 조작 대신 격리된 로컬 Worker/D1/R2와 새 빈 시뮬레이터를 사용했다. 재현한 제품 결함은 없으며 실행 소스·스키마·설정·정책을 바꾸지 않았다. 정상 경로의 검증 공백만 기존 검사에 보완했다.
+
+**검사 보강:** `backend-cloudflare/scripts/test-auth-permissions.mjs`의 같은 예약→확정→알림장/사진3장→취소 흐름 사이에 보호자/점주의 실제 채팅 POST와 상대방 GET을 연결했다. 응답 상태·예약 방·실제 발신자·저장된 ID/내용을 대조하는10개 검사를 추가해216개에서226개가 됐다. 탈퇴의 진행 예약 차단·취소 후 탈퇴·세션 폐기·재가입은 별도 테스트 계정 흐름이므로, 한 계정의 예약부터 탈퇴까지 단일 E2E를 검증했다고 하지 않는다. 실패를 재현해 제품 코드를 고친 작업도 아니다.
+
+| 이번에 실제 실행한 검사 | 결과와 범위 |
+|---|---|
+| 표준 서버 `npm test` | 최종20개 검사 파일 통과. 원자성·동시 요청·계정 격리·실시간/보유기간/삭제 재시도를 포함하며 실패 주입의 예상500을 운영 장애로 세지 않음 |
+| backend-only Release audit | 8 PASS/10 SKIP, 게이트 경고0건. 빈 임시 D1 전체33개 migration·인증/권한226/226·Worker dry-run 통과 |
+| 서명된 Simulator 앱 로직 | Swift Testing188개/26 suite 통과. 기존 서명·Info.plist와 테스트 기대치를 변경하지 않음 |
+| UI 예제·성능·launch 템플릿 | 최초 전체 실행의 논리191개 중188 통과/3 실패. 같은 코드/기기에서 UI만 재실행해 논리3개(구성별 실행6회) 모두 통과. 아래 최초 실패 기록 유지 |
+| 독립 Swift 함수 경계 검사 | 목록 변경11개·계정 탈퇴 상태29개 시나리오 통과. 캘린더는 한국·GMT·LA·Santiago 각각13개 시나리오/47개 assertion 통과. 네트워크·Keychain·기기 캘린더 등 외부 부작용은 격리 |
+| ios-only Release audit | 14 PASS/4 SKIP, 게이트 경고0건. Simulator Release·앱 소스 경고·Secret/개발 메뉴·최소 버전·표시 이름·Privacy Manifest·권한 선언 통과. backend-only와 공통4개를 중복 합산하지 않으면 고유18개 게이트 |
+| 보안·운영 읽기 | `npm audit --audit-level=moderate` 취약점0건, 운영 읽기 전용16/16 통과. 실계정 쓰기·운영 DB migration·서버 배포는 하지 않음 |
+
+**최초 UI 실패와 남은 확인:** 최초 전체 scheme 실행은 exit65이며 UI의 `testExample`·`testLaunchPerformance`·첫 `testLaunch`가 `Timed out while acquiring background assertion`으로 실패했다. 앱 로직188개는 이 실행에서도 통과했다. 제한시간·소스·기대치를 바꾸지 않은 UI 재실행은 exit0이지만, 이 사실만으로 최초 원인이 앱인지 실행 환경인지 확정하거나 문제가 영구 해결됐다고 하지 않는다. 템플릿은 업무 화면/제스처 검사도 아니다. 실기기에서의 초기 기동·두 계정 예약/채팅/사진 조작은 후속 확인으로 남긴다.
+
+**격리와 한계:** 검사용으로 생성한 빈 시뮬레이터만 종료 상태를 확인해 삭제했고 기존 기기 목록 보존을 대조했다. 실제 갤러리·사진 확대/넘김·이동통신 단절·외부 SDK/OS 권한·APNs·실기기 서명은 자동 완료하지 않았다. 계정 전환/지연 응답/실패 주입의 회귀 통과와, 성공 응답 자체가 유실된 모든 쓰기의 정확히 한 번 처리 보장은 구분한다. 서버 실행 원본10개 파일의 해시는 기존 운영 반영 기록과 같으며 테스트/문서 변경만 커밋·push한다. 수동 출시 체크리스트 상태와 미시행 정책·픽업/동의 기능은 그대로다.
+
+**명령·근거:** `npm test`, `npm audit --audit-level=moderate`, `scripts/release-audit-smoke.sh --backend-only/--ios-only`(각각 실행), `node scripts/production-readonly-smoke.mjs`, `xcodebuild test`와 동일 코드의 `-only-testing:Dog_kindergardenUITests` 재실행, 독립 Python 검사3개를 사용했다. 로그는 `/private/tmp/matgyeomung-stability-20261117/`의 `backend-final.log`·`release-final-backend/summary.tsv`·`release-final-backend/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`ui-retry.log`/`ui-retry.xcresult`·`ui-retry-summary.json`·`standalone-summary.tsv`·`test-*.py.log`·`release-ios/summary.tsv`·`audit.log`·`production-readonly.log`·`devices-before.json`/`devices-after.json`에 남긴다. 임시 기기·로그·빌드 산출물은 Git에 추가하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
