@@ -108,6 +108,7 @@ final class BookingViewModel {
     // 예약 신청 — 성공 시 BookingResult 반환
     func submit(userId: Int, storeName: String, storeKey: String, storeAddress: String, storeType: String,
                 guardianPhone: String? = nil, guardianAddress: String? = nil) async -> BookingResult? {
+        guard !isLoading else { return nil }
         errorMessage = nil
         guard let pet = selectedPet else { errorMessage = "강아지를 선택해주세요."; return nil }
         isLoading = true

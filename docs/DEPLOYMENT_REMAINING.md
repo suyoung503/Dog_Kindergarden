@@ -1,13 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-18
-**기준 브랜치:** `main` (앱 리뷰 응답 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-19
+**기준 브랜치:** `main` (앱 예약 중복 진입·리뷰 응답 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-19 예약 신청 중복 실행 방지 — 같은 모델의 지연 중10회 진입에서 POST10개/중간 로딩 해제 RED를 재현하고 기존 상태 guard 한 줄로 전송1개·8개 시나리오 GREEN. 앱188개/26 suite·Release18개·권한226개·표준 서버20개 검사 파일·기존 리뷰9개/목록11개·audit0건·운영 읽기16개 통과. 서버 멱등성/실제 탭 검증이나 운영 배포는 아님(3.40)
 - [x] 2026-11-18 같은 가게의 늦은 리뷰 조회가 최신 목록/작성 자격을 되돌리는 앱 결함 수정 — 실제 Swift7개 assertion RED→9개 시나리오 GREEN, 최종 앱 로직188개/26 suite·전체 Release18개·권한226개·표준 서버20개 검사 파일·audit0건·운영 읽기16개 통과. 서버/DB 변경·운영 배포 없음, 실기기/UI 조작 미확인 유지(3.39)
 - [x] 2026-11-17 자동 안정성 점검 — 정상 양방향 채팅10개를 기존 예약 통합 검사에 연결해 인증·권한226개, 표준 서버20개 검사 파일, 앱 로직188개/26 suite, Release 고유18개 게이트 통과. UI 기동 검사는 최초3개 시간 초과 후 동일 코드 재실행 통과했으며 원인 미확정·실기기 보류를 유지(3.38)
 - [x] 2026-11-16 실행/배포 README4개를 실제 코드와 대조해 정리 — 로컬 전용 개발 로그인·Node22·명시적 local/remote 구분·Worker 경유 외부 API·전경 WebSocket·APNs 미구현을 안내. 셸 예제15개 구문·Swift 예제 타입·backend-only 게이트/권한216개·운영 읽기16개 확인(3.37)
@@ -1063,6 +1064,27 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 
 **명령·로그:** 위 Python 회귀·`npm test`·audit·운영 읽기, `scripts/release-audit-smoke.sh`, 전용 기기의 `xcodebuild test -only-testing:Dog_kindergardenTests`, `xcresulttool` 결과·문서 링크/공백·Git 변경 범위를 확인했다. `/private/tmp/matgyeomung-review-20261118/`의 `red.log`·`green.log`·`green-final.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios-final.log`/`ios-final.xcresult`·`ios-final-summary.json`·`audit.log`·`production-readonly.log`·`final-source-sha256.txt`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 근거를 남긴다. 새 프로젝트MD는 만들지 않고 Xcode 설정/Info.plist는 변경하지 않았다. archive·다른 프로젝트는 조회/변경하지 않았다. 임시 기기/빌드 산출물·로그는 Git에 추가하지 않는다.
 
+### 3.40 2026-11-19 예약 신청의 진행 중 중복 실행 방지
+
+**목표·선택:** 예약 신청 함수가 응답 대기 중 다시 실행돼 추가 POST와 중간 로딩 해제가 발생하는 문제를 실제 `BookingViewModel`로 재현·수정했다. 버튼 비활성화에만 의존하거나 새 큐/DB를 추가하는 대신 기존 `isLoading`을 함수 진입에서도 검사하는 한 줄로 막았다. 같은 모델의 진행 중 요청에 한정하며 여러 기기·응답 유실 후 재시도의 서버 멱등성을 새로 보장하지 않는다.
+
+**재현·원인:** 최초 POST 응답을 보류한 뒤 같은 모델에9번 더 진입시켰다. 수정 전 전송 경계에 POST10개가 전달됐고, 후속 호출9개가 결과를 만들거나 자신의 `defer`로 첫 요청의 로딩을 먼저 해제했다. 전송 수·중복 결과·로딩 유지3개 assertion이 RED였다. MainActor는 첫 `await` 뒤 재진입을 허용하므로 UI의 `.disabled`만으로 함수 실행 경계를 보호할 수 없었다. 실제 UI10회 탭·운영 예약10행 저장을 재현했다고 확대하지 않는다. 초기 테스트 소스 결합 구문 오류는 바로잡은 뒤 별도의 실제 assertion RED로 확인했으며 제품 결함으로 세지 않는다.
+
+**수정:** 함수 첫 줄의 `guard !isLoading else { return nil }`로 중복 호출은 상태 변경·POST·`defer`에 진입하지 않게 했다. 최초 요청의 기존 성공/실패 처리와 `defer`는 유지해 완료 뒤 다음 예약이나 실패 후 재시도는 막지 않는다. 새 프로덕션 helper·서비스·큐·의존성·DB 항목은 없다.
+
+| 실제 실행 | 결과 |
+|---|---|
+| 새 `python3 scripts/test-booking-submission.py` | 같은10회 호출은 전송1개. 실제 모델 전체·Pet/BookingResult·한국 날짜 계산으로8개 시나리오 GREEN. 중복 진입, 완료 후 새 예약, 통신 실패/ID 누락2종/비JSON/취소 오류 뒤 재시도, 강아지 미선택을 확인. payload·시간권 종료·제출 당시 사진/정보 보존도 대조 |
+| 서명된 Simulator 앱 로직 전체 | 새 빈 전용 기기의188개/26 suite 통과(`-only-testing:Dog_kindergardenTests`). 기존 서명·Info.plist 유지. 위 독립 회귀8개와 중복 합산하지 않음 |
+| 전체 Release audit | 고유18개 전부 PASS, 게이트 경고0건. 빈 임시 D1 전체33개 migration·권한226/226·Worker dry-run·Simulator Release/Secret/앱 소스 경고/Privacy/권한 검사 통과. 외부 SDK/도구 경고 부재와는 구분 |
+| 서버/기존 상태 회귀 | 표준 `npm test`20개 검사 파일, 기존 리뷰9개·목록 변경11개 시나리오 통과. 실패 주입의 예상500은 운영 장애가 아님 |
+| 보안·운영 읽기 | `npm audit --audit-level=moderate`0건·읽기 전용16/16 통과. 마지막 문서화한 운영 배포 커밋 `0f92239`와 서버 실행 원본10개가 동일함을 Git/해시로 대조. 오늘 실제 배포 버전 메타데이터를 조회하거나 재배포한 것은 아님 |
+| 독립 읽기 리뷰 | 차단할 P1/P2 finding 없음. MainActor의 await 전 검사/설정·기존 defer·실제 모델 회귀 범위를 검토. 리뷰어의 별도 매크로 실행은 sandbox에서 차단됐으며 전체 검증은 위 부모 실행을 근거로 함 |
+
+**남은 확인·Git/운영:** 전용 시뮬레이터만 정리하고 기존 기기 목록 보존을 확인했다. 실제 SwiftUI 탭·실기기·실계정/두 기기·통신망·APNs·UI 템플릿은 이번에 실행하지 않았다. `URLError.cancelled` 주입은 실제 Task 취소가 아니다. 성공 응답이 유실된 뒤 재시도나 다른 기기의 동시 요청까지 중복 저장을 막는 서버 멱등성을 구현한 것이 아니다. 수동 출시 체크와 정책/운영안은 그대로 유지했다. 앱 실행 소스1줄·회귀 스크립트1개·기존MD3개를 commit/push하며, 서버 배포·운영 DB/데이터·서명 설정·archive·다른 프로젝트는 변경하지 않는다. 앱 반영 확인에는 Xcode에서 새 빌드를 실행해야 한다.
+
+**명령·로그:** 위 Python 회귀3개·`npm test`·audit·운영 읽기·`scripts/release-audit-smoke.sh`·전용 기기의 `xcodebuild test`·`xcresulttool`과 최종 소스 해시/문서 링크/구문·공백 검사를 사용했다. `/private/tmp/matgyeomung-booking-20261119/`의 `red.log`·`green.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`test-review-state.py.log`·`test-list-mutations.py.log`·`audit.log`·`production-readonly.log`·`source-sha256.txt`·`backend-source-reference.json`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 근거를 남긴다. 새 프로젝트MD는 만들지 않았고 임시 로그·빌드·기기를 Git에 추가하지 않는다. archive나 다른 프로젝트는 조회하지 않았다.
+
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
 - [x] Cloudflare R2 기반 알림장 다중 사진 업로드·삭제·보유기간 관리 — 비공개 버킷·최대 3장·권한 검사·탈퇴/보유기간 정리 구현
@@ -1092,6 +1114,10 @@ python3 scripts/test-account-deletion-state.py
 
 # 캘린더 권한/삭제 복구·한국 시각/종일 날짜·DST 경계(실제 기기 달력은 사용하지 않음)
 python3 scripts/test-calendar-service.py
+
+# 리뷰 조회 순서·예약 신청 중복 진입/실패 재시도(실제 모델, 외부 전송만 격리)
+python3 scripts/test-review-state.py
+python3 scripts/test-booking-submission.py
 
 # 백엔드 의존성 취약점
 cd backend-cloudflare && npm audit
