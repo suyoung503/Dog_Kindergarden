@@ -540,6 +540,14 @@ struct BookingView: View {
     private func submitBooking() {
         focusedField = nil
         guard let uid = authSession.userId else { return }
+        let token = AuthTokenStore.load()
+        let apiBaseURL = APIEnvironment.apiBaseURL
+        let sessionGeneration = authSession.sessionGeneration
+        let isCurrentSession = {
+            self.authSession.userId == uid && AuthTokenStore.load() == token
+                && APIEnvironment.apiBaseURL == apiBaseURL
+                && self.authSession.sessionGeneration == sessionGeneration
+        }
         // 자정 직후에는 달력의 지연 바인딩 보정보다 제출이 먼저 실행될 수 있다.
         vm.selectedDate = BookingCalendarState(selection: vm.selectedDate).selectedDate
         // 입력한 보호자 정보 영구 저장 (다음 예약 때 자동 불러오기)
@@ -550,6 +558,7 @@ struct BookingView: View {
         let submittedPhone = guardianPhone
         let submittedAddress = guardianAddress
         Task {
+            guard isCurrentSession() else { return }
             if let result = await vm.submit(
                 userId: uid,
                 storeName: storeName,
@@ -559,6 +568,7 @@ struct BookingView: View {
                 guardianPhone: submittedPhone,
                 guardianAddress: submittedAddress
             ) {
+                guard isCurrentSession() else { return }
                 router.lastBooking = result
                 router.go(.bookingDone)
             }

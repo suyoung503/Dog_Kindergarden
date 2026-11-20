@@ -80,7 +80,7 @@ node scripts/production-readonly-smoke.mjs
 
 - 백엔드의 `backend-cloudflare/scripts/test-auth-permissions.mjs`는 인증·역할·객체 소유권·가게 승인과 예약→확정→양방향 채팅→알림장/사진3장→취소 흐름을 같은 로컬 환경에서 검사하며 자동 smoke에서 재사용한다. 탈퇴의 진행 예약 차단·취소 후 탈퇴·세션 폐기·재가입은 별도 테스트 계정 흐름이다. 사진 재시도는 동일 키/ID 유지와 최대3장 제한·원본 바이트/조회 권한·수정/삭제를 확인하며, 실제 갤러리 선택·확대/넘김 제스처의 수동 검증을 대신하지 않는다.
 - 표준 `npm test`에는 예약/채팅/문의의 쓰기 원자성·동시 요청·계정 격리, 알림 초기 복구/실시간, 취소7일 정리·R2 재시도 등의 독립 로컬 회귀가 연결되어 있다. 오류 주입으로 반환한500은 의도된 입력이며 실제 운영 장애로 세지 않는다.
-- iOS의 `Dog_kindergardenTests`는 인증·프로필/캐시의 계정/토큰/API 문맥, 채팅·알림장·문의의 지연 응답/실패 복구, 예약 날짜·지도 수명주기, 사진 크롭·표시·딥링크 등을 검사한다. 다섯 개의 초기 기본값 검사만 있는 상태가 아니며, 실제 실행 개수·기기·결과는 [자동 검증 기록3.38~3.40](DEPLOYMENT_REMAINING.md)을 따른다.
+- iOS의 `Dog_kindergardenTests`는 인증·프로필/캐시의 계정/토큰/API 문맥, 채팅·알림장·문의의 지연 응답/실패 복구, 예약 날짜·지도 수명주기, 사진 크롭·표시·딥링크 등을 검사한다. 다섯 개의 초기 기본값 검사만 있는 상태가 아니며, 실제 실행 개수·기기·결과는 [자동 검증 기록3.38~3.41](DEPLOYMENT_REMAINING.md)을 따른다.
 - 기존 `Dog_kindergardenUITests`의 예제·성능·launch 검사는 앱 실행 확인용 템플릿이다. 로그인 이후 예약/채팅/사진의 실제 버튼과 제스처를 자동으로 검증하는 업무 UI 테스트로 설명하지 않는다. 새 빈 시뮬레이터에서의 검증도 실제 계정·실기기·두 기기 전체 흐름 확인과 구분한다.
 - `scripts/test-list-mutations.py`·`test-account-deletion-state.py`·`test-calendar-service.py`는 실제 Swift 함수/날짜 계산을 사용하되 네트워크·SDK·Keychain·기기 캘린더 등 외부 부작용을 격리한다. 실제 이동통신 단절이나 OS 권한/SDK 동작 검증을 대신하지 않는다. 사진/상태 변경의 멱등 검사와 성공 응답 자체가 유실된 예약/일반 채팅/게시의 정확히 한 번 처리 보장은 구분한다.
 - 실제 iPhone, 외부 계정, APNs, TestFlight가 필요한 항목은 스크립트에서 임의로 성공 처리하지 않는다.
@@ -100,7 +100,7 @@ python3 scripts/test-review-state.py
 python3 scripts/test-booking-submission.py
 ```
 
-실제 `BookingViewModel` 전체·DTO·날짜 계산을 컴파일하고 HTTP/가격 API만 격리한다. 진행 중10회 호출의 전송1개·로딩 유지, 완료 뒤 새 예약, 오류/잘못된 응답 뒤 재시도, 강아지 미선택과 payload/완료 snapshot의8개 시나리오를 검사한다. 같은 모델의 진행 중 요청 보호이며 실제 화면 탭·서버 저장·다른 기기·성공 응답 유실 뒤 재시도의 멱등성 검증이 아니다. `URLError.cancelled` 주입은 실제 Task 취소와 구분한다.
+실제 `BookingViewModel` 전체·`submitBooking()` action·DTO·날짜/달력 계산을 컴파일하고 HTTP/가격 API와 인증·라우터·프로필 환경을 메모리 경계로 격리한다. 기존8개(진행 중10회 호출의 전송1개·로딩 유지, 완료 뒤 새 예약, 오류/잘못된 응답 뒤 재시도, 강아지 미선택·snapshot)와 추가14개(Task 시작 전/응답 대기 중 UID·토큰·API·로그인 세대 변경 및 정상/오류), 총22개 시나리오를 검사한다. 표준 앱 로직 검사와 중복 합산하지 않는다. 실제 화면 탭·SDK/Keychain/영속 프로필·서버 저장·다른 기기·성공 응답 유실 뒤 재시도의 멱등성 검증이 아니다. `URLError.cancelled` 주입은 실제 Task 취소와 구분한다.
 
 ## 4. 출시 판정 규칙
 

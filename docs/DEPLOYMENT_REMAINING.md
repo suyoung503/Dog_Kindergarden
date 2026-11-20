@@ -1,13 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-19
-**기준 브랜치:** `main` (앱 예약 중복 진입·리뷰 응답 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-20
+**기준 브랜치:** `main` (앱 예약 응답의 계정 격리·중복 진입·리뷰 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-20 계정 변경 후 이전 예약 결과가 현재 화면을 덮는 문제 수정 — 실제 View action의25개 assertion RED→기존8개/추가14개 총22개 시나리오 GREEN. 앱188개/26 suite·Release18개·권한226개·표준 서버20개 검사 파일·리뷰9개/탈퇴29개·audit0건·운영 읽기16개 통과. SDK/실기기/영속 저장소의 계정 격리 검증·운영 배포는 아님(3.41)
 - [x] 2026-11-19 예약 신청 중복 실행 방지 — 같은 모델의 지연 중10회 진입에서 POST10개/중간 로딩 해제 RED를 재현하고 기존 상태 guard 한 줄로 전송1개·8개 시나리오 GREEN. 앱188개/26 suite·Release18개·권한226개·표준 서버20개 검사 파일·기존 리뷰9개/목록11개·audit0건·운영 읽기16개 통과. 서버 멱등성/실제 탭 검증이나 운영 배포는 아님(3.40)
 - [x] 2026-11-18 같은 가게의 늦은 리뷰 조회가 최신 목록/작성 자격을 되돌리는 앱 결함 수정 — 실제 Swift7개 assertion RED→9개 시나리오 GREEN, 최종 앱 로직188개/26 suite·전체 Release18개·권한226개·표준 서버20개 검사 파일·audit0건·운영 읽기16개 통과. 서버/DB 변경·운영 배포 없음, 실기기/UI 조작 미확인 유지(3.39)
 - [x] 2026-11-17 자동 안정성 점검 — 정상 양방향 채팅10개를 기존 예약 통합 검사에 연결해 인증·권한226개, 표준 서버20개 검사 파일, 앱 로직188개/26 suite, Release 고유18개 게이트 통과. UI 기동 검사는 최초3개 시간 초과 후 동일 코드 재실행 통과했으며 원인 미확정·실기기 보류를 유지(3.38)
@@ -1084,6 +1085,27 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 **남은 확인·Git/운영:** 전용 시뮬레이터만 정리하고 기존 기기 목록 보존을 확인했다. 실제 SwiftUI 탭·실기기·실계정/두 기기·통신망·APNs·UI 템플릿은 이번에 실행하지 않았다. `URLError.cancelled` 주입은 실제 Task 취소가 아니다. 성공 응답이 유실된 뒤 재시도나 다른 기기의 동시 요청까지 중복 저장을 막는 서버 멱등성을 구현한 것이 아니다. 수동 출시 체크와 정책/운영안은 그대로 유지했다. 앱 실행 소스1줄·회귀 스크립트1개·기존MD3개를 commit/push하며, 서버 배포·운영 DB/데이터·서명 설정·archive·다른 프로젝트는 변경하지 않는다. 앱 반영 확인에는 Xcode에서 새 빌드를 실행해야 한다.
 
 **명령·로그:** 위 Python 회귀3개·`npm test`·audit·운영 읽기·`scripts/release-audit-smoke.sh`·전용 기기의 `xcodebuild test`·`xcresulttool`과 최종 소스 해시/문서 링크/구문·공백 검사를 사용했다. `/private/tmp/matgyeomung-booking-20261119/`의 `red.log`·`green.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`test-review-state.py.log`·`test-list-mutations.py.log`·`audit.log`·`production-readonly.log`·`source-sha256.txt`·`backend-source-reference.json`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 근거를 남긴다. 새 프로젝트MD는 만들지 않았고 임시 로그·빌드·기기를 Git에 추가하지 않는다. archive나 다른 프로젝트는 조회하지 않았다.
+
+### 3.41 2026-11-20 예약 완료 결과의 계정 문맥 격리
+
+**계획·선택:** 실제 `submitBooking()`을 격리 하네스에서 실행해 Task 시작 전 계정 변경과 응답 대기 중 변경을 재현했다. UID/토큰/API/기존 로그인 세대를 요청 전에 캡처하고 같은 문맥인지 전송 전·완료 적용 전에 확인하는 기존 탈퇴 함수의 작은 패턴을 따랐다. 새 세션 계층·서버 API·DB 항목은 만들지 않았다. 기존 회귀에 실제 View action/메모리 환경 추가→RED→국소 수정→GREEN→앱/Release·서버/독립 리뷰→기존 문서 기록·commit/push 순서다. 서버의 이미 저장된 예약을 취소/삭제하는 작업이나 실제 OAuth/실기기 검증은 아니다.
+
+**재현과 원인:** 기존 함수는 사용자 ID를 읽어 unstructured Task를 시작하고, 응답 뒤 현재 인증과 관계없이 공유 `router.lastBooking`과 완료 화면을 적용했다. 전송 전에 Task가 대기하는 구간도 검사하지 않았다. queued/pending 각 단계의 로그아웃·다른 계정·토큰·API·로그인 세대 변경에서 현재 화면/결과가 바뀌거나 불필요한 전송이 시작되는25개 assertion RED를 확인했다. 정상 문맥·오류 경로와 전일 single-flight8개도 함께 실행했다. 실제 사용자 정보가 운영에서 노출됐음을 관측했다는 뜻은 아니다.
+
+**최소 수정:** 기존 `submitBooking()`에 식별값 캡처와 local `isCurrentSession` 판별을 두고, 전송 직전과 결과 적용 직전에 재사용했다(앱 소스10줄 추가). 마지막 검사부터 라우터 적용까지 await가 없으며 기존 모델의 snapshot/single-flight/defer는 유지했다. 정상 문맥은 원래대로 완료 화면으로 이동하고, 이미 전송한 예약을 자동 취소하거나 계정 데이터를 지우지 않는다.
+
+| 실제 검증 | 최종 결과 |
+|---|---|
+| `python3 scripts/test-booking-submission.py` | 기존 모델8개+실제 View action14개=22개 GREEN. 전송 전에 문맥이 바뀐 Task는 POST0개, 이미 전송한 Task는 기존1개만 유지하며 현재 화면/결과/메모리 프로필 보존. 정상 문맥 queued/pending 완료와 현재/변경 후 오류도 확인 |
+| 서명된 Simulator 앱 로직 전체 | 188개/26 suite 통과(`-only-testing:Dog_kindergardenTests`). 새 빈 전용 기기·기존 서명/Info.plist 유지. 독립 회귀22개를 앱 테스트에 포함된 것으로 중복 합산하지 않음 |
+| 전체 Release audit | 고유18개 전부 PASS, 게이트 경고0건. 빈 임시 D1 전체33개 migration·권한226/226·Worker dry-run·앱 Release/Secret/Privacy/권한/앱 소스 경고 검사 통과. 외부 SDK/도구 경고 부재를 뜻하지 않음 |
+| 기존 회귀·보안 | 표준 서버20개 검사 파일·리뷰9개·실제 탈퇴 함수29개 통과. 실패 주입의 예상500은 운영 장애가 아님. `npm audit --audit-level=moderate` 취약점0건 |
+| 운영 읽기·원본 대조 | 읽기 전용16/16 통과. 마지막 문서화한 배포 커밋 `0f92239` 대비 서버 실행 원본10개가 Git/해시로 동일. 오늘 실제 배포 버전 메타데이터 조회·재배포는 하지 않음 |
+| 독립 읽기 리뷰 | P1/P2 finding 없음. 원문 action 추출·await 전후 검사와 기존 single-flight 보존 확인. 리뷰어가 직접 전체 검증을 실행한 것으로 세지 않음 |
+
+**한계·반영:** 인증/라우터/프로필은 메모리 double이다. 실제 SDK·OAuth·Keychain/Preferences·SwiftUI 수명/탭·Task 취소·서버 쓰기나 모든 영속 개인정보의 격리를 검증하지 않는다. 실기기·두 기기·APNs·UI 템플릿도 이번에 실행하지 않았다. 서버 성공 응답 유실의 멱등성이나 계정 전환 전체를 해결했다고 하지 않는다. 이미 접수된 예약은 원래 계정의 서버 내역으로 유지하며 오래된 완료 화면 반영만 막는다. 오늘 만든 전용 시뮬레이터만 정리하고 기존 기기 목록 보존을 확인했다. 앱 파일1개·기존 회귀1개·기존MD3개만 commit/push한다. 수동 출시 체크·정책/운영안·서명 설정·DB/운영 데이터는 변경하지 않고 운영 배포도 하지 않는다. Xcode에서 새 빌드 후 반영을 확인해야 한다.
+
+**근거:** `/private/tmp/matgyeomung-booking-context-20261120/`의 `red.log`·`green.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`test-review-state.py.log`·`test-account-deletion-state.py.log`·`audit.log`·`production-readonly.log`·`source-sha256.txt`·`backend-source-reference.json`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 결과를 남긴다. 새 프로젝트MD·새 테스트 파일을 만들지 않았고, archive/다른 프로젝트는 조회·변경하지 않았다. 임시 로그·빌드 산출물은 Git에 추가하지 않는다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 
