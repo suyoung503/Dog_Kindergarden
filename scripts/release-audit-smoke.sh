@@ -20,9 +20,9 @@ usage() {
 사용법: scripts/release-audit-smoke.sh [옵션]
 
 옵션:
-  --quick         iOS Release 빌드를 생략하고 정적 검사와 백엔드 회귀만 실행
+  --quick         iOS Release 빌드·Swift 상태 회귀를 생략하고 정적/백엔드 검사 실행
   --backend-only  백엔드 검사만 실행(iOS 관련 검사는 건너뜀)
-  --ios-only      iOS 정적 검사와 Release 빌드만 실행
+  --ios-only      iOS 정적/Swift 상태 회귀와 Release 빌드만 실행
   -h, --help      도움말 출력
 
 환경변수:
@@ -115,7 +115,7 @@ check_tools() {
     fi
   fi
   if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
-    for tool in xcodebuild /usr/libexec/PlistBuddy; do
+    for tool in xcodebuild /usr/libexec/PlistBuddy python3 swiftc xcrun; do
       if ! command -v "$tool" >/dev/null 2>&1; then
         echo "iOS 검사 도구 없음: $tool"
         missing=1
@@ -250,6 +250,17 @@ backend_regression() {
   API_BASE_URL="http://127.0.0.1:$PORT" \
     INTERNAL_API_KEY="$INTERNAL_KEY" \
     npm run test:auth
+}
+
+ios_swift_state_regressions() {
+  local script
+  local temp="$WORK_DIR/swift-regression-tmp"
+  mkdir -p "$temp" || return 1
+  for script in test-list-mutations.py test-account-deletion-state.py test-calendar-service.py \
+                test-review-state.py test-booking-submission.py; do
+    echo "=== $script ==="
+    TMPDIR="$temp/" python3 "$REPO_ROOT/scripts/$script" || return 1
+  done
 }
 
 ios_release_build() {
@@ -479,7 +490,7 @@ write_report() {
     echo
     echo "## 판정 범위"
     echo
-    echo "이 결과는 로컬 정적 검사, 임시 D1 기반 API 회귀, iOS Simulator Release 빌드만 다룹니다."
+    echo "이 결과는 선택한 옵션에 따라 로컬 정적 검사, 임시 D1 기반 API 회귀, 격리 Swift 상태 회귀, iOS Simulator Release 빌드를 다룹니다. SKIP은 실행/통과한 검사가 아닙니다."
     echo "실제 iPhone, 카카오·Apple 실계정, APNs, TestFlight, 권한 설정 변경 및 두 기기 간 흐름은 자동 통과로 간주하지 않습니다."
     echo "수동 결과는 \`docs/RELEASE_TEST_RESULT_TEMPLATE.md\`에 별도로 기록하세요."
   } > "$REPORT_FILE"
@@ -534,6 +545,7 @@ else
 fi
 
 if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
+  run_command I08 "격리 Swift 상태 회귀 5개 스크립트" ios_swift_state_regressions || true
   if run_command I01 "iOS Simulator Release configuration 빌드" ios_release_build; then
     run_command I02 "Release 번들의 Secret·디버그 진입 검사" ios_release_bundle_gate || true
     run_command I03 "맡겨멍 앱 소스 Release 경고 차단" ios_app_source_warning_gate || true
@@ -550,6 +562,7 @@ if [ "$RUN_IOS" -eq 1 ] && [ "$QUICK" -eq 0 ]; then
     skip I07 "사용 권한·Background Mode 최소 선언 검사(빌드 실패)"
   fi
 else
+  skip I08 "격리 Swift 상태 회귀 5개 스크립트"
   skip I01 "iOS Simulator Release configuration 빌드"
   skip I02 "Release 번들의 Secret·디버그 진입 검사"
   skip I03 "맡겨멍 앱 소스 Release 경고 차단"

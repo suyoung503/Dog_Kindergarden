@@ -1,13 +1,14 @@
 # 맡겨멍 배포까지 남은 일
 
-**기준일:** 2026-11-20
-**기준 브랜치:** `main` (앱 예약 응답의 계정 격리·중복 진입·리뷰 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
+**기준일:** 2026-11-21
+**기준 브랜치:** `main` (Release에 Swift 회귀 연결, 앱 예약 응답 격리·중복 진입·리뷰 순서 보완, 알림장 게시·Hono4.13.18 운영 반영, 운영0033 유지, 픽업·동의 기능은 미구현)
 **목표:** App Store 1.0 제출과 소규모 실제 가게 파일럿
 
 이 문서는 배포 준비의 단일 현황표다. 코드·로컬 환경만으로 끝낼 수 있는 작업은 바로 실행하고, 계정·실기기·권리 증빙·운영 의사결정이 필요한 작업만 미완료로 둔다. 현재 기능은 `docs/FEATURES.md`, 구조와 불변식은 `docs/ARCHITECTURE.md`, 실제 기기 테스트 절차는 `docs/RELEASE_TEST_CHECKLIST.md`가 담당한다.
 
 ## 1. 이번 점검에서 자동 완료한 작업
 
+- [x] 2026-11-21 독립 Swift 회귀5개를 Release I08에 연결 — 기존 누락 상태9개 하위검사 RED→호환 검사 포함11개(부모 포함12개) GREEN, 실제 전체 Release19개·권한226개·I08 회귀5개 통과. 서버 최초 유휴 소켓35초 시간 초과 후 동일 코드/제한시간의 순차 전체20개 검사 파일 통과, 원인 미확정 기록 유지. CI는 연결 fixture 검사만 추가하며 앱/서버/DB 변경 없음(3.42)
 - [x] 2026-11-20 계정 변경 후 이전 예약 결과가 현재 화면을 덮는 문제 수정 — 실제 View action의25개 assertion RED→기존8개/추가14개 총22개 시나리오 GREEN. 앱188개/26 suite·Release18개·권한226개·표준 서버20개 검사 파일·리뷰9개/탈퇴29개·audit0건·운영 읽기16개 통과. SDK/실기기/영속 저장소의 계정 격리 검증·운영 배포는 아님(3.41)
 - [x] 2026-11-19 예약 신청 중복 실행 방지 — 같은 모델의 지연 중10회 진입에서 POST10개/중간 로딩 해제 RED를 재현하고 기존 상태 guard 한 줄로 전송1개·8개 시나리오 GREEN. 앱188개/26 suite·Release18개·권한226개·표준 서버20개 검사 파일·기존 리뷰9개/목록11개·audit0건·운영 읽기16개 통과. 서버 멱등성/실제 탭 검증이나 운영 배포는 아님(3.40)
 - [x] 2026-11-18 같은 가게의 늦은 리뷰 조회가 최신 목록/작성 자격을 되돌리는 앱 결함 수정 — 실제 Swift7개 assertion RED→9개 시나리오 GREEN, 최종 앱 로직188개/26 suite·전체 Release18개·권한226개·표준 서버20개 검사 파일·audit0건·운영 읽기16개 통과. 서버/DB 변경·운영 배포 없음, 실기기/UI 조작 미확인 유지(3.39)
@@ -1106,6 +1107,25 @@ Ruling: 달력의 보이는 월과 선택일은 별도 상태이며 월·연도 
 **한계·반영:** 인증/라우터/프로필은 메모리 double이다. 실제 SDK·OAuth·Keychain/Preferences·SwiftUI 수명/탭·Task 취소·서버 쓰기나 모든 영속 개인정보의 격리를 검증하지 않는다. 실기기·두 기기·APNs·UI 템플릿도 이번에 실행하지 않았다. 서버 성공 응답 유실의 멱등성이나 계정 전환 전체를 해결했다고 하지 않는다. 이미 접수된 예약은 원래 계정의 서버 내역으로 유지하며 오래된 완료 화면 반영만 막는다. 오늘 만든 전용 시뮬레이터만 정리하고 기존 기기 목록 보존을 확인했다. 앱 파일1개·기존 회귀1개·기존MD3개만 commit/push한다. 수동 출시 체크·정책/운영안·서명 설정·DB/운영 데이터는 변경하지 않고 운영 배포도 하지 않는다. Xcode에서 새 빌드 후 반영을 확인해야 한다.
 
 **근거:** `/private/tmp/matgyeomung-booking-context-20261120/`의 `red.log`·`green.log`·`backend.log`·`release.log`/`release/summary.tsv`·`release/logs/B04.log`·`ios.log`/`ios.xcresult`·`ios-summary.json`·`test-review-state.py.log`·`test-account-deletion-state.py.log`·`audit.log`·`production-readonly.log`·`source-sha256.txt`·`backend-source-reference.json`·`devices-before.json`/`devices-after.json`·`documents-final.log`에 결과를 남긴다. 새 프로젝트MD·새 테스트 파일을 만들지 않았고, archive/다른 프로젝트는 조회·변경하지 않았다. 임시 로그·빌드 산출물은 Git에 추가하지 않는다.
+
+### 3.42 2026-11-21 핵심 Swift 회귀의 Release 검사 연결
+
+**범위·선택:** 실제 제품 결함을 새로 가정하지 않고 별도 명령으로만 돌리던 상태 회귀5개를 기존 Release 명령의 I08 게이트로 묶었다. full/ios-only에서 실행하고 backend-only/quick에서는 SKIP한다. Swift 묶음은 첫 실패에서 중단하고 전체 Release는 다른 검사도 계속 기록한 뒤 실패로 끝난다. 빌드 실패와 독립적으로 실행하며 필요한 python3/swiftc/xcrun만 full iOS preflight에서 확인한다. 새 macOS CI job·의존성·앱/서버/DB 변경은 없다.
+
+**구현·검증 순서:** 실제 Release driver의 명령 선택·기록·종료를 실행하되 외부 빌드/DB/Python만 fixture로 격리해 연결 누락9개 하위검사 RED 확인 → 최소 연결 후 성공/실패/skip/도구 누락 및 생략 옵션의 도구 비요구11개 GREEN → 실제 전체 Release에서5개 Swift 회귀와 기존 게이트 실행 → 서버 회귀·독립 리뷰·기존 문서 기록·commit/push. 기존 셸에 작은 순차 실행 함수와 I08 호출/skip, 도구 확인을 추가하고 새 Node 연결 회귀1개를 기존 Ubuntu workflow에 연결했다. CI가 실제 Swift를 실행한다고 설명하지 않는다. Node 검사는 부모를 포함하면12개다.
+
+| 실제 실행 | 결과와 범위 |
+|---|---|
+| Release 연결 회귀 | `node scripts/test-release-swift-gate.mjs` 하위11개(부모 포함12개) 통과. full/ios-only의 실제 호출 순서·중간 실패 후 묶음 중단/최종 FAIL·다른 게이트 계속 기록·backend/quick SKIP·빌드 실패와 독립·도구 누락/불필요 요구 없음 확인. 단순 소스 문자열 존재 검사가 아니라 실제 driver/보고서/종료를 실행 |
+| 실제 전체 Release | 고유19개 전부 PASS·게이트 경고0건. 빈 임시 D1 전체33개 migration·권한226/226·Worker dry-run·Simulator Release/Secret/Privacy/권한/앱 소스 경고 게이트 통과. 외부 SDK/도구 경고 부재와는 구분 |
+| 실제 I08 Swift 회귀 | 목록 변경11개·탈퇴29개·캘린더4개 시간대 각각13시나리오/47assertion·리뷰9개·예약22개 통과. `logs/I08.log`에서 각 스크립트 이름과 결과 확인. 외부 전송/SDK/기기 저장소 등은 기존 회귀대로 격리 |
+| 서버 `npm test` | 최초 병행 실행은 유휴 WebSocket 만료 Close frame 대기35초에서 exit1. 전체 빌드 완료 후 같은 코드·제한시간으로 순차 재실행해20개 검사 파일 전부 통과. 아래 최초 실패 기록 유지 |
+| 보안·운영 읽기 | `npm audit --audit-level=moderate`0건·읽기 전용16/16 통과. 문서화한 마지막 배포 커밋 `0f92239`와 서버 원본10개 동일. 오늘 운영 버전 메타데이터 조회·배포·DB 변경은 하지 않음 |
+| 독립 리뷰·구문 | P1/P2 finding 없음. 리뷰어도 Node 연결 회귀11개(부모 포함12개)를 직접 통과했으나 실제 Swift/전체 빌드 실행은 부모 결과만 근거로 함. Bash/Node/기존 workflow YAML·공백·문서 링크/보존 범위 검사. 전체 검증 뒤 마지막 수정은 도움말2줄뿐이며 `--help`와 연결 회귀를 재실행하고 나머지 실행부/회귀/workflow 해시 동일을 대조 |
+
+**최초 실패·미실행 범위:** 최초 `test-realtime.mjs`의 `idle expiry alarm: 소켓 종료 대기 시간 초과`는 실패로 남긴다. 실제 수신 Close code4401 기대치나35초 제한을 바꾸지 않았다. 재실행 통과만으로 원인을 빌드 부하/환경 또는 제품 버그로 확정하거나 영구 해결됐다고 하지 않는다. 재발 시 별도 유휴 소켓/DO alarm 시각을 추적할 후속으로 남긴다. 앱/서버 실행 코드가 바뀌지 않아 서명된 Simulator 앱의188개 테스트·UI 템플릿·실기기/실계정/두 기기·APNs는 이번에 다시 실행하지 않았다. I08은 실제 Swift 회귀지만 native 앱 테스트와 같지 않으며, Node fixture 성공도 실제 Swift 성공으로 바꾸어 세지 않는다. 새 시뮬레이터는 만들거나 기존 기기를 조작하지 않았다.
+
+**Git·근거:** 기존 Release 스크립트·workflow·새 연결 회귀·기존MD3개를 commit/push하며 새 제품 이슈 ID나 새 프로젝트MD는 추가하지 않는다. 수동 출시 체크·운영안/정책·앱/서버 소스·서명/Info.plist·운영 데이터는 그대로다. archive/다른 프로젝트도 조회·변경하지 않았다. `/private/tmp/matgyeomung-swift-gate-20261121/`의 `red.log`·`green-final.log`·`control-final.log`·`help.log`·`release.log`/`release/summary.tsv`·`release/logs/I08.log`/`B04.log`·`backend.log`(최초 실패)·`backend-serial.log`(최종 통과)·`audit.log`·`production-readonly.log`·`source-sha256.txt`/`final-source-sha256.txt`·`backend-source-reference.json`·`documents-final.log`에 근거를 남긴다. 빌드/임시 로그는 Git에 추가하지 않는다. 이 변경은 앱 기능 변경이나 운영 재배포가 아니라 이후 Release 명령의 검증 누락을 막는 작업이다.
 
 ## 4. v1.0 이후 작업 — 현재 출시 차단 아님
 

@@ -43,3 +43,6 @@ jobs:
       - name: Run isolated backend regressions
         working-directory: backend-cloudflare
         run: npm test
+
+      - name: Verify Swift release gate control flow without Xcode
+        run: node scripts/test-release-swift-gate.mjs

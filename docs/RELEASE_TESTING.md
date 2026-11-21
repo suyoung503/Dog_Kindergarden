@@ -14,7 +14,7 @@ scripts/release-audit-smoke.sh
 
 | ID | 검사 내용 | 성공 기준 |
 |---|---|---|
-| A01 | Node, npm, Wrangler 실행 도구와 Xcode 도구 확인 | 필수 도구가 모두 설치됨 |
+| A01 | Node/npm/Wrangler·Xcode 도구 확인, full iOS는 Python3/Swift/xcrun 추가 | 해당 옵션에 필요한 도구가 설치됨 |
 | A02 | 브랜치·커밋·작업 트리 상태 기록 | 실행 대상 상태가 결과에 기록됨 |
 | A03 | 인증서·환경변수 파일의 Git 추적 검사 | 민감 파일이 추적되지 않음 |
 | A04 | App Icon 소스 규격 검사 | 기본 1024×1024 슬롯, 8-bit RGB PNG, alpha 없음 |
@@ -32,6 +32,7 @@ scripts/release-audit-smoke.sh
 | I05 | App Store 표시 이름·카테고리 검사 | `CFBundleDisplayName=맡겨멍`, `LSApplicationCategoryType=public.app-category.lifestyle` |
 | I06 | Release Privacy Manifest 검사 | 앱 루트 포함, 소스와 동일, App Privacy 입력안과 일치 |
 | I07 | 권한·Background Mode 최소 선언 검사 | 실사용 권한과 Background Fetch 식별자만 포함 |
+| I08 | 격리 Swift 상태 회귀5개 스크립트 | 목록 변경·탈퇴·캘린더·리뷰·예약 회귀가 모두 성공 |
 
 결과와 단계별 로그는 기본적으로 `/tmp/matgyeomung-release-smoke-실행시각`에 생성된다. 보존하려면 출력 경로를 지정한다.
 
@@ -49,6 +50,12 @@ scripts/release-audit-smoke.sh --ios-only
 ```
 
 자동 검사 하나라도 실패하면 명령은 종료 코드 `1`을 반환한다. 다른 단계는 가능한 범위에서 계속 실행되어 한 번의 실행으로 전체 실패 목록을 남긴다.
+
+full(기본)·`--ios-only`는 I08에서 `test-list-mutations.py`·`test-account-deletion-state.py`·`test-calendar-service.py`·`test-review-state.py`·`test-booking-submission.py`를 순서대로 실행한다. 이 묶음은 첫 실패에서 중단하고 전체 Release 결과도 FAIL이 된다. 로그는 `logs/I08.log`에서 스크립트 이름별로 확인한다. Simulator 빌드 실패와 독립적으로 실행하며, 임시 컴파일/회귀 폴더는 결과 디렉터리 아래에 둔다.
+
+`--backend-only`·`--quick`에서는 I08을 **SKIP**하고 Swift/Python 도구를 추가 요구하지 않는다. SKIP은 통과가 아니며 실제 앱 테스트·실기기 검증을 대신하지 않는다. I08은 격리 Swift 회귀이지 서명된 Simulator 앱의 전체 `Dog_kindergardenTests` 실행이 아니다.
+
+기존 Ubuntu GitHub Actions에는 `node scripts/test-release-swift-gate.mjs`를 연결했다. 실제 driver의 CLI·I08·summary/report·최종 종료를 실행하되, 외부 빌드/DB 게이트와 Python 프로세스는 fixture로 대체한다. 실행 순서·실패 전달·건너뛰기·도구 누락11개 하위검사(부모 포함12개)를 검증하며 **CI에서 실제 Swift/Xcode를 실행하는 것은 아니다.** 새 macOS job·패키지는 추가하지 않았다. 실제 Swift 회귀는 Mac의 full/ios-only에서 실행한다.
 
 실제 iPhone용 unsigned Archive 구조와 운영 서버의 읽기 전용 인증 경계는 별도 명령으로 확인한다.
 
@@ -86,7 +93,7 @@ node scripts/production-readonly-smoke.mjs
 - 실제 iPhone, 외부 계정, APNs, TestFlight가 필요한 항목은 스크립트에서 임의로 성공 처리하지 않는다.
 - Simulator Release 빌드 성공은 실제 기기 코드 서명, capability, provisioning, APNs, 외부 SDK 동작 성공을 의미하지 않는다.
 
-리뷰 응답 순서 회귀는 저장소 루트에서 별도로 실행한다(Mac/Xcode의 Swift 컴파일러 필요).
+리뷰 응답 순서 회귀만 재검사하려면 저장소 루트에서 다음 명령을 실행한다(Mac/Xcode의 Swift 컴파일러 필요). full/ios-only의 I08에도 포함된다.
 
 ```bash
 python3 scripts/test-review-state.py
@@ -94,7 +101,7 @@ python3 scripts/test-review-state.py
 
 실제 `ReviewService` 전체·JSONDecoder·모델을 앱과 같은 MainActor 기본 격리로 컴파일한다. HTTP 전송/API 주소만 격리해 같은 가게의 오래된 성공/실패, 초기화 후 재진입, 등록 후 갱신과 현재 실패의 캐시 보존9개 시나리오를 확인한다. 표준 서버 `npm test`나 기존 앱 로직 테스트에 포함된 것으로 중복 합산하지 않으며, 서버 저장·실제 인증·SwiftUI/이동통신망 검증은 아니다.
 
-예약 함수의 중복 진입·실패 후 재시도·제출 정보 보존은 별도 명령으로 확인한다.
+예약 함수의 중복 진입·실패 후 재시도·제출 정보 보존만 재검사할 때는 다음 명령을 사용한다. full/ios-only의 I08에도 포함된다.
 
 ```bash
 python3 scripts/test-booking-submission.py
